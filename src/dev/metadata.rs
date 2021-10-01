@@ -1,10 +1,13 @@
 //! Metadata about circuits.
 
-use crate::plonk::{self, Any};
+use crate::{
+    plonk::{self, Any},
+    poly::Rotation,
+};
 use std::fmt;
 
 /// Metadata about a column within a circuit.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Column {
     /// The type of the column.
     column_type: Any,
@@ -30,6 +33,55 @@ impl From<plonk::Column<Any>> for Column {
             column_type: *column.column_type(),
             index: column.index(),
         }
+    }
+}
+
+/// A "virtual cell" is a PLONK cell that has been queried at a particular relative offset
+/// within a custom gate.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VirtualCell {
+    name: &'static str,
+    column: Column,
+    rotation: Rotation,
+}
+
+impl From<(Column, Rotation)> for VirtualCell {
+    fn from((column, rotation): (Column, Rotation)) -> Self {
+        VirtualCell {
+            name: "",
+            column: column.into(),
+            rotation,
+        }
+    }
+}
+
+impl From<(&'static str, Column, Rotation)> for VirtualCell {
+    fn from((name, column, rotation): (&'static str, Column, Rotation)) -> Self {
+        VirtualCell {
+            name,
+            column: column.into(),
+            rotation,
+        }
+    }
+}
+
+impl From<plonk::VirtualCell> for VirtualCell {
+    fn from(c: plonk::VirtualCell) -> Self {
+        VirtualCell {
+            name: "",
+            column: c.column.into(),
+            rotation: c.rotation,
+        }
+    }
+}
+
+impl fmt::Display for VirtualCell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}@{}", self.column, self.rotation.0)?;
+        if !self.name.is_empty() {
+            write!(f, "({})", self.name)?;
+        }
+        Ok(())
     }
 }
 
