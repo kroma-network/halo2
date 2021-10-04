@@ -334,9 +334,9 @@ impl<F: Group + Field> Mul<F> for Value<F> {
 ///         constraint: ((0, "R1CS constraint").into(), 0, "buggy R1CS").into(),
 ///         row: 0,
 ///         cell_values: vec![
-///             (((Any::Advice, 0).into(), Rotation::cur()).into(), "0x2".to_string()),
-///             (((Any::Advice, 1).into(), Rotation::cur()).into(), "0x4".to_string()),
-///             (((Any::Advice, 2).into(), Rotation::cur()).into(), "0x8".to_string()),
+///             (((Any::Advice, 0).into(), 0).into(), "0x2".to_string()),
+///             (((Any::Advice, 1).into(), 0).into(), "0x4".to_string()),
+///             (((Any::Advice, 2).into(), 0).into(), "0x8".to_string()),
 ///         ],
 ///     }])
 /// );

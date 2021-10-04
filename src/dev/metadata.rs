@@ -1,9 +1,6 @@
 //! Metadata about circuits.
 
-use crate::{
-    plonk::{self, Any},
-    poly::Rotation,
-};
+use crate::plonk::{self, Any};
 use std::fmt;
 
 /// Metadata about a column within a circuit.
@@ -42,11 +39,11 @@ impl From<plonk::Column<Any>> for Column {
 pub struct VirtualCell {
     name: &'static str,
     column: Column,
-    rotation: Rotation,
+    rotation: i32,
 }
 
-impl From<(Column, Rotation)> for VirtualCell {
-    fn from((column, rotation): (Column, Rotation)) -> Self {
+impl From<(Column, i32)> for VirtualCell {
+    fn from((column, rotation): (Column, i32)) -> Self {
         VirtualCell {
             name: "",
             column: column.into(),
@@ -55,8 +52,8 @@ impl From<(Column, Rotation)> for VirtualCell {
     }
 }
 
-impl From<(&'static str, Column, Rotation)> for VirtualCell {
-    fn from((name, column, rotation): (&'static str, Column, Rotation)) -> Self {
+impl From<(&'static str, Column, i32)> for VirtualCell {
+    fn from((name, column, rotation): (&'static str, Column, i32)) -> Self {
         VirtualCell {
             name,
             column: column.into(),
@@ -70,14 +67,14 @@ impl From<plonk::VirtualCell> for VirtualCell {
         VirtualCell {
             name: "",
             column: c.column.into(),
-            rotation: c.rotation,
+            rotation: c.rotation.0,
         }
     }
 }
 
 impl fmt::Display for VirtualCell {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}@{}", self.column, self.rotation.0)?;
+        write!(f, "{}@{}", self.column, self.rotation)?;
         if !self.name.is_empty() {
             write!(f, "({})", self.name)?;
         }
