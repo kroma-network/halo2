@@ -140,6 +140,7 @@ impl<F: FieldExt, T: Copy + Into<F>> AllocatedCell<F, T> {
         let cell = region.assign_advice(annotation, column, offset, || {
             self.value_field().ok_or(Error::SynthesisError)
         })?;
+        region.constrain_equal(cell, self.cell())?;
 
         Ok(Self {
             value: self.value(),
