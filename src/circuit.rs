@@ -102,7 +102,7 @@ pub struct AllocatedCell<F: FieldExt, T: Copy + Into<F>> {
 
 impl<F: FieldExt, T: Copy + Into<F>> AllocatedCell<F, T> {
     /// Instantiate a new AllocatedCell.
-    pub(crate) fn new(value: Option<T>, cell: Cell) -> Self {
+    pub fn new(value: Option<T>, cell: Cell) -> Self {
         Self {
             value,
             cell,
@@ -126,7 +126,7 @@ impl<F: FieldExt, T: Copy + Into<F>> AllocatedCell<F, T> {
     }
 
     /// Copies the value to a given advice cell and constrains them to be equal.
-    pub(crate) fn copy_advice<A, AR>(
+    pub fn copy_advice<A, AR>(
         &self,
         annotation: A,
         region: &mut Region<'_, F>,
