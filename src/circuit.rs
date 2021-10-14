@@ -92,30 +92,57 @@ pub struct Cell {
     column: Column<Any>,
 }
 
-/// An allocated cell.
+/// An assigned cell.
 #[derive(Clone, Copy, Debug)]
-pub struct AllocatedCell<F: FieldExt, T: Copy + Into<F>> {
+pub struct AssignedCell<F: FieldExt, T: Copy + Into<F>> {
     value: Option<T>,
     cell: Cell,
     _marker: PhantomData<F>,
 }
 
-impl<F: FieldExt, T: Copy + Into<F>> AllocatedCell<F, T> {
-    /// Instantiate a new AllocatedCell.
-    pub fn new(value: Option<T>, cell: Cell) -> Self {
-        Self {
+impl<F: FieldExt, T: Copy + Into<F>> AssignedCell<F, T> {
+    /// Assign a new AssignedCell.
+    pub fn assign<A, AR>(
+        region: &mut Region<'_, F>,
+        annotation: A,
+        column: Column<Any>,
+        offset: usize,
+        value: Option<T>,
+    ) -> Result<Self, Error>
+    where
+        A: Fn() -> AR,
+        AR: Into<String>,
+    {
+        let cell = {
+            let value: Option<F> = value.map(|v| v.into());
+            match column.column_type() {
+                Any::Advice => {
+                    region.assign_advice(annotation, column.try_into().unwrap(), offset, || {
+                        value.ok_or(Error::SynthesisError)
+                    })?
+                }
+                Any::Fixed => {
+                    region.assign_fixed(annotation, column.try_into().unwrap(), offset, || {
+                        value.ok_or(Error::SynthesisError)
+                    })?
+                }
+                _ => unreachable!(),
+            }
+        };
+
+        Ok(AssignedCell {
             value,
             cell,
             _marker: PhantomData,
-        }
+        })
     }
 
-    /// Returns the value of the AllocatedCell.
+    /// Returns the value of the AssignedCell.
     pub fn value(&self) -> Option<T> {
         self.value
     }
 
-    /// Returns the value of the AllocatedCell as a field element.
+    /// Returns the value of the AssignedCell as a field element.
     pub fn value_field(&self) -> Option<F> {
         self.value.map(|v| v.into())
     }
