@@ -158,6 +158,9 @@ pub enum Error {
     /// Circuit synthesis requires global constants, but circuit configuration did not
     /// call [`ConstraintSystem::enable_constant`] on fixed columns with sufficient space.
     NotEnoughColumnsForConstants,
+    /// The instance sets up a copy constraint involving a column that has not been
+    /// included in the permutation.
+    ColumnNotInPermutation,
 }
 
 impl<C: CurveAffine> ProvingKey<C> {
