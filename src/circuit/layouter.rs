@@ -6,7 +6,7 @@ use std::fmt;
 
 use ff::Field;
 
-use super::{Cell, RegionIndex};
+use super::{AssignedCell, Cell, RegionIndex};
 use crate::plonk::{Advice, Any, Assigned, Column, Error, Fixed, Instance, Selector, TableColumn};
 
 /// Helper trait for implementing a custom [`Layouter`].
@@ -69,7 +69,7 @@ pub trait RegionLayouter<F: Field>: fmt::Debug {
         column: Column<Advice>,
         offset: usize,
         constant: Assigned<F>,
-    ) -> Result<Cell, Error>;
+    ) -> Result<AssignedCell<F, F>, Error>;
 
     /// Assign the value of the instance column's cell at absolute location
     /// `row` to the column `advice` at `offset` within this region.
@@ -232,9 +232,14 @@ impl<F: Field> RegionLayouter<F> for RegionShape {
         column: Column<Advice>,
         offset: usize,
         constant: Assigned<F>,
-    ) -> Result<Cell, Error> {
+    ) -> Result<AssignedCell<F, F>, Error> {
         // The rest is identical to witnessing an advice cell.
-        self.assign_advice(annotation, column, offset, &mut || Ok(constant))
+        let cell = self.assign_advice(annotation, column, offset, &mut || Ok(constant))?;
+        Ok(AssignedCell {
+            cell,
+            value: None,
+            _marker: std::marker::PhantomData,
+        })
     }
 
     fn assign_advice_from_instance<'v>(

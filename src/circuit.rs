@@ -94,13 +94,13 @@ pub struct Cell {
 
 /// An assigned cell.
 #[derive(Clone, Copy, Debug)]
-pub struct AssignedCell<F: FieldExt, T: Copy + Into<F>> {
+pub struct AssignedCell<F: Field, T: Copy + Into<F>> {
     value: Option<T>,
     cell: Cell,
     _marker: PhantomData<F>,
 }
 
-impl<F: FieldExt, T: Copy + Into<F>> AssignedCell<F, T> {
+impl<F: Field, T: Copy + Into<F>> AssignedCell<F, T> {
     /// Assign a new AssignedCell.
     pub fn assign<A, AR>(
         region: &mut Region<'_, F>,
@@ -142,7 +142,7 @@ impl<F: FieldExt, T: Copy + Into<F>> AssignedCell<F, T> {
         self.value
     }
 
-    /// Returns the value of the AssignedCell as a field element.
+    /// Returns the value of the AssignedCell.
     pub fn value_field(&self) -> Option<F> {
         self.value.map(|v| v.into())
     }
@@ -249,9 +249,9 @@ impl<'r, F: Field> Region<'r, F> {
         column: Column<Advice>,
         offset: usize,
         constant: VR,
-    ) -> Result<Cell, Error>
+    ) -> Result<AssignedCell<F, F>, Error>
     where
-        VR: Into<Assigned<F>>,
+        VR: Into<Assigned<F>> + Copy,
         A: Fn() -> AR,
         AR: Into<String>,
     {

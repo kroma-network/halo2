@@ -8,7 +8,7 @@ use ff::Field;
 use crate::{
     circuit::{
         layouter::{RegionColumn, RegionLayouter, RegionShape, TableLayouter},
-        Cell, Layouter, Region, RegionIndex, RegionStart, Table,
+        AssignedCell, Cell, Layouter, Region, RegionIndex, RegionStart, Table,
     },
     plonk::{
         Advice, Any, Assigned, Assignment, Circuit, Column, Error, Fixed, FloorPlanner, Instance,
@@ -302,11 +302,15 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> RegionLayouter<F>
         column: Column<Advice>,
         offset: usize,
         constant: Assigned<F>,
-    ) -> Result<Cell, Error> {
+    ) -> Result<AssignedCell<F, F>, Error> {
         let advice = self.assign_advice(annotation, column, offset, &mut || Ok(constant))?;
         self.constrain_constant(advice, constant)?;
 
-        Ok(advice)
+        Ok(AssignedCell {
+            cell: advice,
+            value: Some(constant.evaluate()),
+            _marker: PhantomData,
+        })
     }
 
     fn assign_advice_from_instance<'v>(
