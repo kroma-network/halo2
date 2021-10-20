@@ -8,13 +8,14 @@ use std::{
 use ff::Field;
 use group::{Curve, Group};
 use gumdrop::Options;
-use halo2::{arithmetic::best_multiexp, pasta::pallas};
+use halo2::arithmetic::best_multiexp;
+use pairing::bn256::{Fr as Scalar, G1Affine as Affine, G1 as Point};
 
 struct Estimator {
     /// Scalars for estimating multiexp performance.
-    multiexp_scalars: Vec<pallas::Scalar>,
+    multiexp_scalars: Vec<Scalar>,
     /// Bases for estimating multiexp performance.
-    multiexp_bases: Vec<pallas::Affine>,
+    multiexp_bases: Vec<Affine>,
 }
 
 impl fmt::Debug for Estimator {
@@ -29,11 +30,9 @@ impl Estimator {
         let mut rng = rand::thread_rng();
 
         Estimator {
-            multiexp_scalars: (0..max_size)
-                .map(|_| pallas::Scalar::random(&mut rng))
-                .collect(),
+            multiexp_scalars: (0..max_size).map(|_| Scalar::random(&mut rng)).collect(),
             multiexp_bases: (0..max_size)
-                .map(|_| pallas::Point::random(&mut rng).to_affine())
+                .map(|_| Point::random(&mut rng).to_affine())
                 .collect(),
         }
     }

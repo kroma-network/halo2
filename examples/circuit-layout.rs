@@ -1,10 +1,12 @@
 use halo2::{
+    arithmetic::BaseExt,
     arithmetic::FieldExt,
     circuit::{Cell, Layouter, Region, SimpleFloorPlanner},
-    pasta::Fp,
     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, TableColumn},
     poly::Rotation,
+    poly::Rotation,
 };
+use pairing::bn256::Fr as Fp;
 use std::marker::PhantomData;
 
 /// This represents an advice column at a certain row in the ConstraintSystem

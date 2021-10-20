@@ -2,16 +2,16 @@
 extern crate criterion;
 
 extern crate halo2;
-use halo2::arithmetic::FieldExt;
-use halo2::circuit::{Cell, Layouter, SimpleFloorPlanner};
-use halo2::pasta::{EqAffine, Fp};
-use halo2::plonk::*;
-use halo2::poly::{commitment::Params, Rotation};
-use halo2::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
-
-use std::marker::PhantomData;
-
 use criterion::Criterion;
+use halo2::arithmetic::{BaseExt, FieldExt};
+use halo2::circuit::{Cell, Layouter, SimpleFloorPlanner};
+use halo2::plonk::*;
+use halo2::poly::{commitment::Setup, Rotation};
+use halo2::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
+use pairing::bn256::{Bn256, Fr as Fp};
+use rand::SeedableRng;
+use rand_xorshift::XorShiftRng;
+use std::marker::PhantomData;
 
 fn bench_with_k(name: &str, k: u32, c: &mut Criterion) {
     /// This represents an advice column at a certain row in the ConstraintSystem
@@ -19,7 +19,12 @@ fn bench_with_k(name: &str, k: u32, c: &mut Criterion) {
     pub struct Variable(Column<Advice>, usize);
 
     // Initialize the polynomial commitment parameters
-    let params: Params<EqAffine> = Params::new(k);
+    let mut rng = XorShiftRng::from_seed([
+        0x59, 0x62, 0xbe, 0x5d, 0x76, 0x3d, 0x31, 0x8d, 0x17, 0xdb, 0x37, 0x32, 0x54, 0x06, 0xbc,
+        0xe5,
+    ]);
+    let params = Setup::<Bn256>::new(k, &mut rng);
+    let verifier_params = Setup::<Bn256>::verifier_params(&params, 0).unwrap();
 
     #[derive(Clone)]
     struct PlonkConfig {
@@ -285,9 +290,8 @@ fn bench_with_k(name: &str, k: u32, c: &mut Criterion) {
         b.iter(|| {
             let msm = params.empty_msm();
             let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
-            let guard = verify_proof(&params, pk.get_vk(), msm, &[&[]], &mut transcript).unwrap();
-            let msm = guard.clone().use_challenges();
-            assert!(msm.eval());
+            let _ =
+                verify_proof(&verifier_params, pk.get_vk(), msm, &[&[]], &mut transcript).unwrap();
         });
     });
 }

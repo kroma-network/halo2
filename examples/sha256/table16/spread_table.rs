@@ -277,9 +277,10 @@ mod tests {
         arithmetic::FieldExt,
         circuit::{layouter::SingleChipLayouter, Layouter},
         dev::MockProver,
-        pasta::Fp,
         plonk::{Advice, Assignment, Circuit, Column, ConstraintSystem, Error},
     };
+
+    use pairing::bn256::Fr as Fp;
 
     #[test]
     fn lookup_table() {

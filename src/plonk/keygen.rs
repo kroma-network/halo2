@@ -12,10 +12,7 @@ use super::{
     },
     permutation, Assigned, Error, LagrangeCoeff, Polynomial, ProvingKey, VerifyingKey,
 };
-use crate::poly::{
-    commitment::{Blind, Params},
-    EvaluationDomain,
-};
+use crate::poly::{commitment::Params, EvaluationDomain};
 use crate::{arithmetic::CurveAffine, poly::batch_invert_assigned};
 
 pub(crate) fn create_domain<C, ConcreteCircuit>(
@@ -226,7 +223,7 @@ where
 
     let fixed_commitments = fixed
         .iter()
-        .map(|poly| params.commit_lagrange(poly, Blind::default()).to_affine())
+        .map(|poly| params.commit_lagrange(poly).to_affine())
         .collect();
 
     Ok(VerifyingKey {
