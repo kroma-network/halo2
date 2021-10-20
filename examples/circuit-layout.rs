@@ -1,11 +1,12 @@
 use halo2::{
+    arithmetic::BaseExt,
     arithmetic::FieldExt,
     circuit::{Cell, Layouter, Region, SimpleFloorPlanner},
     dev::CircuitLayout,
-    pasta::Fp,
     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, TableColumn},
     poly::Rotation,
 };
+use pairing::bn256::Fr as Fp;
 use plotters::prelude::*;
 use std::marker::PhantomData;
 

@@ -447,9 +447,10 @@ mod tests {
         arithmetic::FieldExt,
         circuit::layouter::SingleChipLayouter,
         dev::MockProver,
-        pasta::Fp,
         plonk::{Assignment, Circuit, ConstraintSystem, Error},
     };
+
+    use pairing::bn256::Fr as Fp;
 
     #[test]
     fn message_schedule() {

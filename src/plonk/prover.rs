@@ -12,12 +12,12 @@ use super::{
     ChallengeY, Error, ProvingKey,
 };
 use crate::poly::{
-    commitment::{Blind, Params},
+    commitment::Params,
     multiopen::{self, ProverQuery},
     Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial,
 };
 use crate::{
-    arithmetic::{eval_polynomial, CurveAffine, FieldExt},
+    arithmetic::{eval_polynomial, BaseExt, CurveAffine},
     plonk::Assigned,
 };
 use crate::{
@@ -85,7 +85,7 @@ pub fn create_proof<
                 .collect::<Result<Vec<_>, _>>()?;
             let instance_commitments_projective: Vec<_> = instance_values
                 .iter()
-                .map(|poly| params.commit_lagrange(poly, Blind::default()))
+                .map(|poly| params.commit_lagrange(poly))
                 .collect();
             let mut instance_commitments =
                 vec![C::identity(); instance_commitments_projective.len()];
@@ -124,7 +124,6 @@ pub fn create_proof<
         pub advice_values: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
         pub advice_polys: Vec<Polynomial<C::Scalar, Coeff>>,
         pub advice_cosets: Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>>,
-        pub advice_blinds: Vec<Blind<C::Scalar>>,
     }
 
     let advice: Vec<AdviceSingle<C>> = circuits
@@ -291,11 +290,9 @@ pub fn create_proof<
             }
 
             // Compute commitments to advice column polynomials
-            let advice_blinds: Vec<_> = advice.iter().map(|_| Blind(C::Scalar::rand())).collect();
             let advice_commitments_projective: Vec<_> = advice
                 .iter()
-                .zip(advice_blinds.iter())
-                .map(|(poly, blind)| params.commit_lagrange(poly, *blind))
+                .map(|poly| params.commit_lagrange(poly))
                 .collect();
             let mut advice_commitments = vec![C::identity(); advice_commitments_projective.len()];
             C::Curve::batch_normalize(&advice_commitments_projective, &mut advice_commitments);
@@ -323,7 +320,6 @@ pub fn create_proof<
                 advice_values: advice,
                 advice_polys,
                 advice_cosets,
-                advice_blinds,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -579,7 +575,6 @@ pub fn create_proof<
                         .map(move |&(column, at)| ProverQuery {
                             point: domain.rotate_omega(*x, at),
                             poly: &instance.instance_polys[column.index()],
-                            blind: Blind::default(),
                         }),
                 )
                 .chain(
@@ -590,7 +585,6 @@ pub fn create_proof<
                         .map(move |&(column, at)| ProverQuery {
                             point: domain.rotate_omega(*x, at),
                             poly: &advice.advice_polys[column.index()],
-                            blind: advice.advice_blinds[column.index()],
                         }),
                 )
                 .chain(permutation.open(pk, x))
@@ -604,7 +598,6 @@ pub fn create_proof<
                 .map(|&(column, at)| ProverQuery {
                     point: domain.rotate_omega(*x, at),
                     poly: &pk.fixed_polys[column.index()],
-                    blind: Blind::default(),
                 }),
         )
         .chain(pk.permutation.open(x))

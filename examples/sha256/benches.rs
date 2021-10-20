@@ -1,7 +1,6 @@
 use halo2::{
     arithmetic::FieldExt,
     circuit::{layouter::SingleChipLayouter, Layouter},
-    pasta::EqAffine,
     plonk::{
         create_proof, keygen_pk, keygen_vk, verify_proof, Assignment, Circuit, ConstraintSystem,
         Error, VerifyingKey,
@@ -9,6 +8,8 @@ use halo2::{
     poly::commitment::Params,
     transcript::{Blake2bRead, Blake2bWrite, Challenge255},
 };
+
+use pairing::bn256::G1Affine;
 
 use std::{
     fs::File,

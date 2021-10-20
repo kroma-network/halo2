@@ -546,7 +546,9 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
 
 #[allow(clippy::many_single_char_names)]
 fn main() {
-    use halo2::{dev::MockProver, pasta::Fp};
+    use halo2::dev::MockProver;
+    use pairing::arithmetic::BaseExt;
+    use pairing::bn256::Fr as Fp;
 
     // ANCHOR: test-circuit
     // The number of rows in our circuit cannot exceed 2^k. Since our example
