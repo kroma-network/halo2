@@ -295,7 +295,7 @@ fn test_commit_lagrange_eqaffine() {
 }
 
 #[test]
-fn test_opening_proof() {
+fn test_opening_proof_blake2b() {
     const K: u32 = 6;
 
     use ff::Field;
@@ -342,6 +342,80 @@ fn test_opening_proof() {
 
     // Verify the opening proof
     let mut transcript = Blake2bRead::<&[u8], EpAffine, Challenge255<EpAffine>>::init(&proof[..]);
+    let p_prime = transcript.read_point().unwrap();
+    assert_eq!(p, p_prime);
+    let x_prime = transcript.squeeze_challenge_scalar::<()>();
+    assert_eq!(*x, *x_prime);
+    let v_prime = transcript.read_scalar().unwrap();
+    assert_eq!(v, v_prime);
+
+    let mut commitment_msm = params.empty_msm();
+    commitment_msm.append_term(Field::one(), p);
+    let guard = verify_proof(&params, commitment_msm, &mut transcript, *x, v).unwrap();
+    let ch_verifier = transcript.squeeze_challenge();
+    assert_eq!(*ch_prover, *ch_verifier);
+
+    // Test guard behavior prior to checking another proof
+    {
+        // Test use_challenges()
+        let msm_challenges = guard.clone().use_challenges();
+        assert!(msm_challenges.eval());
+
+        // Test use_g()
+        let g = guard.compute_g();
+        let (msm_g, _accumulator) = guard.clone().use_g(g);
+        assert!(msm_g.eval());
+    }
+}
+
+#[test]
+fn test_opening_proof_keccak256() {
+    const K: u32 = 6;
+
+    use ff::Field;
+
+    use super::{
+        commitment::{Blind, Params},
+        EvaluationDomain,
+    };
+    use crate::arithmetic::{eval_polynomial, FieldExt};
+    use crate::pasta::{EpAffine, Fq};
+    use crate::transcript::{
+        Challenge255, Keccak256Read, Keccak256Write, Transcript, TranscriptRead, TranscriptWrite,
+    };
+
+    let params = Params::<EpAffine>::new(K);
+    let mut params_buffer = vec![];
+    params.write(&mut params_buffer).unwrap();
+    let params: Params<EpAffine> = Params::read::<_>(&mut &params_buffer[..]).unwrap();
+
+    let domain = EvaluationDomain::new(1, K);
+
+    let mut px = domain.empty_coeff();
+
+    for (i, a) in px.iter_mut().enumerate() {
+        *a = Fq::from(i as u64);
+    }
+
+    let blind = Blind(Fq::rand());
+
+    let p = params.commit(&px, blind).to_affine();
+
+    let mut transcript = Keccak256Write::<Vec<u8>, EpAffine, Challenge255<EpAffine>>::init(vec![]);
+    transcript.write_point(p).unwrap();
+    let x = transcript.squeeze_challenge_scalar::<()>();
+    // Evaluate the polynomial
+    let v = eval_polynomial(&px, *x);
+    transcript.write_scalar(v).unwrap();
+
+    let (proof, ch_prover) = {
+        create_proof(&params, &mut transcript, &px, blind, *x).unwrap();
+        let ch_prover = transcript.squeeze_challenge();
+        (transcript.finalize(), ch_prover)
+    };
+
+    // Verify the opening proof
+    let mut transcript = Keccak256Read::<&[u8], EpAffine, Challenge255<EpAffine>>::init(&proof[..]);
     let p_prime = transcript.read_point().unwrap();
     assert_eq!(p, p_prime);
     let x_prime = transcript.squeeze_challenge_scalar::<()>();
