@@ -52,7 +52,6 @@ where
             values: kate_division(&poly_batch.values, z),
             _marker: PhantomData,
         };
-        // TODO: assert degree
         let w = params.commit(&witness_poly).to_affine();
         transcript.write_point(w)?;
     }
