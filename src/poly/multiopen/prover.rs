@@ -42,8 +42,7 @@ where
             assert_eq!(query.get_point(), z);
 
             let poly = query.get_commitment().poly;
-            // TODO/FIX: let eval = query.get_eval();
-            let eval = eval_polynomial(poly, query.get_point());
+            let eval = query.get_eval();
             poly_batch = poly_batch * *v + poly;
             eval_batch = eval_batch * *v + eval;
         }
@@ -80,8 +79,7 @@ impl<'a, C: CurveAffine> Query<C::Scalar> for ProverQuery<'a, C> {
         self.point
     }
     fn get_eval(&self) -> C::Scalar {
-        // self.eval
-        C::Scalar::zero()
+        eval_polynomial(self.poly, self.get_point())
     }
     fn get_commitment(&self) -> Self::Commitment {
         PolynomialPointer { poly: self.poly }
