@@ -47,7 +47,9 @@ impl<E: Engine> Setup<E> {
     /// Initializes parameters for the curve, given a random oracle to draw
     /// points from.
     pub fn new(k: u32, mut rng: impl RngCore) -> Params<E::G1Affine> {
-        assert!(k < 28);
+        // Largest root of unity exponent of the Engine is `2^E::Scalar::S`, so we can
+        // only support FFTs of polynomials below degree `2^E::Scalar::S`.
+        assert!(k < E::Scalar::S);
         let n: u64 = 1 << k;
 
         let s = E::Scalar::random(&mut rng);
