@@ -278,16 +278,6 @@ impl<'a, F: Field, B: Basis> Sub<F> for &'a Polynomial<F, B> {
     }
 }
 
-impl<'a, F: Field, B: Basis> Add<F> for &'a Polynomial<F, B> {
-    type Output = Polynomial<F, B>;
-
-    fn add(self, rhs: F) -> Polynomial<F, B> {
-        let mut res = self.clone();
-        res.values[0] -= rhs;
-        res
-    }
-}
-
 impl<'a, F: Field, B: Basis> Mul<F> for Polynomial<F, B> {
     type Output = Polynomial<F, B>;
 
