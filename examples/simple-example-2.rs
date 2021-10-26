@@ -286,9 +286,8 @@ fn main() {
 
     let proof = transcript.finalize();
 
-    let msm = params.empty_msm();
     let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
     assert!(bool::from(
-        verify_proof(&verifier_params, pk.get_vk(), msm, &[&[]], &mut transcript).unwrap()
+        verify_proof(&verifier_params, pk.get_vk(), &[&[]], &mut transcript).unwrap()
     ));
 }

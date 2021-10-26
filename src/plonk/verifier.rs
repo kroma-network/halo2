@@ -25,7 +25,6 @@ pub fn verify_proof<
 >(
     params: &'a ParamsVerifier<C>,
     vk: &VerifyingKey<C::G1Affine>,
-    _: MSM<C::G1Affine>,
     instances: &[&[&[C::Scalar]]],
     transcript: &mut T,
 ) -> Result<Choice, Error> {
