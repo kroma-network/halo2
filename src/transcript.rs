@@ -396,7 +396,7 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
     }
 
     fn common_point(&mut self, point: C) -> io::Result<()> {
-        self.state.update(&[BLAKE2B_PREFIX_POINT]);
+        self.state.update(&[KECCAK256_PREFIX_POINT]);
         let coords: Coordinates<C> = Option::from(point.coordinates()).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::Other,
