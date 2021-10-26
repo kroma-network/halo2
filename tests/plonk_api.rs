@@ -437,14 +437,12 @@ fn plonk_api() {
         //         .into(),
         // );
 
-        let msm = params.empty_msm();
         let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
 
         assert!(bool::from(
             verify_proof(
                 &params_verifier,
                 pk.get_vk(),
-                msm,
                 // &[pubinput_slice, pubinput_slice_copy],
                 &[&[&pubinputs[..]], &[&pubinputs[..]]],
                 &mut transcript,
