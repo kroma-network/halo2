@@ -143,7 +143,7 @@ impl<C: CurveAffine> Params<C> {
     /// slice of coefficients. The commitment will be blinded by the blinding
     /// factor `r`.
     pub fn commit(&self, poly: &Polynomial<C::Scalar, Coeff>) -> C::Curve {
-        let mut scalars = Vec::with_capacity(poly.len() + 1);
+        let mut scalars = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
         let bases = &self.g;
         let size = scalars.len();
@@ -155,7 +155,7 @@ impl<C: CurveAffine> Params<C> {
     /// evaluation domain. The commitment will be blinded by the blinding factor
     /// `r`.
     pub fn commit_lagrange(&self, poly: &Polynomial<C::Scalar, LagrangeCoeff>) -> C::Curve {
-        let mut scalars = Vec::with_capacity(poly.len() + 1);
+        let mut scalars = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
         let bases = &self.g_lagrange;
         let size = scalars.len();
