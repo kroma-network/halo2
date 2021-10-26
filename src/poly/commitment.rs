@@ -208,7 +208,7 @@ impl<C: CurveAffine> Params<C> {
         let additional_data_len = u32::from_le_bytes(additional_data_len);
         let mut additional_data = vec![0u8; additional_data_len as usize];
 
-        reader.read(&mut additional_data[..])?;
+        reader.read_exact(&mut additional_data[..])?;
 
         Ok(Params {
             k,
