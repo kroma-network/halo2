@@ -6,9 +6,10 @@
 //! [plonk]: https://eprint.iacr.org/2019/953
 
 use blake2b_simd::Params as Blake2bParams;
+use group::GroupEncoding;
+use pairing::arithmetic::Engine;
 
 use crate::arithmetic::{BaseExt, CurveAffine, FieldExt};
-use crate::helpers::CurveRead;
 use crate::poly::{
     commitment::Params, Coeff, EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff,
     PinnedEvaluationDomain, Polynomial,
@@ -34,14 +35,14 @@ use std::io;
 /// This is a verifying key which allows for the verification of proofs for a
 /// particular circuit.
 #[derive(Debug)]
-pub struct VerifyingKey<C: CurveAffine> {
-    domain: EvaluationDomain<C::Scalar>,
-    fixed_commitments: Vec<C>,
-    permutation: permutation::VerifyingKey<C>,
-    cs: ConstraintSystem<C::Scalar>,
+pub struct VerifyingKey<E: Engine> {
+    domain: EvaluationDomain<E::Scalar>,
+    fixed_commitments: Vec<E::G1Affine>,
+    permutation: permutation::VerifyingKey<E::G1Affine>,
+    cs: ConstraintSystem<E::Scalar>,
 }
 
-impl<C: CurveAffine> VerifyingKey<C> {
+impl<E: Engine> VerifyingKey<E> {
     /// Writes a verifying key to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         for commitment in &self.fixed_commitments {
@@ -53,14 +54,14 @@ impl<C: CurveAffine> VerifyingKey<C> {
     }
 
     /// Reads a verification key from a buffer.
-    pub fn read<R: io::Read, ConcreteCircuit: Circuit<C::Scalar>>(
+    pub fn read<R: io::Read, ConcreteCircuit: Circuit<E::Scalar>>(
         reader: &mut R,
-        params: &Params<C>,
+        params: &Params<E>,
     ) -> io::Result<Self> {
-        let (domain, cs, _) = keygen::create_domain::<C, ConcreteCircuit>(params);
+        let (domain, cs, _) = keygen::create_domain::<E, ConcreteCircuit>(params);
 
         let fixed_commitments: Vec<_> = (0..cs.num_fixed_columns)
-            .map(|_| C::read(reader))
+            .map(|_| E::G1Affine::read(reader))
             .collect::<Result<_, _>>()?;
 
         let permutation = permutation::VerifyingKey::read(reader, &cs.permutation)?;
@@ -74,7 +75,7 @@ impl<C: CurveAffine> VerifyingKey<C> {
     }
 
     /// Hashes a verification key into a transcript.
-    pub fn hash_into<E: EncodedChallenge<C>, T: Transcript<C, E>>(
+    pub fn hash_into<Ec: EncodedChallenge<E::G1Affine>, T: Transcript<E::G1Affine, Ec>>(
         &self,
         transcript: &mut T,
     ) -> io::Result<()> {
@@ -89,17 +90,17 @@ impl<C: CurveAffine> VerifyingKey<C> {
         hasher.update(s.as_bytes());
 
         // Hash in final Blake2bState
-        transcript.common_scalar(C::Scalar::from_bytes_wide(hasher.finalize().as_array()))?;
+        transcript.common_scalar(E::Scalar::from_bytes_wide(hasher.finalize().as_array()))?;
 
         Ok(())
     }
 
     /// Obtains a pinned representation of this verification key that contains
     /// the minimal information necessary to reconstruct the verification key.
-    pub fn pinned(&self) -> PinnedVerificationKey<'_, C> {
+    pub fn pinned(&self) -> PinnedVerificationKey<'_, E::G1Affine> {
         PinnedVerificationKey {
-            base_modulus: C::Base::MODULUS,
-            scalar_modulus: C::Scalar::MODULUS,
+            base_modulus: E::Scalar::MODULUS, // FIX
+            scalar_modulus: E::Scalar::MODULUS,
             domain: self.domain.pinned(),
             fixed_commitments: &self.fixed_commitments,
             permutation: &self.permutation,
@@ -122,15 +123,15 @@ pub struct PinnedVerificationKey<'a, C: CurveAffine> {
 /// This is a proving key which allows for the creation of proofs for a
 /// particular circuit.
 #[derive(Debug)]
-pub struct ProvingKey<C: CurveAffine> {
-    vk: VerifyingKey<C>,
-    l0: Polynomial<C::Scalar, ExtendedLagrangeCoeff>,
-    l_blind: Polynomial<C::Scalar, ExtendedLagrangeCoeff>,
-    l_last: Polynomial<C::Scalar, ExtendedLagrangeCoeff>,
-    fixed_values: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
-    fixed_polys: Vec<Polynomial<C::Scalar, Coeff>>,
-    fixed_cosets: Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>>,
-    permutation: permutation::ProvingKey<C>,
+pub struct ProvingKey<E: Engine> {
+    vk: VerifyingKey<E>,
+    l0: Polynomial<E::Scalar, ExtendedLagrangeCoeff>,
+    l_blind: Polynomial<E::Scalar, ExtendedLagrangeCoeff>,
+    l_last: Polynomial<E::Scalar, ExtendedLagrangeCoeff>,
+    fixed_values: Vec<Polynomial<E::Scalar, LagrangeCoeff>>,
+    fixed_polys: Vec<Polynomial<E::Scalar, Coeff>>,
+    fixed_cosets: Vec<Polynomial<E::Scalar, ExtendedLagrangeCoeff>>,
+    permutation: permutation::ProvingKey<E::G1Affine>,
 }
 
 /// This is an error that could occur during proving or circuit synthesis.
@@ -160,16 +161,16 @@ pub enum Error {
     NotEnoughColumnsForConstants,
 }
 
-impl<C: CurveAffine> ProvingKey<C> {
+impl<E: Engine> ProvingKey<E> {
     /// Get the underlying [`VerifyingKey`].
-    pub fn get_vk(&self) -> &VerifyingKey<C> {
+    pub fn get_vk(&self) -> &VerifyingKey<E> {
         &self.vk
     }
 }
 
-impl<C: CurveAffine> VerifyingKey<C> {
+impl<E: Engine> VerifyingKey<E> {
     /// Get the underlying [`EvaluationDomain`].
-    pub fn get_domain(&self) -> &EvaluationDomain<C::Scalar> {
+    pub fn get_domain(&self) -> &EvaluationDomain<E::Scalar> {
         &self.domain
     }
 }

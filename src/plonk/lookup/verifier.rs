@@ -11,35 +11,36 @@ use crate::{
     transcript::{EncodedChallenge, TranscriptRead},
 };
 use ff::Field;
+use pairing::arithmetic::Engine;
 
-pub struct PermutationCommitments<C: CurveAffine> {
-    permuted_input_commitment: C,
-    permuted_table_commitment: C,
+pub struct PermutationCommitments<E: Engine> {
+    permuted_input_commitment: E::G1Affine,
+    permuted_table_commitment: E::G1Affine,
 }
 
-pub struct Committed<C: CurveAffine> {
-    permuted: PermutationCommitments<C>,
-    product_commitment: C,
+pub struct Committed<E: Engine> {
+    permuted: PermutationCommitments<E>,
+    product_commitment: E::G1Affine,
 }
 
-pub struct Evaluated<C: CurveAffine> {
-    committed: Committed<C>,
-    product_eval: C::Scalar,
-    product_next_eval: C::Scalar,
-    permuted_input_eval: C::Scalar,
-    permuted_input_inv_eval: C::Scalar,
-    permuted_table_eval: C::Scalar,
+pub struct Evaluated<E: Engine> {
+    committed: Committed<E>,
+    product_eval: E::Scalar,
+    product_next_eval: E::Scalar,
+    permuted_input_eval: E::Scalar,
+    permuted_input_inv_eval: E::Scalar,
+    permuted_table_eval: E::Scalar,
 }
 
 impl<F: FieldExt> Argument<F> {
     pub(in crate::plonk) fn read_permuted_commitments<
-        C: CurveAffine,
-        E: EncodedChallenge<C>,
-        T: TranscriptRead<C, E>,
+        E: Engine,
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptRead<E::G1Affine, Ec>,
     >(
         &self,
         transcript: &mut T,
-    ) -> Result<PermutationCommitments<C>, Error> {
+    ) -> Result<PermutationCommitments<E>, Error> {
         let permuted_input_commitment = transcript
             .read_point()
             .map_err(|_| Error::TranscriptError)?;
@@ -54,14 +55,14 @@ impl<F: FieldExt> Argument<F> {
     }
 }
 
-impl<C: CurveAffine> PermutationCommitments<C> {
+impl<E: Engine> PermutationCommitments<E> {
     pub(in crate::plonk) fn read_product_commitment<
-        E: EncodedChallenge<C>,
-        T: TranscriptRead<C, E>,
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptRead<E::G1Affine, Ec>,
     >(
         self,
         transcript: &mut T,
-    ) -> Result<Committed<C>, Error> {
+    ) -> Result<Committed<E>, Error> {
         let product_commitment = transcript
             .read_point()
             .map_err(|_| Error::TranscriptError)?;
@@ -73,11 +74,14 @@ impl<C: CurveAffine> PermutationCommitments<C> {
     }
 }
 
-impl<C: CurveAffine> Committed<C> {
-    pub(crate) fn evaluate<E: EncodedChallenge<C>, T: TranscriptRead<C, E>>(
+impl<E: Engine> Committed<E> {
+    pub(crate) fn evaluate<
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptRead<E::G1Affine, Ec>,
+    >(
         self,
         transcript: &mut T,
-    ) -> Result<Evaluated<C>, Error> {
+    ) -> Result<Evaluated<E>, Error> {
         let product_eval = transcript
             .read_scalar()
             .map_err(|_| Error::TranscriptError)?;
@@ -105,21 +109,21 @@ impl<C: CurveAffine> Committed<C> {
     }
 }
 
-impl<C: CurveAffine> Evaluated<C> {
+impl<E: Engine> Evaluated<E> {
     pub(in crate::plonk) fn expressions<'a>(
         &'a self,
-        l_0: C::Scalar,
-        l_last: C::Scalar,
-        l_blind: C::Scalar,
-        argument: &'a Argument<C::Scalar>,
-        theta: ChallengeTheta<C>,
-        beta: ChallengeBeta<C>,
-        gamma: ChallengeGamma<C>,
-        advice_evals: &[C::Scalar],
-        fixed_evals: &[C::Scalar],
-        instance_evals: &[C::Scalar],
-    ) -> impl Iterator<Item = C::Scalar> + 'a {
-        let active_rows = C::Scalar::one() - (l_last + l_blind);
+        l_0: E::Scalar,
+        l_last: E::Scalar,
+        l_blind: E::Scalar,
+        argument: &'a Argument<E::Scalar>,
+        theta: ChallengeTheta<E::G1Affine>,
+        beta: ChallengeBeta<E::G1Affine>,
+        gamma: ChallengeGamma<E::G1Affine>,
+        advice_evals: &[E::Scalar],
+        fixed_evals: &[E::Scalar],
+        instance_evals: &[E::Scalar],
+    ) -> impl Iterator<Item = E::Scalar> + 'a {
+        let active_rows = E::Scalar::one() - (l_last + l_blind);
 
         let product_expression = || {
             // z(\omega X) (a'(X) + \beta) (s'(X) + \gamma)
@@ -128,7 +132,7 @@ impl<C: CurveAffine> Evaluated<C> {
                 * &(self.permuted_input_eval + &*beta)
                 * &(self.permuted_table_eval + &*gamma);
 
-            let compress_expressions = |expressions: &[Expression<C::Scalar>]| {
+            let compress_expressions = |expressions: &[Expression<E::Scalar>]| {
                 expressions
                     .iter()
                     .map(|expression| {
@@ -144,7 +148,7 @@ impl<C: CurveAffine> Evaluated<C> {
                             &|a, scalar| a * &scalar,
                         )
                     })
-                    .fold(C::Scalar::zero(), |acc, eval| acc * &*theta + &eval)
+                    .fold(E::Scalar::zero(), |acc, eval| acc * &*theta + &eval)
             };
             let right = self.product_eval
                 * &(compress_expressions(&argument.input_expressions) + &*beta)
@@ -156,7 +160,7 @@ impl<C: CurveAffine> Evaluated<C> {
         std::iter::empty()
             .chain(
                 // l_0(X) * (1 - z'(X)) = 0
-                Some(l_0 * &(C::Scalar::one() - &self.product_eval)),
+                Some(l_0 * &(E::Scalar::one() - &self.product_eval)),
             )
             .chain(
                 // l_last(X) * (z(X)^2 - z(X)) = 0
@@ -183,9 +187,9 @@ impl<C: CurveAffine> Evaluated<C> {
 
     pub(in crate::plonk) fn queries<'r>(
         &'r self,
-        vk: &'r VerifyingKey<C>,
-        x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone {
+        vk: &'r VerifyingKey<E>,
+        x: ChallengeX<E::G1Affine>,
+    ) -> impl Iterator<Item = VerifierQuery<'r, E::G1Affine>> + Clone {
         let x_inv = vk.domain.rotate_omega(*x, Rotation::prev());
         let x_next = vk.domain.rotate_omega(*x, Rotation::next());
 

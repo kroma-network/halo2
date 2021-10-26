@@ -18,12 +18,12 @@ use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 /// These are the public parameters for the polynomial commitment scheme.
 #[derive(Debug)]
-pub struct Params<C: CurveAffine> {
+pub struct Params<E: Engine> {
     pub(crate) k: u32,
     pub(crate) n: u64,
-    pub(crate) g: Vec<C>,
-    pub(crate) g_lagrange: Vec<C>,
-    pub(crate) additional_data: Vec<u8>,
+    pub(crate) g1: Vec<E::G1Affine>,
+    pub(crate) g1_lagrange: Vec<E::G1Affine>,
+    pub(crate) s_g2: E::G2Affine,
 }
 
 /// These are the public parameters for the polynomial commitment scheme.
@@ -34,7 +34,7 @@ pub struct ParamsVerifier<E: Engine> {
     pub(crate) g1: E::G1Affine,
     pub(crate) g2: E::G2Affine,
     pub(crate) s_g2: E::G2Affine,
-    pub(crate) g_lagrange: Vec<E::G1Affine>,
+    pub(crate) g1_lagrange: Vec<E::G1Affine>,
 }
 
 /// Help to specify the engine we use to generate parameters
@@ -46,7 +46,7 @@ pub struct Setup<E: Engine> {
 impl<E: Engine> Setup<E> {
     /// Initializes parameters for the curve, given a random oracle to draw
     /// points from.
-    pub fn new(k: u32, mut rng: impl RngCore) -> Params<E::G1Affine> {
+    pub fn new(k: u32, mut rng: impl RngCore) -> Params<E> {
         // Largest root of unity exponent of the Engine is `2^E::Scalar::S`, so we can
         // only support FFTs of polynomials below degree `2^E::Scalar::S`.
         assert!(k < E::Scalar::S);
@@ -62,7 +62,7 @@ impl<E: Engine> Setup<E> {
             g_projective.push((g_projective[i - 1] * s).into());
         }
 
-        let g = {
+        let g1 = {
             let mut g = vec![E::G1Affine::identity(); n as usize];
             parallelize(&mut g, |g, starts| {
                 E::G1::batch_normalize(&g_projective[starts..(starts + g.len())], g);
@@ -85,7 +85,7 @@ impl<E: Engine> Setup<E> {
             }
         });
 
-        let g_lagrange = {
+        let g1_lagrange = {
             let mut g_lagrange = vec![E::G1Affine::identity(); n as usize];
             parallelize(&mut g_lagrange, |g_lagrange, starts| {
                 E::G1::batch_normalize(
@@ -99,13 +99,13 @@ impl<E: Engine> Setup<E> {
 
         let g2 = <E::G2Affine as PrimeCurveAffine>::generator();
         let s_g2 = g2 * s;
-        let additional_data = Vec::from(s_g2.to_bytes().as_ref());
+        let s_g2 = E::G2Affine::from(s_g2);
         let params = Params {
             k,
             n,
-            g,
-            g_lagrange,
-            additional_data,
+            g1,
+            g1_lagrange,
+            s_g2,
         };
 
         params
@@ -113,25 +113,24 @@ impl<E: Engine> Setup<E> {
 
     /// Returns verifier params with size of lagrage bases equal to number of public inputs
     pub fn verifier_params(
-        params: &Params<E::G1Affine>,
+        params: &Params<E>,
         public_inputs_size: usize,
     ) -> io::Result<ParamsVerifier<E>> {
         assert!(public_inputs_size < params.n as usize);
-        let g_lagrange = params.g_lagrange[..public_inputs_size]
+        let g1_lagrange = params.g1_lagrange[..public_inputs_size]
             .iter()
             .cloned()
             .collect();
+        let g1 = <E::G1Affine as PrimeCurveAffine>::generator();
         let g2 = <E::G2Affine as PrimeCurveAffine>::generator();
 
-        let additional_data = params.additional_data.clone();
-
-        let s_g2 = E::G2Affine::read(&mut additional_data.as_slice())?;
+        let s_g2 = params.s_g2;
 
         let params = ParamsVerifier {
             k: params.k,
             n: params.n,
-            g1: params.g[0].clone(),
-            g_lagrange,
+            g1,
+            g1_lagrange,
             g2,
             s_g2,
         };
@@ -139,14 +138,14 @@ impl<E: Engine> Setup<E> {
     }
 }
 
-impl<C: CurveAffine> Params<C> {
+impl<E: Engine> Params<E> {
     /// This computes a commitment to a polynomial described by the provided
     /// slice of coefficients. The commitment will be blinded by the blinding
     /// factor `r`.
-    pub fn commit(&self, poly: &Polynomial<C::Scalar, Coeff>) -> C::Curve {
+    pub fn commit(&self, poly: &Polynomial<E::Scalar, Coeff>) -> E::G1 {
         let mut scalars = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
-        let bases = &self.g;
+        let bases = &self.g1;
         let size = scalars.len();
         assert!(bases.len() >= size);
         best_multiexp(&scalars, &bases[0..size])
@@ -155,10 +154,10 @@ impl<C: CurveAffine> Params<C> {
     /// This commits to a polynomial using its evaluations over the $2^k$ size
     /// evaluation domain. The commitment will be blinded by the blinding factor
     /// `r`.
-    pub fn commit_lagrange(&self, poly: &Polynomial<C::Scalar, LagrangeCoeff>) -> C::Curve {
+    pub fn commit_lagrange(&self, poly: &Polynomial<E::Scalar, LagrangeCoeff>) -> E::G1 {
         let mut scalars = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
-        let bases = &self.g_lagrange;
+        let bases = &self.g1_lagrange;
         let size = scalars.len();
         assert!(bases.len() >= size);
         best_multiexp(&scalars, &bases[0..size])
@@ -166,27 +165,25 @@ impl<C: CurveAffine> Params<C> {
 
     /// Generates an empty multiscalar multiplication struct using the
     /// appropriate params.
-    pub fn empty_msm(&self) -> MSM<C> {
+    pub fn empty_msm(&self) -> MSM<E::G1Affine> {
         MSM::new()
     }
 
     /// Getter for g generators
-    pub fn get_g(&self) -> Vec<C> {
-        self.g.clone()
+    pub fn get_g(&self) -> Vec<E::G1Affine> {
+        self.g1.clone()
     }
 
     /// Writes params to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_all(&self.k.to_le_bytes())?;
-        for el in &self.g {
+        for el in &self.g1 {
             writer.write_all(el.to_bytes().as_ref())?;
         }
-        for el in &self.g_lagrange {
+        for el in &self.g1_lagrange {
             writer.write_all(el.to_bytes().as_ref())?;
         }
-        let additional_data_len = self.additional_data.len() as u32;
-        writer.write_all(&additional_data_len.to_le_bytes())?;
-        writer.write_all(&self.additional_data)?;
+        writer.write_all(self.s_g2.to_bytes().as_ref())?;
         Ok(())
     }
 
@@ -197,26 +194,21 @@ impl<C: CurveAffine> Params<C> {
         let k = u32::from_le_bytes(k);
         let n = 1 << k;
 
-        let g: Vec<C> = (0..n)
-            .map(|_| C::read(&mut reader))
+        let g1: Vec<E::G1Affine> = (0..n)
+            .map(|_| E::G1Affine::read(&mut reader))
             .collect::<Result<_, _>>()?;
-        let g_lagrange: Vec<C> = (0..n)
-            .map(|_| C::read(&mut reader))
+        let g1_lagrange: Vec<E::G1Affine> = (0..n)
+            .map(|_| E::G1Affine::read(&mut reader))
             .collect::<Result<_, _>>()?;
 
-        let mut additional_data_len = [0u8; 4];
-        reader.read_exact(&mut additional_data_len[..])?;
-        let additional_data_len = u32::from_le_bytes(additional_data_len);
-        let mut additional_data = vec![0u8; additional_data_len as usize];
-
-        reader.read_exact(&mut additional_data[..])?;
+        let s_g2 = E::G2Affine::read(&mut reader)?;
 
         Ok(Params {
             k,
             n,
-            g,
-            g_lagrange,
-            additional_data,
+            g1,
+            g1_lagrange,
+            s_g2,
         })
     }
 }
@@ -224,7 +216,7 @@ impl<C: CurveAffine> Params<C> {
 impl<E: Engine> ParamsVerifier<E> {
     /// Returns maximum public input size allowed
     pub fn public_inputs_size(&self) -> usize {
-        self.g_lagrange.len()
+        self.g1_lagrange.len()
     }
 
     /// Generates an empty multiscalar multiplication struct using the
@@ -237,7 +229,7 @@ impl<E: Engine> ParamsVerifier<E> {
     /// evaluation domain. The commitment will be blinded by the blinding factor
     /// `r`.
     pub fn commit_lagrange(&self, scalars: Vec<E::Scalar>) -> E::G1 {
-        let bases = &self.g_lagrange;
+        let bases = &self.g1_lagrange;
         let size = scalars.len();
         assert!(bases.len() >= size);
         best_multiexp(&scalars, &bases[0..size])
@@ -252,7 +244,7 @@ impl<E: Engine> ParamsVerifier<E> {
         writer.write_all(self.g1.to_bytes().as_ref())?;
         writer.write_all(self.g2.to_bytes().as_ref())?;
         writer.write_all(self.s_g2.to_bytes().as_ref())?;
-        for el in &self.g_lagrange {
+        for el in &self.g1_lagrange {
             writer.write_all(el.to_bytes().as_ref())?;
         }
         Ok(())
@@ -273,7 +265,7 @@ impl<E: Engine> ParamsVerifier<E> {
         let g1 = E::G1Affine::read(&mut reader)?;
         let g2 = E::G2Affine::read(&mut reader)?;
         let s_g2 = E::G2Affine::read(&mut reader)?;
-        let g_lagrange: Vec<E::G1Affine> = (0..public_inputs_size)
+        let g1_lagrange: Vec<E::G1Affine> = (0..public_inputs_size)
             .map(|_| E::G1Affine::read(&mut reader))
             .collect::<Result<_, _>>()?;
 
@@ -283,7 +275,7 @@ impl<E: Engine> ParamsVerifier<E> {
             g1,
             g2,
             s_g2,
-            g_lagrange,
+            g1_lagrange,
         })
     }
 }
@@ -358,27 +350,24 @@ fn test_parameter_serialization() {
     let params0 = Setup::<Bn256>::new(K, rng);
     let mut data: Vec<u8> = Vec::new();
     params0.write(&mut data).unwrap();
-    let params1: Params<G1Affine> = Params::read(&data[..]).unwrap();
+    let params1: Params<Bn256> = Params::read(&data[..]).unwrap();
 
     assert_eq!(params0.k, params1.k);
     assert_eq!(params0.n, params1.n);
-    assert_eq!(params0.g.len(), params1.g.len());
-    assert_eq!(params0.g_lagrange.len(), params1.g_lagrange.len());
+    assert_eq!(params0.g1.len(), params1.g1.len());
+    assert_eq!(params0.g1_lagrange.len(), params1.g1_lagrange.len());
 
-    assert_eq!(params0.g, params1.g);
-    assert_eq!(params0.g_lagrange, params1.g_lagrange);
-    assert_eq!(params0.additional_data, params1.additional_data);
+    assert_eq!(params0.g1, params1.g1);
+    assert_eq!(params0.g1_lagrange, params1.g1_lagrange);
+    assert_eq!(params0.s_g2, params1.s_g2);
 
     let public_inputs_size = 2;
     let verifier_params0 = Setup::<Bn256>::verifier_params(&params0, public_inputs_size).unwrap();
 
     assert_eq!(verifier_params0.k, params1.k);
     assert_eq!(verifier_params0.n, params1.n);
-    assert_eq!(verifier_params0.g_lagrange.len(), public_inputs_size);
-    assert_eq!(
-        verifier_params0.s_g2.to_bytes().as_ref(),
-        params0.additional_data
-    );
+    assert_eq!(verifier_params0.g1_lagrange.len(), public_inputs_size);
+    assert_eq!(verifier_params0.s_g2, params1.s_g2);
 
     let mut data: Vec<u8> = Vec::new();
     verifier_params0.write(&mut data).unwrap();
@@ -388,7 +377,7 @@ fn test_parameter_serialization() {
     assert_eq!(verifier_params0.g1, verifier_params1.g1);
     assert_eq!(verifier_params0.g2, verifier_params1.g2);
     assert_eq!(verifier_params0.s_g2, verifier_params1.s_g2);
-    assert_eq!(verifier_params0.g_lagrange, verifier_params1.g_lagrange);
+    assert_eq!(verifier_params0.g1_lagrange, verifier_params1.g1_lagrange);
 }
 
 #[test]

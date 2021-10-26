@@ -1,5 +1,6 @@
 use ff::Field;
 use group::Curve;
+use pairing::arithmetic::Engine;
 
 use super::{Argument, ProvingKey, VerifyingKey};
 use crate::{
@@ -94,16 +95,16 @@ impl Assembly {
         Ok(())
     }
 
-    pub(crate) fn build_vk<C: CurveAffine>(
+    pub(crate) fn build_vk<E: Engine>(
         self,
-        params: &Params<C>,
-        domain: &EvaluationDomain<C::Scalar>,
+        params: &Params<E>,
+        domain: &EvaluationDomain<E::Scalar>,
         p: &Argument,
-    ) -> VerifyingKey<C> {
+    ) -> VerifyingKey<E::G1Affine> {
         // Compute [omega^0, omega^1, ..., omega^{params.n - 1}]
         let mut omega_powers = Vec::with_capacity(params.n as usize);
         {
-            let mut cur = C::Scalar::one();
+            let mut cur = E::Scalar::one();
             for _ in 0..params.n {
                 omega_powers.push(cur);
                 cur *= &domain.get_omega();
@@ -113,7 +114,7 @@ impl Assembly {
         // Compute [omega_powers * \delta^0, omega_powers * \delta^1, ..., omega_powers * \delta^m]
         let mut deltaomega = Vec::with_capacity(p.columns.len());
         {
-            let mut cur = C::Scalar::one();
+            let mut cur = E::Scalar::one();
             for _ in 0..p.columns.len() {
                 let mut omega_powers = omega_powers.clone();
                 for o in &mut omega_powers {
@@ -122,7 +123,7 @@ impl Assembly {
 
                 deltaomega.push(omega_powers);
 
-                cur *= &C::Scalar::DELTA;
+                cur *= &E::Scalar::DELTA;
             }
         }
 
@@ -143,16 +144,16 @@ impl Assembly {
         VerifyingKey { commitments }
     }
 
-    pub(crate) fn build_pk<C: CurveAffine>(
+    pub(crate) fn build_pk<E: Engine>(
         self,
-        params: &Params<C>,
-        domain: &EvaluationDomain<C::Scalar>,
+        params: &Params<E>,
+        domain: &EvaluationDomain<E::Scalar>,
         p: &Argument,
-    ) -> ProvingKey<C> {
+    ) -> ProvingKey<E::G1Affine> {
         // Compute [omega^0, omega^1, ..., omega^{params.n - 1}]
         let mut omega_powers = Vec::with_capacity(params.n as usize);
         {
-            let mut cur = C::Scalar::one();
+            let mut cur = E::Scalar::one();
             for _ in 0..params.n {
                 omega_powers.push(cur);
                 cur *= &domain.get_omega();
@@ -162,7 +163,7 @@ impl Assembly {
         // Compute [omega_powers * \delta^0, omega_powers * \delta^1, ..., omega_powers * \delta^m]
         let mut deltaomega = Vec::with_capacity(p.columns.len());
         {
-            let mut cur = C::Scalar::one();
+            let mut cur = E::Scalar::one();
             for _ in 0..p.columns.len() {
                 let mut omega_powers = omega_powers.clone();
                 for o in &mut omega_powers {
@@ -171,7 +172,7 @@ impl Assembly {
 
                 deltaomega.push(omega_powers);
 
-                cur *= &C::Scalar::DELTA;
+                cur *= &E::Scalar::DELTA;
             }
         }
 

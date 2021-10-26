@@ -1,4 +1,5 @@
 use ff::Field;
+use pairing::arithmetic::Engine;
 use std::iter;
 
 use super::super::{circuit::Any, ChallengeBeta, ChallengeGamma, ChallengeX};
@@ -10,8 +11,8 @@ use crate::{
     transcript::{EncodedChallenge, TranscriptRead},
 };
 
-pub struct Committed<C: CurveAffine> {
-    permutation_product_commitments: Vec<C>,
+pub struct Committed<E: Engine> {
+    permutation_product_commitments: Vec<E::G1Affine>,
 }
 
 pub struct EvaluatedSet<C: CurveAffine> {
@@ -25,20 +26,20 @@ pub struct CommonEvaluated<C: CurveAffine> {
     permutation_evals: Vec<C::Scalar>,
 }
 
-pub struct Evaluated<C: CurveAffine> {
-    sets: Vec<EvaluatedSet<C>>,
+pub struct Evaluated<E: Engine> {
+    sets: Vec<EvaluatedSet<E::G1Affine>>,
 }
 
 impl Argument {
     pub(crate) fn read_product_commitments<
-        C: CurveAffine,
-        E: EncodedChallenge<C>,
-        T: TranscriptRead<C, E>,
+        E: Engine,
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptRead<E::G1Affine, Ec>,
     >(
         &self,
-        vk: &plonk::VerifyingKey<C>,
+        vk: &plonk::VerifyingKey<E>,
         transcript: &mut T,
-    ) -> Result<Committed<C>, Error> {
+    ) -> Result<Committed<E>, Error> {
         let chunk_len = vk.cs.degree() - 2;
 
         let permutation_product_commitments = self
@@ -68,11 +69,14 @@ impl<C: CurveAffine> VerifyingKey<C> {
     }
 }
 
-impl<C: CurveAffine> Committed<C> {
-    pub(crate) fn evaluate<E: EncodedChallenge<C>, T: TranscriptRead<C, E>>(
+impl<E: Engine> Committed<E> {
+    pub(crate) fn evaluate<
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptRead<E::G1Affine, Ec>,
+    >(
         self,
         transcript: &mut T,
-    ) -> Result<Evaluated<C>, Error> {
+    ) -> Result<Evaluated<E>, Error> {
         let mut sets = vec![];
 
         let mut iter = self.permutation_product_commitments.into_iter();
@@ -106,29 +110,29 @@ impl<C: CurveAffine> Committed<C> {
     }
 }
 
-impl<C: CurveAffine> Evaluated<C> {
+impl<E: Engine> Evaluated<E> {
     pub(in crate::plonk) fn expressions<'a>(
         &'a self,
-        vk: &'a plonk::VerifyingKey<C>,
+        vk: &'a plonk::VerifyingKey<E>,
         p: &'a Argument,
-        common: &'a CommonEvaluated<C>,
-        advice_evals: &'a [C::Scalar],
-        fixed_evals: &'a [C::Scalar],
-        instance_evals: &'a [C::Scalar],
-        l_0: C::Scalar,
-        l_last: C::Scalar,
-        l_blind: C::Scalar,
-        beta: ChallengeBeta<C>,
-        gamma: ChallengeGamma<C>,
-        x: ChallengeX<C>,
-    ) -> impl Iterator<Item = C::Scalar> + 'a {
+        common: &'a CommonEvaluated<E::G1Affine>,
+        advice_evals: &'a [E::Scalar],
+        fixed_evals: &'a [E::Scalar],
+        instance_evals: &'a [E::Scalar],
+        l_0: E::Scalar,
+        l_last: E::Scalar,
+        l_blind: E::Scalar,
+        beta: ChallengeBeta<E::G1Affine>,
+        gamma: ChallengeGamma<E::G1Affine>,
+        x: ChallengeX<E::G1Affine>,
+    ) -> impl Iterator<Item = E::Scalar> + 'a {
         let chunk_len = vk.cs.degree() - 2;
         iter::empty()
             // Enforce only for the first set.
             // l_0(X) * (1 - z_0(X)) = 0
             .chain(
                 self.sets.first().map(|first_set| {
-                    l_0 * &(C::Scalar::one() - &first_set.permutation_product_eval)
+                    l_0 * &(E::Scalar::one() - &first_set.permutation_product_eval)
                 }),
             )
             // Enforce only for the last set.
@@ -186,7 +190,7 @@ impl<C: CurveAffine> Evaluated<C> {
 
                         let mut right = set.permutation_product_eval;
                         let mut current_delta = (*beta * &*x)
-                            * &(C::Scalar::DELTA.pow_vartime(&[(chunk_index * chunk_len) as u64]));
+                            * &(E::Scalar::DELTA.pow_vartime(&[(chunk_index * chunk_len) as u64]));
                         for eval in columns.iter().map(|&column| match column.column_type() {
                             Any::Advice => {
                                 advice_evals[vk.cs.get_any_query_index(column, Rotation::cur())]
@@ -199,19 +203,19 @@ impl<C: CurveAffine> Evaluated<C> {
                             }
                         }) {
                             right *= &(eval + &current_delta + &*gamma);
-                            current_delta *= &C::Scalar::DELTA;
+                            current_delta *= &E::Scalar::DELTA;
                         }
 
-                        (left - &right) * (C::Scalar::one() - &(l_last + &l_blind))
+                        (left - &right) * (E::Scalar::one() - &(l_last + &l_blind))
                     }),
             )
     }
 
     pub(in crate::plonk) fn queries<'r>(
         &'r self,
-        vk: &'r plonk::VerifyingKey<C>,
-        x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone {
+        vk: &'r plonk::VerifyingKey<E>,
+        x: ChallengeX<E::G1Affine>,
+    ) -> impl Iterator<Item = VerifierQuery<'r, E::G1Affine>> + Clone {
         let blinding_factors = vk.cs.blinding_factors();
         let x_next = vk.domain.rotate_omega(*x, Rotation::next());
         let x_last = vk

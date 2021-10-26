@@ -24,7 +24,7 @@ pub fn verify_proof<
     T: TranscriptRead<C::G1Affine, E>,
 >(
     params: &'a ParamsVerifier<C>,
-    vk: &VerifyingKey<C::G1Affine>,
+    vk: &VerifyingKey<C>,
     instances: &[&[&[C::Scalar]]],
     transcript: &mut T,
 ) -> Result<Choice, Error> {

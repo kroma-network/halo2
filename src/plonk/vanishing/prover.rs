@@ -1,4 +1,5 @@
 use group::Curve;
+use pairing::arithmetic::Engine;
 use std::iter;
 
 use super::Argument;
@@ -11,31 +12,35 @@ use crate::{
     },
     transcript::{EncodedChallenge, TranscriptWrite},
 };
+use group::prime::PrimeCurveAffine;
 
-pub(in crate::plonk) struct Committed<C: CurveAffine> {
-    random_poly: Polynomial<C::Scalar, Coeff>,
+pub(in crate::plonk) struct Committed<E: Engine> {
+    random_poly: Polynomial<E::Scalar, Coeff>,
 }
 
-pub(in crate::plonk) struct Constructed<C: CurveAffine> {
-    h_pieces: Vec<Polynomial<C::Scalar, Coeff>>,
-    committed: Committed<C>,
+pub(in crate::plonk) struct Constructed<E: Engine> {
+    h_pieces: Vec<Polynomial<E::Scalar, Coeff>>,
+    committed: Committed<E>,
 }
 
-pub(in crate::plonk) struct Evaluated<C: CurveAffine> {
-    h_poly: Polynomial<C::Scalar, Coeff>,
-    committed: Committed<C>,
+pub(in crate::plonk) struct Evaluated<E: Engine> {
+    h_poly: Polynomial<E::Scalar, Coeff>,
+    committed: Committed<E>,
 }
 
-impl<C: CurveAffine> Argument<C> {
-    pub(in crate::plonk) fn commit<E: EncodedChallenge<C>, T: TranscriptWrite<C, E>>(
-        params: &Params<C>,
-        domain: &EvaluationDomain<C::Scalar>,
+impl<E: Engine> Argument<E> {
+    pub(in crate::plonk) fn commit<
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptWrite<E::G1Affine, Ec>,
+    >(
+        params: &Params<E>,
+        domain: &EvaluationDomain<E::Scalar>,
         transcript: &mut T,
-    ) -> Result<Committed<C>, Error> {
+    ) -> Result<Committed<E>, Error> {
         // Sample a random polynomial of degree n - 1
         let mut random_poly = domain.empty_coeff();
         for coeff in random_poly.iter_mut() {
-            *coeff = C::Scalar::rand();
+            *coeff = E::Scalar::rand();
         }
         // Sample a random blinding factor
 
@@ -49,15 +54,18 @@ impl<C: CurveAffine> Argument<C> {
     }
 }
 
-impl<C: CurveAffine> Committed<C> {
-    pub(in crate::plonk) fn construct<E: EncodedChallenge<C>, T: TranscriptWrite<C, E>>(
+impl<E: Engine> Committed<E> {
+    pub(in crate::plonk) fn construct<
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptWrite<E::G1Affine, Ec>,
+    >(
         self,
-        params: &Params<C>,
-        domain: &EvaluationDomain<C::Scalar>,
-        expressions: impl Iterator<Item = Polynomial<C::Scalar, ExtendedLagrangeCoeff>>,
-        y: ChallengeY<C>,
+        params: &Params<E>,
+        domain: &EvaluationDomain<E::Scalar>,
+        expressions: impl Iterator<Item = Polynomial<E::Scalar, ExtendedLagrangeCoeff>>,
+        y: ChallengeY<E::G1Affine>,
         transcript: &mut T,
-    ) -> Result<Constructed<C>, Error> {
+    ) -> Result<Constructed<E>, Error> {
         // Evaluate the h(X) polynomial's constraint system expressions for the constraints provided
         let h_poly = expressions.fold(domain.empty_extended(), |h_poly, v| h_poly * *y + &v);
 
@@ -79,8 +87,8 @@ impl<C: CurveAffine> Committed<C> {
             .iter()
             .map(|h_piece| params.commit(h_piece))
             .collect();
-        let mut h_commitments = vec![C::identity(); h_commitments_projective.len()];
-        C::Curve::batch_normalize(&h_commitments_projective, &mut h_commitments);
+        let mut h_commitments = vec![E::G1Affine::identity(); h_commitments_projective.len()];
+        E::G1::batch_normalize(&h_commitments_projective, &mut h_commitments);
         let h_commitments = h_commitments;
 
         // Hash each h(X) piece
@@ -98,14 +106,17 @@ impl<C: CurveAffine> Committed<C> {
     }
 }
 
-impl<C: CurveAffine> Constructed<C> {
-    pub(in crate::plonk) fn evaluate<E: EncodedChallenge<C>, T: TranscriptWrite<C, E>>(
+impl<E: Engine> Constructed<E> {
+    pub(in crate::plonk) fn evaluate<
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptWrite<E::G1Affine, Ec>,
+    >(
         self,
-        x: ChallengeX<C>,
-        xn: C::Scalar,
-        domain: &EvaluationDomain<C::Scalar>,
+        x: ChallengeX<E::G1Affine>,
+        xn: E::Scalar,
+        domain: &EvaluationDomain<E::Scalar>,
         transcript: &mut T,
-    ) -> Result<Evaluated<C>, Error> {
+    ) -> Result<Evaluated<E>, Error> {
         let h_poly = self
             .h_pieces
             .iter()
@@ -124,11 +135,11 @@ impl<C: CurveAffine> Constructed<C> {
     }
 }
 
-impl<C: CurveAffine> Evaluated<C> {
+impl<E: Engine> Evaluated<E> {
     pub(in crate::plonk) fn open(
         &self,
-        x: ChallengeX<C>,
-    ) -> impl Iterator<Item = ProverQuery<'_, C>> + Clone {
+        x: ChallengeX<E::G1Affine>,
+    ) -> impl Iterator<Item = ProverQuery<'_, E::G1Affine>> + Clone {
         iter::empty()
             .chain(Some(ProverQuery {
                 point: *x,

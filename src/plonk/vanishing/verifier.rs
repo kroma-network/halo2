@@ -1,6 +1,7 @@
 use std::iter;
 
 use ff::Field;
+use pairing::arithmetic::Engine;
 
 use crate::{
     arithmetic::CurveAffine,
@@ -12,8 +13,8 @@ use crate::{
 use super::super::{ChallengeX, ChallengeY};
 use super::Argument;
 
-pub struct Committed<C: CurveAffine> {
-    random_poly_commitment: C,
+pub struct Committed<E: Engine> {
+    random_poly_commitment: E::G1Affine,
 }
 
 pub struct Constructed<C: CurveAffine> {
@@ -34,13 +35,13 @@ pub struct Evaluated<C: CurveAffine> {
     random_eval: C::Scalar,
 }
 
-impl<C: CurveAffine> Argument<C> {
+impl<E: Engine> Argument<E> {
     pub(in crate::plonk) fn read_commitments_before_y<
-        E: EncodedChallenge<C>,
-        T: TranscriptRead<C, E>,
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptRead<E::G1Affine, Ec>,
     >(
         transcript: &mut T,
-    ) -> Result<Committed<C>, Error> {
+    ) -> Result<Committed<E>, Error> {
         let random_poly_commitment = transcript
             .read_point()
             .map_err(|_| Error::TranscriptError)?;
@@ -51,15 +52,15 @@ impl<C: CurveAffine> Argument<C> {
     }
 }
 
-impl<C: CurveAffine> Committed<C> {
+impl<E: Engine> Committed<E> {
     pub(in crate::plonk) fn read_commitments_after_y<
-        E: EncodedChallenge<C>,
-        T: TranscriptRead<C, E>,
+        Ec: EncodedChallenge<E::G1Affine>,
+        T: TranscriptRead<E::G1Affine, Ec>,
     >(
         self,
-        vk: &VerifyingKey<C>,
+        vk: &VerifyingKey<E>,
         transcript: &mut T,
-    ) -> Result<Constructed<C>, Error> {
+    ) -> Result<Constructed<E::G1Affine>, Error> {
         // Obtain a commitment to h(X) in the form of multiple pieces of degree n - 1
         let h_commitments = read_n_points(transcript, vk.domain.get_quotient_poly_degree())
             .map_err(|_| Error::TranscriptError)?;

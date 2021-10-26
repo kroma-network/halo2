@@ -7,6 +7,7 @@ use crate::transcript::{EncodedChallenge, TranscriptWrite};
 
 use ff::Field;
 use group::Curve;
+use pairing::arithmetic::Engine;
 use std::io;
 use std::marker::PhantomData;
 
@@ -18,25 +19,31 @@ struct CommitmentData<C: CurveAffine> {
 }
 
 /// Create a multi-opening proof
-pub fn create_proof<'a, I, C: CurveAffine, E: EncodedChallenge<C>, T: TranscriptWrite<C, E>>(
-    params: &Params<C>,
+pub fn create_proof<
+    'a,
+    I,
+    E: Engine,
+    Ec: EncodedChallenge<E::G1Affine>,
+    T: TranscriptWrite<E::G1Affine, Ec>,
+>(
+    params: &Params<E>,
     transcript: &mut T,
     queries: I,
 ) -> io::Result<()>
 where
-    I: IntoIterator<Item = ProverQuery<'a, C>> + Clone,
+    I: IntoIterator<Item = ProverQuery<'a, E::G1Affine>> + Clone,
 {
     let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
     let commitment_data = construct_intermediate_sets(queries);
 
-    let zero = || Polynomial::<C::Scalar, Coeff> {
-        values: vec![C::Scalar::zero(); params.n as usize],
+    let zero = || Polynomial::<E::Scalar, Coeff> {
+        values: vec![E::Scalar::zero(); params.n as usize],
         _marker: PhantomData,
     };
 
     for commitment_at_a_point in commitment_data.iter() {
         let mut poly_batch = zero();
-        let mut eval_batch = C::Scalar::zero();
+        let mut eval_batch = E::Scalar::zero();
         let z = commitment_at_a_point.point;
         for query in commitment_at_a_point.queries.iter() {
             assert_eq!(query.get_point(), z);
