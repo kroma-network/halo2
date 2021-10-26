@@ -57,6 +57,7 @@ impl<E: Engine> Setup<E> {
         let mut g_projective: Vec<E::G1> = Vec::with_capacity(n as usize);
         let g1 = <E::G1Affine as PrimeCurveAffine>::generator();
         g_projective.push(g1.into());
+        // g = [G1, [s] G1, [s^2] G1, ..., [s^(n-1)] G1]
         for i in 1..(n as usize) {
             g_projective.push((g_projective[i - 1] * s).into());
         }
