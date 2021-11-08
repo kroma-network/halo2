@@ -334,9 +334,12 @@ impl<'p, 'a, F: Field, CS: Assignment<F> + 'a> AssignmentPass<'p, 'a, F, CS> {
             // default_val must be Some because we must have assigned
             // at least one cell in each column, and in that case we checked
             // that all cells up to first_unused were assigned.
-            self.plan
-                .cs
-                .fill_from_row(col.inner(), first_unused, default_val.unwrap())?;
+            self.plan.cs.fill_from_row(
+                // TODO: Handle correctly!!!
+                col.inner(),
+                first_unused,
+                default_val.unwrap(),
+            )?;
         }
 
         Ok(result)

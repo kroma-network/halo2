@@ -485,7 +485,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
 
     fn fill_from_row(
         &mut self,
-        _: Column<Fixed>,
+        _: Column<Any>,
         from_row: usize,
         _: Option<Assigned<F>>,
     ) -> Result<(), Error> {

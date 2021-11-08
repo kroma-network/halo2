@@ -1,5 +1,6 @@
 use std::cmp;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -425,8 +426,8 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> TableLayouter<F>
         let mut value = None;
         self.cs.assign_fixed(
             annotation,
-            column.inner(),
-            offset, // tables are always assigned starting at row 0
+            column.inner().try_into().unwrap(), // TODO: Handle correctly!!!
+            offset,                             // tables are always assigned starting at row 0
             || {
                 let res = to();
                 value = res.as_ref().ok().cloned();

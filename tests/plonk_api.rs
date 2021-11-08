@@ -6,8 +6,8 @@ use halo2::circuit::{Cell, Layouter, SimpleFloorPlanner};
 use halo2::dev::MockProver;
 use halo2::pasta::{Eq, EqAffine, Fp};
 use halo2::plonk::{
-    create_proof, keygen_pk, keygen_vk, verify_proof, Advice, Circuit, Column, ConstraintSystem,
-    Error, Fixed, TableColumn, VerifyingKey,
+    create_proof, keygen_pk, keygen_vk, verify_proof, Advice, Any, Circuit, Column,
+    ConstraintSystem, Error, Fixed, TableColumn, VerifyingKey,
 };
 use halo2::poly::{commitment::Params, Rotation};
 use halo2::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
@@ -270,7 +270,10 @@ fn plonk_api() {
             let sb = meta.fixed_column();
             let sc = meta.fixed_column();
             let sp = meta.fixed_column();
-            let sl = meta.lookup_table_column();
+            let sl = meta.lookup_table_column(Any::Fixed);
+            // If we don't pass a `Fixed` type here, it fails
+            // since the FloorPlanner tries to convert any type of
+            // column into a fixed one when calling `assing_cell`.
 
             /*
              *   A         B      ...  sl

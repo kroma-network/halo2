@@ -1,6 +1,7 @@
 use core::cmp::max;
 use core::ops::{Add, Mul};
 use ff::Field;
+use rayon::collections;
 use std::{
     convert::TryFrom,
     ops::{Neg, Sub},
@@ -264,11 +265,11 @@ pub struct TableColumn {
     /// This inner column MUST NOT be exposed in the public API, or else chip developers
     /// can load lookup tables into their circuits without default-value-filling the
     /// columns, which can cause soundness bugs.
-    inner: Column<Fixed>,
+    inner: Column<Any>,
 }
 
 impl TableColumn {
-    pub(crate) fn inner(&self) -> Column<Fixed> {
+    pub(crate) fn inner(&self) -> Column<Any> {
         self.inner
     }
 }
@@ -509,7 +510,7 @@ pub trait Assignment<F: Field> {
     /// Fills a fixed `column` starting from the given `row` with value `to`.
     fn fill_from_row(
         &mut self,
-        column: Column<Fixed>,
+        column: Column<Any>,
         row: usize,
         to: Option<Assigned<F>>,
     ) -> Result<(), Error>;
@@ -1063,7 +1064,7 @@ impl<F: Field> ConstraintSystem<F> {
                     panic!("expression containing simple selector supplied to lookup argument");
                 }
 
-                let table = cells.query_fixed(table.inner(), Rotation::cur());
+                let table = cells.query_any(table.inner(), Rotation::cur());
 
                 (input, table)
             })
@@ -1364,10 +1365,14 @@ impl<F: Field> ConstraintSystem<F> {
         Selector(index, false)
     }
 
-    /// Allocates a new fixed column that can be used in a lookup table.
-    pub fn lookup_table_column(&mut self) -> TableColumn {
+    /// Allocates a new column that can be used in a lookup table.
+    pub fn lookup_table_column(&mut self, ct: Any) -> TableColumn {
         TableColumn {
-            inner: self.fixed_column(),
+            inner: match ct {
+                Any::Fixed => self.fixed_column().into(),
+                Any::Advice => self.advice_column().into(),
+                Any::Instance => self.instance_column().into(),
+            },
         }
     }
 

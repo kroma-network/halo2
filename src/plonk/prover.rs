@@ -240,7 +240,7 @@ pub fn create_proof<
 
                 fn fill_from_row(
                     &mut self,
-                    _: Column<Fixed>,
+                    _: Column<Any>,
                     _: usize,
                     _: Option<Assigned<F>>,
                 ) -> Result<(), Error> {

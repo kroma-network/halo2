@@ -146,7 +146,7 @@ impl<F: Field> Assignment<F> for Assembly<F> {
 
     fn fill_from_row(
         &mut self,
-        column: Column<Fixed>,
+        column: Column<Any>,
         from_row: usize,
         to: Option<Assigned<F>>,
     ) -> Result<(), Error> {
