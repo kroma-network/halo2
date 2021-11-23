@@ -222,10 +222,8 @@ impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>>
         let mut state_hi = self.state.clone();
         state_lo.update(&[KECCAK256_PREFIX_CHALLENGE_LO]);
         state_hi.update(&[KECCAK256_PREFIX_CHALLENGE_HI]);
-        let hasher_lo = state_lo.clone();
-        let hasher_hi = state_hi.clone();
-        let result_lo: [u8; 32] = hasher_lo.finalize().as_slice().try_into().unwrap();
-        let result_hi: [u8; 32] = hasher_hi.finalize().as_slice().try_into().unwrap();
+        let result_lo: [u8; 32] = state_lo.finalize().as_slice().try_into().unwrap();
+        let result_hi: [u8; 32] = state_hi.finalize().as_slice().try_into().unwrap();
 
         let mut t = result_lo.to_vec();
         t.extend_from_slice(&result_hi[..]);
@@ -383,10 +381,8 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
         let mut state_hi = self.state.clone();
         state_lo.update(&[KECCAK256_PREFIX_CHALLENGE_LO]);
         state_hi.update(&[KECCAK256_PREFIX_CHALLENGE_HI]);
-        let hasher_lo = state_lo.clone();
-        let hasher_hi = state_hi.clone();
-        let result_lo: [u8; 32] = hasher_lo.finalize().as_slice().try_into().unwrap();
-        let result_hi: [u8; 32] = hasher_hi.finalize().as_slice().try_into().unwrap();
+        let result_lo: [u8; 32] = state_lo.finalize().as_slice().try_into().unwrap();
+        let result_hi: [u8; 32] = state_hi.finalize().as_slice().try_into().unwrap();
 
         let mut t = result_lo.to_vec();
         t.extend_from_slice(&result_hi[..]);
