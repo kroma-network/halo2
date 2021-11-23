@@ -6,10 +6,10 @@ use halo2::{
     arithmetic::FieldExt,
     circuit::{Layouter, SimpleFloorPlanner},
     dev::{MockProver, VerifyFailure},
-    pasta::Fp,
     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Instance, Selector},
     poly::Rotation,
 };
+use pairing::bn256::Fr as Fp;
 
 #[test]
 fn lookup_any() {
