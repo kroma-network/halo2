@@ -1,4 +1,5 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src&#x2F;plonk&#x2F;lookup&#x2F;prover.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>prover.rs - source</title><link rel="stylesheet" type="text/css" href="../../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../../../../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../../../../ayu.css" disabled ><script id="default-settings" ></script><script src="../../../../storage.js"></script><script src="../../../../crates.js"></script><noscript><link rel="stylesheet" href="../../../../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../../../../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../../../../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../../../../favicon.svg"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/katex.min.css" integrity="sha384-9eLZqc9ds8eNjO3TmqPeYcDj8n+Qfa4nuSiGYa6DjLNcv9BtN69ZIulL9+8CqC9Y" crossorigin="anonymous">
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src&#x2F;plonk&#x2F;lookup&#x2F;prover.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>prover.rs - source</title><link rel="stylesheet" type="text/css" href="../../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../../ayu.css"disabled><link rel="stylesheet" type="text/css" href="../../../../dark.css"disabled><link rel="stylesheet" type="text/css" href="../../../../light.css"id="themeStyle"><script id="default-settings" ></script><script src="../../../../storage.js"></script><script src="../../../../crates.js"></script><script defer src="../../../../main.js"></script><script defer src="../../../../source-script.js"></script><script defer src="../../../../source-files.js"></script>
+    <noscript><link rel="stylesheet" href="../../../../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../../../../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../../../../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../../../../favicon.svg"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/katex.min.css" integrity="sha384-9eLZqc9ds8eNjO3TmqPeYcDj8n+Qfa4nuSiGYa6DjLNcv9BtN69ZIulL9+8CqC9Y" crossorigin="anonymous">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/katex.min.js"                  integrity="sha384-K3vbOmF2BtaVai+Qk37uypf7VrgBubhQreNQe9aGsz9lB63dIFiQVlJbr92dw2Lx" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/contrib/auto-render.min.js"    integrity="sha384-kmZOZB5ObwgQnS/DuDg6TScgOiWWBiVt0plIRkZCmE6rDZGrEOQeHM5PcHi+nyqe" crossorigin="anonymous"></script>
 <script>
@@ -13,7 +14,7 @@
         });
     });
 </script>
-<style type="text/css">#crate-search{background-image:url("../../../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu" role="button">&#9776;</div><a href='../../../../halo2/index.html'><div class='logo-container rust-logo'><img src='../../../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="18" height="18" alt="Pick another theme!" src="../../../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../../../settings.html" title="settings"><img width="18" height="18" alt="Change settings" src="../../../../wheel.svg"></a></div></form></nav><section id="main" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">  1</span>
+</head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu" role="button">&#9776;</div><a href='../../../../halo2/index.html'><div class='logo-container rust-logo'><img src='../../../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="18" height="18" alt="Pick another theme!" src="../../../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../../../settings.html" title="settings"><img width="18" height="18" alt="Change settings" src="../../../../wheel.svg"></a></div></form></nav><section id="main" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -670,46 +671,16 @@
 <span id="655">655</span>
 <span id="656">656</span>
 <span id="657">657</span>
-<span id="658">658</span>
-<span id="659">659</span>
-<span id="660">660</span>
-<span id="661">661</span>
-<span id="662">662</span>
-<span id="663">663</span>
-<span id="664">664</span>
-<span id="665">665</span>
-<span id="666">666</span>
-<span id="667">667</span>
-<span id="668">668</span>
-<span id="669">669</span>
-<span id="670">670</span>
-<span id="671">671</span>
-<span id="672">672</span>
-<span id="673">673</span>
-<span id="674">674</span>
-<span id="675">675</span>
-<span id="676">676</span>
-<span id="677">677</span>
-<span id="678">678</span>
-<span id="679">679</span>
-<span id="680">680</span>
-<span id="681">681</span>
-<span id="682">682</span>
-<span id="683">683</span>
-<span id="684">684</span>
-<span id="685">685</span>
-<span id="686">686</span>
 </pre><pre class="rust"><code><span class="kw">use</span> <span class="ident"><span class="kw">super</span>::<span class="kw">super</span></span>::{
     <span class="ident">circuit::Expression</span>, <span class="ident">ChallengeBeta</span>, <span class="ident">ChallengeGamma</span>, <span class="ident">ChallengeTheta</span>, <span class="ident">ChallengeX</span>, <span class="ident">Error</span>,
     <span class="ident">ProvingKey</span>,
 };
 <span class="kw">use</span> <span class="ident"><span class="kw">super</span>::Argument</span>;
 <span class="kw">use</span> <span class="kw">crate</span>::{
-    <span class="ident">arithmetic</span>::{<span class="ident">eval_polynomial</span>, <span class="ident">parallelize</span>, <span class="ident">CurveAffine</span>, <span class="ident">FieldExt</span>},
+    <span class="ident">arithmetic</span>::{<span class="ident">eval_polynomial</span>, <span class="ident">parallelize</span>, <span class="ident">BaseExt</span>, <span class="ident">CurveAffine</span>, <span class="ident">FieldExt</span>},
     <span class="ident">poly</span>::{
-        <span class="ident">commitment</span>::{<span class="ident">Blind</span>, <span class="ident">Params</span>},
-        <span class="ident">multiopen::ProverQuery</span>,
-        <span class="ident">Coeff</span>, <span class="ident">EvaluationDomain</span>, <span class="ident">ExtendedLagrangeCoeff</span>, <span class="ident">LagrangeCoeff</span>, <span class="ident">Polynomial</span>, <span class="ident">Rotation</span>,
+        <span class="ident">commitment::Params</span>, <span class="ident">multiopen::ProverQuery</span>, <span class="ident">Coeff</span>, <span class="ident">EvaluationDomain</span>, <span class="ident">ExtendedLagrangeCoeff</span>,
+        <span class="ident">LagrangeCoeff</span>, <span class="ident">Polynomial</span>, <span class="ident">Rotation</span>,
     },
     <span class="ident">transcript</span>::{<span class="ident">EncodedChallenge</span>, <span class="ident">TranscriptWrite</span>},
 };
@@ -730,14 +701,12 @@
     <span class="ident">permuted_input_expression</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">LagrangeCoeff</span><span class="op">&gt;</span>,
     <span class="ident">permuted_input_poly</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">Coeff</span><span class="op">&gt;</span>,
     <span class="ident">permuted_input_coset</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">ExtendedLagrangeCoeff</span><span class="op">&gt;</span>,
-    <span class="ident">permuted_input_blind</span>: <span class="ident">Blind</span><span class="op">&lt;</span><span class="ident">C::Scalar</span><span class="op">&gt;</span>,
     <span class="ident">permuted_input_commitment</span>: <span class="ident">C</span>,
     <span class="ident">unpermuted_table_expressions</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">LagrangeCoeff</span><span class="op">&gt;</span><span class="op">&gt;</span>,
     <span class="ident">unpermuted_table_cosets</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">ExtendedLagrangeCoeff</span><span class="op">&gt;</span><span class="op">&gt;</span>,
     <span class="ident">permuted_table_expression</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">LagrangeCoeff</span><span class="op">&gt;</span>,
     <span class="ident">permuted_table_poly</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">Coeff</span><span class="op">&gt;</span>,
     <span class="ident">permuted_table_coset</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">ExtendedLagrangeCoeff</span><span class="op">&gt;</span>,
-    <span class="ident">permuted_table_blind</span>: <span class="ident">Blind</span><span class="op">&lt;</span><span class="ident">C::Scalar</span><span class="op">&gt;</span>,
     <span class="ident">permuted_table_commitment</span>: <span class="ident">C</span>,
 }
 
@@ -746,17 +715,13 @@
     <span class="ident">permuted</span>: <span class="ident">Permuted</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span>,
     <span class="ident">product_poly</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">Coeff</span><span class="op">&gt;</span>,
     <span class="ident">product_coset</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">ExtendedLagrangeCoeff</span><span class="op">&gt;</span>,
-    <span class="ident">product_blind</span>: <span class="ident">Blind</span><span class="op">&lt;</span><span class="ident">C::Scalar</span><span class="op">&gt;</span>,
     <span class="ident">product_commitment</span>: <span class="ident">C</span>,
 }
 
 <span class="kw">pub</span>(<span class="kw">in</span> <span class="ident"><span class="kw">crate</span>::plonk</span>) <span class="kw">struct</span> <span class="ident">Constructed</span><span class="op">&lt;</span><span class="ident">C</span>: <span class="ident">CurveAffine</span><span class="op">&gt;</span> {
     <span class="ident">permuted_input_poly</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">Coeff</span><span class="op">&gt;</span>,
-    <span class="ident">permuted_input_blind</span>: <span class="ident">Blind</span><span class="op">&lt;</span><span class="ident">C::Scalar</span><span class="op">&gt;</span>,
     <span class="ident">permuted_table_poly</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">Coeff</span><span class="op">&gt;</span>,
-    <span class="ident">permuted_table_blind</span>: <span class="ident">Blind</span><span class="op">&lt;</span><span class="ident">C::Scalar</span><span class="op">&gt;</span>,
     <span class="ident">product_poly</span>: <span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">Coeff</span><span class="op">&gt;</span>,
-    <span class="ident">product_blind</span>: <span class="ident">Blind</span><span class="op">&lt;</span><span class="ident">C::Scalar</span><span class="op">&gt;</span>,
 }
 
 <span class="kw">pub</span>(<span class="kw">in</span> <span class="ident"><span class="kw">crate</span>::plonk</span>) <span class="kw">struct</span> <span class="ident">Evaluated</span><span class="op">&lt;</span><span class="ident">C</span>: <span class="ident">CurveAffine</span><span class="op">&gt;</span> {
@@ -790,7 +755,7 @@
         <span class="ident">advice_cosets</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> [<span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">ExtendedLagrangeCoeff</span><span class="op">&gt;</span>],
         <span class="ident">fixed_cosets</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> [<span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">ExtendedLagrangeCoeff</span><span class="op">&gt;</span>],
         <span class="ident">instance_cosets</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> [<span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">ExtendedLagrangeCoeff</span><span class="op">&gt;</span>],
-        <span class="ident">transcript</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">T</span>,
+        <span class="ident">transcript</span>: <span class="kw-2">&amp;mut</span> <span class="ident">T</span>,
     ) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Permuted</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span>, <span class="ident">Error</span><span class="op">&gt;</span>
     <span class="kw">where</span>
         <span class="ident">C</span>: <span class="ident">CurveAffine</span><span class="op">&lt;</span><span class="ident">ScalarExt</span> <span class="op">=</span> <span class="ident">F</span><span class="op">&gt;</span>,
@@ -818,7 +783,7 @@
                         <span class="kw-2">&amp;</span><span class="op">|</span><span class="ident">a</span>, <span class="ident">b</span><span class="op">|</span> <span class="ident">a</span> <span class="op">+</span> <span class="kw-2">&amp;</span><span class="ident">b</span>,
                         <span class="kw-2">&amp;</span><span class="op">|</span><span class="ident">a</span>, <span class="ident">b</span><span class="op">|</span> {
                             <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">modified_a</span> <span class="op">=</span> <span class="macro">vec!</span>[<span class="ident">C::Scalar::one</span>(); <span class="ident">params</span>.<span class="ident">n</span> <span class="kw">as</span> <span class="ident">usize</span>];
-                            <span class="ident">parallelize</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">modified_a</span>, <span class="op">|</span><span class="ident">modified_a</span>, <span class="ident">start</span><span class="op">|</span> {
+                            <span class="ident">parallelize</span>(<span class="kw-2">&amp;mut</span> <span class="ident">modified_a</span>, <span class="op">|</span><span class="ident">modified_a</span>, <span class="ident">start</span><span class="op">|</span> {
                                 <span class="kw">for</span> ((<span class="ident">modified_a</span>, <span class="ident">a</span>), <span class="ident">b</span>) <span class="kw">in</span> <span class="ident">modified_a</span>
                                     .<span class="ident">iter_mut</span>()
                                     .<span class="ident">zip</span>(<span class="ident">a</span>[<span class="ident">start</span>..].<span class="ident">iter</span>())
@@ -880,9 +845,8 @@
         <span class="comment">// Closure to construct commitment to vector of values</span>
         <span class="kw">let</span> <span class="ident">commit_values</span> <span class="op">=</span> <span class="op">|</span><span class="ident">values</span>: <span class="kw-2">&amp;</span><span class="ident">Polynomial</span><span class="op">&lt;</span><span class="ident">C::Scalar</span>, <span class="ident">LagrangeCoeff</span><span class="op">&gt;</span><span class="op">|</span> {
             <span class="kw">let</span> <span class="ident">poly</span> <span class="op">=</span> <span class="ident">pk</span>.<span class="ident">vk</span>.<span class="ident">domain</span>.<span class="ident">lagrange_to_coeff</span>(<span class="ident">values</span>.<span class="ident">clone</span>());
-            <span class="kw">let</span> <span class="ident">blind</span> <span class="op">=</span> <span class="ident">Blind</span>(<span class="ident">C::Scalar::rand</span>());
-            <span class="kw">let</span> <span class="ident">commitment</span> <span class="op">=</span> <span class="ident">params</span>.<span class="ident">commit_lagrange</span>(<span class="ident">values</span>, <span class="ident">blind</span>).<span class="ident">to_affine</span>();
-            (<span class="ident">poly</span>, <span class="ident">blind</span>, <span class="ident">commitment</span>)
+            <span class="kw">let</span> <span class="ident">commitment</span> <span class="op">=</span> <span class="ident">params</span>.<span class="ident">commit_lagrange</span>(<span class="ident">values</span>).<span class="ident">to_affine</span>();
+            (<span class="ident">poly</span>, <span class="ident">commitment</span>)
         };
 
         <span class="comment">// Get values of input expressions involved in the lookup and compress them</span>
@@ -903,22 +867,18 @@
         )<span class="question-mark">?</span>;
 
         <span class="comment">// Commit to permuted input expression</span>
-        <span class="kw">let</span> (<span class="ident">permuted_input_poly</span>, <span class="ident">permuted_input_blind</span>, <span class="ident">permuted_input_commitment</span>) <span class="op">=</span>
+        <span class="kw">let</span> (<span class="ident">permuted_input_poly</span>, <span class="ident">permuted_input_commitment</span>) <span class="op">=</span>
             <span class="ident">commit_values</span>(<span class="kw-2">&amp;</span><span class="ident">permuted_input_expression</span>);
 
         <span class="comment">// Commit to permuted table expression</span>
-        <span class="kw">let</span> (<span class="ident">permuted_table_poly</span>, <span class="ident">permuted_table_blind</span>, <span class="ident">permuted_table_commitment</span>) <span class="op">=</span>
+        <span class="kw">let</span> (<span class="ident">permuted_table_poly</span>, <span class="ident">permuted_table_commitment</span>) <span class="op">=</span>
             <span class="ident">commit_values</span>(<span class="kw-2">&amp;</span><span class="ident">permuted_table_expression</span>);
 
         <span class="comment">// Hash permuted input commitment</span>
-        <span class="ident">transcript</span>
-            .<span class="ident">write_point</span>(<span class="ident">permuted_input_commitment</span>)
-            .<span class="ident">map_err</span>(<span class="op">|</span><span class="kw">_</span><span class="op">|</span> <span class="ident">Error::TranscriptError</span>)<span class="question-mark">?</span>;
+        <span class="ident">transcript</span>.<span class="ident">write_point</span>(<span class="ident">permuted_input_commitment</span>)<span class="question-mark">?</span>;
 
         <span class="comment">// Hash permuted table commitment</span>
-        <span class="ident">transcript</span>
-            .<span class="ident">write_point</span>(<span class="ident">permuted_table_commitment</span>)
-            .<span class="ident">map_err</span>(<span class="op">|</span><span class="kw">_</span><span class="op">|</span> <span class="ident">Error::TranscriptError</span>)<span class="question-mark">?</span>;
+        <span class="ident">transcript</span>.<span class="ident">write_point</span>(<span class="ident">permuted_table_commitment</span>)<span class="question-mark">?</span>;
 
         <span class="kw">let</span> <span class="ident">permuted_input_coset</span> <span class="op">=</span> <span class="ident">pk</span>.<span class="ident">vk</span>.<span class="ident">domain</span>.<span class="ident">coeff_to_extended</span>(<span class="ident">permuted_input_poly</span>.<span class="ident">clone</span>());
         <span class="kw">let</span> <span class="ident">permuted_table_coset</span> <span class="op">=</span> <span class="ident">pk</span>.<span class="ident">vk</span>.<span class="ident">domain</span>.<span class="ident">coeff_to_extended</span>(<span class="ident">permuted_table_poly</span>.<span class="ident">clone</span>());
@@ -929,14 +889,12 @@
             <span class="ident">permuted_input_expression</span>,
             <span class="ident">permuted_input_poly</span>,
             <span class="ident">permuted_input_coset</span>,
-            <span class="ident">permuted_input_blind</span>,
             <span class="ident">permuted_input_commitment</span>,
             <span class="ident">unpermuted_table_expressions</span>,
             <span class="ident">unpermuted_table_cosets</span>,
             <span class="ident">permuted_table_expression</span>,
             <span class="ident">permuted_table_poly</span>,
             <span class="ident">permuted_table_coset</span>,
-            <span class="ident">permuted_table_blind</span>,
             <span class="ident">permuted_table_commitment</span>,
         })
     }
@@ -955,7 +913,7 @@
         <span class="ident">theta</span>: <span class="ident">ChallengeTheta</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span>,
         <span class="ident">beta</span>: <span class="ident">ChallengeBeta</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span>,
         <span class="ident">gamma</span>: <span class="ident">ChallengeGamma</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span>,
-        <span class="ident">transcript</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">T</span>,
+        <span class="ident">transcript</span>: <span class="kw-2">&amp;mut</span> <span class="ident">T</span>,
     ) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Committed</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span>, <span class="ident">Error</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">blinding_factors</span> <span class="op">=</span> <span class="ident">pk</span>.<span class="ident">vk</span>.<span class="ident">cs</span>.<span class="ident">blinding_factors</span>();
         <span class="comment">// Goal is to compute the products of fractions</span>
@@ -971,7 +929,7 @@
         <span class="comment">// and i is the ith row of the expression.</span>
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">lookup_product</span> <span class="op">=</span> <span class="macro">vec!</span>[<span class="ident">C::Scalar::zero</span>(); <span class="ident">params</span>.<span class="ident">n</span> <span class="kw">as</span> <span class="ident">usize</span>];
         <span class="comment">// Denominator uses the permuted input expression and permuted table expression</span>
-        <span class="ident">parallelize</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">lookup_product</span>, <span class="op">|</span><span class="ident">lookup_product</span>, <span class="ident">start</span><span class="op">|</span> {
+        <span class="ident">parallelize</span>(<span class="kw-2">&amp;mut</span> <span class="ident">lookup_product</span>, <span class="op">|</span><span class="ident">lookup_product</span>, <span class="ident">start</span><span class="op">|</span> {
             <span class="kw">for</span> ((<span class="ident">lookup_product</span>, <span class="ident">permuted_input_value</span>), <span class="ident">permuted_table_value</span>) <span class="kw">in</span> <span class="ident">lookup_product</span>
                 .<span class="ident">iter_mut</span>()
                 .<span class="ident">zip</span>(<span class="self">self</span>.<span class="ident">permuted_input_expression</span>[<span class="ident">start</span>..].<span class="ident">iter</span>())
@@ -988,7 +946,7 @@
         <span class="comment">// Finish the computation of the entire fraction by computing the numerators</span>
         <span class="comment">// (\theta^{m-1} a_0(\omega^i) + \theta^{m-2} a_1(\omega^i) + ... + \theta a_{m-2}(\omega^i) + a_{m-1}(\omega^i) + \beta)</span>
         <span class="comment">// * (\theta^{m-1} s_0(\omega^i) + \theta^{m-2} s_1(\omega^i) + ... + \theta s_{m-2}(\omega^i) + s_{m-1}(\omega^i) + \gamma)</span>
-        <span class="ident">parallelize</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">lookup_product</span>, <span class="op">|</span><span class="ident">product</span>, <span class="ident">start</span><span class="op">|</span> {
+        <span class="ident">parallelize</span>(<span class="kw-2">&amp;mut</span> <span class="ident">lookup_product</span>, <span class="op">|</span><span class="ident">product</span>, <span class="ident">start</span><span class="op">|</span> {
             <span class="kw">for</span> (<span class="ident">i</span>, <span class="ident">product</span>) <span class="kw">in</span> <span class="ident">product</span>.<span class="ident">iter_mut</span>().<span class="ident">enumerate</span>() {
                 <span class="kw">let</span> <span class="ident">i</span> <span class="op">=</span> <span class="ident">i</span> <span class="op">+</span> <span class="ident">start</span>;
 
@@ -1085,23 +1043,18 @@
             <span class="comment">// case this z[u] value will be zero. (bad!)</span>
             <span class="macro">assert_eq!</span>(<span class="ident">z</span>[<span class="ident">u</span>], <span class="ident">C::Scalar::one</span>());
         }
-
-        <span class="kw">let</span> <span class="ident">product_blind</span> <span class="op">=</span> <span class="ident">Blind</span>(<span class="ident">C::Scalar::rand</span>());
-        <span class="kw">let</span> <span class="ident">product_commitment</span> <span class="op">=</span> <span class="ident">params</span>.<span class="ident">commit_lagrange</span>(<span class="kw-2">&amp;</span><span class="ident">z</span>, <span class="ident">product_blind</span>).<span class="ident">to_affine</span>();
+        <span class="kw">let</span> <span class="ident">product_commitment</span> <span class="op">=</span> <span class="ident">params</span>.<span class="ident">commit_lagrange</span>(<span class="kw-2">&amp;</span><span class="ident">z</span>).<span class="ident">to_affine</span>();
         <span class="kw">let</span> <span class="ident">z</span> <span class="op">=</span> <span class="ident">pk</span>.<span class="ident">vk</span>.<span class="ident">domain</span>.<span class="ident">lagrange_to_coeff</span>(<span class="ident">z</span>);
         <span class="kw">let</span> <span class="ident">product_coset</span> <span class="op">=</span> <span class="ident">pk</span>.<span class="ident">vk</span>.<span class="ident">domain</span>.<span class="ident">coeff_to_extended</span>(<span class="ident">z</span>.<span class="ident">clone</span>());
 
         <span class="comment">// Hash product commitment</span>
-        <span class="ident">transcript</span>
-            .<span class="ident">write_point</span>(<span class="ident">product_commitment</span>)
-            .<span class="ident">map_err</span>(<span class="op">|</span><span class="kw">_</span><span class="op">|</span> <span class="ident">Error::TranscriptError</span>)<span class="question-mark">?</span>;
+        <span class="ident">transcript</span>.<span class="ident">write_point</span>(<span class="ident">product_commitment</span>)<span class="question-mark">?</span>;
 
         <span class="prelude-val">Ok</span>(<span class="ident">Committed</span>::<span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span> {
             <span class="ident">permuted</span>: <span class="self">self</span>,
             <span class="ident">product_poly</span>: <span class="ident">z</span>,
             <span class="ident">product_coset</span>,
             <span class="ident">product_commitment</span>,
-            <span class="ident">product_blind</span>,
         })
     }
 }
@@ -1144,7 +1097,7 @@
             .<span class="ident">chain</span>({
                 <span class="comment">// z(\omega X) (a&#39;(X) + \beta) (s&#39;(X) + \gamma)</span>
                 <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">left</span> <span class="op">=</span> <span class="ident">domain</span>.<span class="ident">rotate_extended</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">product_coset</span>, <span class="ident">Rotation::next</span>());
-                <span class="ident">parallelize</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">left</span>, <span class="op">|</span><span class="ident">left</span>, <span class="ident">start</span><span class="op">|</span> {
+                <span class="ident">parallelize</span>(<span class="kw-2">&amp;mut</span> <span class="ident">left</span>, <span class="op">|</span><span class="ident">left</span>, <span class="ident">start</span><span class="op">|</span> {
                     <span class="kw">for</span> ((<span class="ident">left</span>, <span class="ident">permuted_input</span>), <span class="ident">permuted_table</span>) <span class="kw">in</span> <span class="ident">left</span>
                         .<span class="ident">iter_mut</span>()
                         .<span class="ident">zip</span>(<span class="ident">permuted</span>.<span class="ident">permuted_input_coset</span>[<span class="ident">start</span>..].<span class="ident">iter</span>())
@@ -1157,7 +1110,7 @@
 
                 <span class="comment">//  z(X) (\theta^{m-1} a_0(X) + ... + a_{m-1}(X) + \beta) (\theta^{m-1} s_0(X) + ... + s_{m-1}(X) + \gamma)</span>
                 <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">right</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">product_coset</span>;
-                <span class="ident">parallelize</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">right</span>, <span class="op">|</span><span class="ident">right</span>, <span class="ident">start</span><span class="op">|</span> {
+                <span class="ident">parallelize</span>(<span class="kw-2">&amp;mut</span> <span class="ident">right</span>, <span class="op">|</span><span class="ident">right</span>, <span class="ident">start</span><span class="op">|</span> {
                     <span class="kw">for</span> (<span class="ident">i</span>, <span class="ident">right</span>) <span class="kw">in</span> <span class="ident">right</span>.<span class="ident">iter_mut</span>().<span class="ident">enumerate</span>() {
                         <span class="kw">let</span> <span class="ident">i</span> <span class="op">=</span> <span class="ident">i</span> <span class="op">+</span> <span class="ident">start</span>;
 
@@ -1206,11 +1159,8 @@
         (
             <span class="ident">Constructed</span> {
                 <span class="ident">permuted_input_poly</span>: <span class="ident">permuted</span>.<span class="ident">permuted_input_poly</span>,
-                <span class="ident">permuted_input_blind</span>: <span class="ident">permuted</span>.<span class="ident">permuted_input_blind</span>,
                 <span class="ident">permuted_table_poly</span>: <span class="ident">permuted</span>.<span class="ident">permuted_table_poly</span>,
-                <span class="ident">permuted_table_blind</span>: <span class="ident">permuted</span>.<span class="ident">permuted_table_blind</span>,
                 <span class="ident">product_poly</span>: <span class="self">self</span>.<span class="ident">product_poly</span>,
-                <span class="ident">product_blind</span>: <span class="self">self</span>.<span class="ident">product_blind</span>,
             },
             <span class="ident">expressions</span>,
         )
@@ -1222,7 +1172,7 @@
         <span class="self">self</span>,
         <span class="ident">pk</span>: <span class="kw-2">&amp;</span><span class="ident">ProvingKey</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span>,
         <span class="ident">x</span>: <span class="ident">ChallengeX</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span>,
-        <span class="ident">transcript</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">T</span>,
+        <span class="ident">transcript</span>: <span class="kw-2">&amp;mut</span> <span class="ident">T</span>,
     ) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Evaluated</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span>, <span class="ident">Error</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">domain</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="ident">pk</span>.<span class="ident">vk</span>.<span class="ident">domain</span>;
         <span class="kw">let</span> <span class="ident">x_inv</span> <span class="op">=</span> <span class="ident">domain</span>.<span class="ident">rotate_omega</span>(<span class="kw-2">*</span><span class="ident">x</span>, <span class="ident">Rotation::prev</span>());
@@ -1242,9 +1192,7 @@
             .<span class="ident">chain</span>(<span class="prelude-val">Some</span>(<span class="ident">permuted_input_inv_eval</span>))
             .<span class="ident">chain</span>(<span class="prelude-val">Some</span>(<span class="ident">permuted_table_eval</span>))
         {
-            <span class="ident">transcript</span>
-                .<span class="ident">write_scalar</span>(<span class="ident">eval</span>)
-                .<span class="ident">map_err</span>(<span class="op">|</span><span class="kw">_</span><span class="op">|</span> <span class="ident">Error::TranscriptError</span>)<span class="question-mark">?</span>;
+            <span class="ident">transcript</span>.<span class="ident">write_scalar</span>(<span class="ident">eval</span>)<span class="question-mark">?</span>;
         }
 
         <span class="prelude-val">Ok</span>(<span class="ident">Evaluated</span> { <span class="ident">constructed</span>: <span class="self">self</span> })
@@ -1265,31 +1213,26 @@
             .<span class="ident">chain</span>(<span class="prelude-val">Some</span>(<span class="ident">ProverQuery</span> {
                 <span class="ident">point</span>: <span class="kw-2">*</span><span class="ident">x</span>,
                 <span class="ident">poly</span>: <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">product_poly</span>,
-                <span class="ident">blind</span>: <span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">product_blind</span>,
             }))
             <span class="comment">// Open lookup input commitments at x</span>
             .<span class="ident">chain</span>(<span class="prelude-val">Some</span>(<span class="ident">ProverQuery</span> {
                 <span class="ident">point</span>: <span class="kw-2">*</span><span class="ident">x</span>,
                 <span class="ident">poly</span>: <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">permuted_input_poly</span>,
-                <span class="ident">blind</span>: <span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">permuted_input_blind</span>,
             }))
             <span class="comment">// Open lookup table commitments at x</span>
             .<span class="ident">chain</span>(<span class="prelude-val">Some</span>(<span class="ident">ProverQuery</span> {
                 <span class="ident">point</span>: <span class="kw-2">*</span><span class="ident">x</span>,
                 <span class="ident">poly</span>: <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">permuted_table_poly</span>,
-                <span class="ident">blind</span>: <span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">permuted_table_blind</span>,
             }))
             <span class="comment">// Open lookup input commitments at x_inv</span>
             .<span class="ident">chain</span>(<span class="prelude-val">Some</span>(<span class="ident">ProverQuery</span> {
                 <span class="ident">point</span>: <span class="ident">x_inv</span>,
                 <span class="ident">poly</span>: <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">permuted_input_poly</span>,
-                <span class="ident">blind</span>: <span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">permuted_input_blind</span>,
             }))
             <span class="comment">// Open lookup product commitments at x_next</span>
             .<span class="ident">chain</span>(<span class="prelude-val">Some</span>(<span class="ident">ProverQuery</span> {
                 <span class="ident">point</span>: <span class="ident">x_next</span>,
                 <span class="ident">poly</span>: <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">product_poly</span>,
-                <span class="ident">blind</span>: <span class="self">self</span>.<span class="ident">constructed</span>.<span class="ident">product_blind</span>,
             }))
     }
 }
@@ -1386,6 +1329,5 @@
     ))
 }
 </code></pre></div>
-</section><section id="search" class="content hidden"></section><div id="rustdoc-vars" data-root-path="../../../../" data-current-crate="halo2" data-search-index-js="../../../../search-index.js" data-search-js="../../../../search.js"></div>
-    <script src="../../../../main.js"></script><script src="../../../../source-script.js"></script><script src="../../../../source-files.js"></script>
+</section><section id="search" class="content hidden"></section><div id="rustdoc-vars" data-root-path="../../../../" data-current-crate="halo2" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.59.0-nightly (db9d361a4 2021-11-28)" ></div>
 </body></html>
