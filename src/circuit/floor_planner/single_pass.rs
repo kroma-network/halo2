@@ -180,7 +180,7 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a
                     _ => None,
                 }) {
                 Some(Some(len)) => len,
-                _ => return Err(Error::SynthesisError), // TODO better error
+                _ => return Err(Error::Synthesis), // TODO better error
             }
         };
 
@@ -320,7 +320,7 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> RegionLayouter<F>
         let value = self.layouter.cs.query_instance(instance, row)?;
 
         let cell = self.assign_advice(annotation, advice, offset, &mut || {
-            value.ok_or(Error::SynthesisError).map(|v| v.into())
+            value.ok_or(Error::Synthesis).map(|v| v.into())
         })?;
 
         self.layouter.cs.copy(
@@ -417,7 +417,7 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> TableLayouter<F>
         to: &'v mut (dyn FnMut() -> Result<Assigned<F>, Error> + 'v),
     ) -> Result<(), Error> {
         if self.used_columns.contains(&column) {
-            return Err(Error::SynthesisError); // TODO better error
+            return Err(Error::Synthesis); // TODO better error
         }
 
         let entry = self.default_and_assigned.entry(column).or_default();
@@ -439,7 +439,7 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> TableLayouter<F>
             (true, 0) => entry.0 = Some(value),
             // Since there is already an existing default value for this table column,
             // the caller should not be attempting to assign another value at offset 0.
-            (false, 0) => return Err(Error::SynthesisError), // TODO better error
+            (false, 0) => return Err(Error::Synthesis), // TODO better error
             _ => (),
         }
         if entry.1.len() <= offset {
@@ -453,7 +453,7 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> TableLayouter<F>
 
 #[cfg(test)]
 mod tests {
-    use pasta_curves::vesta;
+    use pairing::bn256::Fr as Scalar;
 
     use super::SimpleFloorPlanner;
     use crate::{
@@ -465,7 +465,7 @@ mod tests {
     fn not_enough_columns_for_constants() {
         struct MyCircuit {}
 
-        impl Circuit<vesta::Scalar> for MyCircuit {
+        impl Circuit<Scalar> for MyCircuit {
             type Config = Column<Advice>;
             type FloorPlanner = SimpleFloorPlanner;
 
@@ -473,24 +473,19 @@ mod tests {
                 MyCircuit {}
             }
 
-            fn configure(meta: &mut crate::plonk::ConstraintSystem<vesta::Scalar>) -> Self::Config {
+            fn configure(meta: &mut crate::plonk::ConstraintSystem<Scalar>) -> Self::Config {
                 meta.advice_column()
             }
 
             fn synthesize(
                 &self,
                 config: Self::Config,
-                mut layouter: impl crate::circuit::Layouter<vesta::Scalar>,
+                mut layouter: impl crate::circuit::Layouter<Scalar>,
             ) -> Result<(), crate::plonk::Error> {
                 layouter.assign_region(
                     || "assign constant",
                     |mut region| {
-                        region.assign_advice_from_constant(
-                            || "one",
-                            config,
-                            0,
-                            vesta::Scalar::one(),
-                        )
+                        region.assign_advice_from_constant(|| "one", config, 0, Scalar::one())
                     },
                 )?;
 
@@ -499,9 +494,9 @@ mod tests {
         }
 
         let circuit = MyCircuit {};
-        assert_eq!(
+        assert!(matches!(
             MockProver::run(3, &circuit, vec![]).unwrap_err(),
             Error::NotEnoughColumnsForConstants,
-        );
+        ));
     }
 }

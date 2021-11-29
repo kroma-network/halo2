@@ -44,7 +44,7 @@ impl Argument {
         let permutation_product_commitments = self
             .columns
             .chunks(chunk_len)
-            .map(|_| transcript.read_point().map_err(|_| Error::TranscriptError))
+            .map(|_| transcript.read_point())
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Committed {
@@ -61,7 +61,7 @@ impl<C: CurveAffine> VerifyingKey<C> {
         let permutation_evals = self
             .commitments
             .iter()
-            .map(|_| transcript.read_scalar().map_err(|_| Error::TranscriptError))
+            .map(|_| transcript.read_scalar())
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(CommonEvaluated { permutation_evals })
@@ -78,18 +78,10 @@ impl<C: CurveAffine> Committed<C> {
         let mut iter = self.permutation_product_commitments.into_iter();
 
         while let Some(permutation_product_commitment) = iter.next() {
-            let permutation_product_eval = transcript
-                .read_scalar()
-                .map_err(|_| Error::TranscriptError)?;
-            let permutation_product_next_eval = transcript
-                .read_scalar()
-                .map_err(|_| Error::TranscriptError)?;
+            let permutation_product_eval = transcript.read_scalar()?;
+            let permutation_product_next_eval = transcript.read_scalar()?;
             let permutation_product_last_eval = if iter.len() > 0 {
-                Some(
-                    transcript
-                        .read_scalar()
-                        .map_err(|_| Error::TranscriptError)?,
-                )
+                Some(transcript.read_scalar()?)
             } else {
                 None
             };
@@ -207,11 +199,11 @@ impl<C: CurveAffine> Evaluated<C> {
             )
     }
 
-    pub(in crate::plonk) fn queries<'r, 'params: 'r>(
+    pub(in crate::plonk) fn queries<'r>(
         &'r self,
         vk: &'r plonk::VerifyingKey<C>,
         x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, 'params, C>> + Clone {
+    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone {
         let blinding_factors = vk.cs.blinding_factors();
         let x_next = vk.domain.rotate_omega(*x, Rotation::next());
         let x_last = vk
@@ -250,7 +242,7 @@ impl<C: CurveAffine> CommonEvaluated<C> {
         &'r self,
         vkey: &'r VerifyingKey<C>,
         x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, 'params, C>> + Clone {
+    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone {
         // Open permutation commitments for each permutation argument at x
         vkey.commitments
             .iter()

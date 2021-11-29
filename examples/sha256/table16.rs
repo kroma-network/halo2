@@ -344,9 +344,9 @@ mod tests {
     use halo2::{
         arithmetic::FieldExt,
         circuit::{layouter::SingleChipLayouter, Layouter},
-        pasta::Fq,
         plonk::{Assignment, Circuit, ConstraintSystem, Error},
     };
+    use pairing::bn256::Fr as Fp;
 
     #[cfg(feature = "dev-graph")]
     #[test]

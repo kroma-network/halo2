@@ -1,30 +1,37 @@
 use ff::Field;
-use group::Curve;
 use std::iter;
+use subtle::Choice;
 
 use super::{
     vanishing, ChallengeBeta, ChallengeGamma, ChallengeTheta, ChallengeX, ChallengeY, Error,
     VerifyingKey,
 };
-use crate::arithmetic::{CurveAffine, FieldExt};
+use crate::arithmetic::BaseExt;
+use crate::poly::commitment::ParamsVerifier;
 use crate::poly::{
-    commitment::{Blind, Guard, Params, MSM},
+    msm::MSM,
     multiopen::{self, VerifierQuery},
 };
 use crate::transcript::{read_n_points, read_n_scalars, EncodedChallenge, TranscriptRead};
+use group::Curve;
+use pairing::arithmetic::MultiMillerLoop;
 
 /// Returns a boolean indicating whether or not the proof is valid
-pub fn verify_proof<'params, C: CurveAffine, E: EncodedChallenge<C>, T: TranscriptRead<C, E>>(
-    params: &'params Params<C>,
-    vk: &VerifyingKey<C>,
-    msm: MSM<'params, C>,
+pub fn verify_proof<
+    'a,
+    C: MultiMillerLoop,
+    E: EncodedChallenge<C::G1Affine>,
+    T: TranscriptRead<C::G1Affine, E>,
+>(
+    params: &'a ParamsVerifier<C>,
+    vk: &VerifyingKey<C::G1Affine>,
     instances: &[&[&[C::Scalar]]],
     transcript: &mut T,
-) -> Result<Guard<'params, C, E>, Error> {
+) -> Result<Choice, Error> {
     // Check that instances matches the expected number of instance columns
     for instances in instances.iter() {
         if instances.len() != vk.cs.num_instance_columns {
-            return Err(Error::IncompatibleParams);
+            return Err(Error::InvalidInstances);
         }
     }
 
@@ -37,11 +44,7 @@ pub fn verify_proof<'params, C: CurveAffine, E: EncodedChallenge<C>, T: Transcri
                     if instance.len() > params.n as usize - (vk.cs.blinding_factors() + 1) {
                         return Err(Error::InstanceTooLarge);
                     }
-                    let mut poly = instance.to_vec();
-                    poly.resize(params.n as usize, C::Scalar::zero());
-                    let poly = vk.domain.lagrange_from_vec(poly);
-
-                    Ok(params.commit_lagrange(&poly, Blind::default()).to_affine())
+                    Ok(params.commit_lagrange(instance.to_vec()).to_affine())
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
@@ -50,22 +53,19 @@ pub fn verify_proof<'params, C: CurveAffine, E: EncodedChallenge<C>, T: Transcri
     let num_proofs = instance_commitments.len();
 
     // Hash verification key into transcript
-    vk.hash_into(transcript)
-        .map_err(|_| Error::TranscriptError)?;
+    vk.hash_into(transcript)?;
 
     for instance_commitments in instance_commitments.iter() {
         // Hash the instance (external) commitments into the transcript
         for commitment in instance_commitments {
-            transcript
-                .common_point(*commitment)
-                .map_err(|_| Error::TranscriptError)?
+            transcript.common_point(*commitment)?
         }
     }
 
     let advice_commitments = (0..num_proofs)
         .map(|_| -> Result<Vec<_>, _> {
             // Hash the prover's advice commitments into the transcript
-            read_n_points(transcript, vk.cs.num_advice_columns).map_err(|_| Error::TranscriptError)
+            read_n_points(transcript, vk.cs.num_advice_columns)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -118,21 +118,14 @@ pub fn verify_proof<'params, C: CurveAffine, E: EncodedChallenge<C>, T: Transcri
     // satisfied with high probability.
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
     let instance_evals = (0..num_proofs)
-        .map(|_| -> Result<Vec<_>, _> {
-            read_n_scalars(transcript, vk.cs.instance_queries.len())
-                .map_err(|_| Error::TranscriptError)
-        })
+        .map(|_| -> Result<Vec<_>, _> { read_n_scalars(transcript, vk.cs.instance_queries.len()) })
         .collect::<Result<Vec<_>, _>>()?;
 
     let advice_evals = (0..num_proofs)
-        .map(|_| -> Result<Vec<_>, _> {
-            read_n_scalars(transcript, vk.cs.advice_queries.len())
-                .map_err(|_| Error::TranscriptError)
-        })
+        .map(|_| -> Result<Vec<_>, _> { read_n_scalars(transcript, vk.cs.advice_queries.len()) })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let fixed_evals = read_n_scalars(transcript, vk.cs.fixed_queries.len())
-        .map_err(|_| Error::TranscriptError)?;
+    let fixed_evals = read_n_scalars(transcript, vk.cs.fixed_queries.len())?;
 
     let vanishing = vanishing.evaluate_after_x(transcript)?;
 
@@ -231,7 +224,7 @@ pub fn verify_proof<'params, C: CurveAffine, E: EncodedChallenge<C>, T: Transcri
                     )
             });
 
-        vanishing.verify(params, expressions, y, xn)
+        vanishing.verify(expressions, y, xn)
     };
 
     let queries = instance_commitments
@@ -295,5 +288,5 @@ pub fn verify_proof<'params, C: CurveAffine, E: EncodedChallenge<C>, T: Transcri
 
     // We are now convinced the circuit is satisfied so long as the
     // polynomial commitments open to the correct values.
-    multiopen::verify_proof(params, transcript, queries, msm).map_err(|_| Error::OpeningError)
+    multiopen::verify_proof(params, transcript, queries).map_err(|_| Error::Opening)
 }

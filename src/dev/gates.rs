@@ -5,7 +5,10 @@ use std::{
 
 use ff::PrimeField;
 
-use crate::plonk::{Circuit, ConstraintSystem};
+use crate::{
+    dev::util,
+    plonk::{Circuit, ConstraintSystem},
+};
 
 #[derive(Debug)]
 struct Constraint {
@@ -32,7 +35,7 @@ struct Gate {
 ///     plonk::{Circuit, ConstraintSystem, Error},
 ///     poly::Rotation,
 /// };
-/// use pasta_curves::pallas;
+/// use pairing::bn256::Fr;
 ///
 /// #[derive(Copy, Clone)]
 /// struct MyConfig {}
@@ -73,7 +76,7 @@ struct Gate {
 ///     }
 /// }
 ///
-/// let gates = CircuitGates::collect::<pallas::Base, MyCircuit>();
+/// let gates = CircuitGates::collect::<Fr, MyCircuit>();
 /// assert_eq!(
 ///     format!("{}", gates),
 ///     r#####"R1CS constraint:
@@ -102,15 +105,6 @@ impl CircuitGates {
         let mut cs = ConstraintSystem::default();
         let _ = C::configure(&mut cs);
 
-        let format_scalar = |s: F| {
-            // Format scalar as hex.
-            let s = format!("{:?}", s);
-            // Remove leading zeroes.
-            let s = s.strip_prefix("0x").unwrap();
-            let s = s.trim_start_matches('0');
-            format!("0x{}", s)
-        };
-
         let gates = cs
             .gates
             .iter()
@@ -123,17 +117,7 @@ impl CircuitGates {
                     .map(|(i, constraint)| Constraint {
                         name: gate.constraint_name(i),
                         expression: constraint.evaluate(
-                            &|s| {
-                                if s.is_zero_vartime() {
-                                    "0".into()
-                                } else if s == F::one() {
-                                    "1".into()
-                                } else if s == -F::one() {
-                                    "-1".into()
-                                } else {
-                                    format_scalar(s)
-                                }
-                            },
+                            &util::format_value,
                             &|selector| format!("S{}", selector.0),
                             &|_, column, rotation| format!("F{}@{}", column, rotation.0),
                             &|_, column, rotation| format!("A{}@{}", column, rotation.0),
@@ -160,9 +144,9 @@ impl CircuitGates {
                             },
                             &|a, s| {
                                 if a.contains(' ') {
-                                    format!("({}) * {}", a, format_scalar(s))
+                                    format!("({}) * {}", a, util::format_value(s))
                                 } else {
-                                    format!("{} * {}", a, format_scalar(s))
+                                    format!("{} * {}", a, util::format_value(s))
                                 }
                             },
                         ),

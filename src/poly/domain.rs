@@ -553,8 +553,8 @@ pub struct PinnedEvaluationDomain<'a, G: Group> {
 
 #[test]
 fn test_rotate() {
-    use crate::arithmetic::eval_polynomial;
-    use crate::pasta::pallas::Scalar;
+    use crate::arithmetic::{eval_polynomial, BaseExt};
+    use crate::pairing::bn256::Fr as Scalar;
     let domain = EvaluationDomain::<Scalar>::new(1, 3);
 
     let mut poly = domain.empty_lagrange();
@@ -590,8 +590,9 @@ fn test_rotate() {
 
 #[test]
 fn test_l_i() {
-    use crate::arithmetic::{eval_polynomial, lagrange_interpolate};
-    use crate::pasta::pallas::Scalar;
+    use crate::arithmetic::{eval_polynomial, lagrange_interpolate, BaseExt};
+    use crate::pairing::bn256::Fr as Scalar;
+
     let domain = EvaluationDomain::<Scalar>::new(1, 3);
 
     let mut l = vec![];

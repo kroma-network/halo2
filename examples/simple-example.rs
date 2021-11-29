@@ -172,7 +172,7 @@ impl<F: FieldExt> NumericInstructions<F> for FieldChip<F> {
                     || "private input",
                     config.advice[0],
                     0,
-                    || value.ok_or(Error::SynthesisError),
+                    || value.ok_or(Error::Synthesis),
                 )?;
                 num = Some(Number { cell, value });
                 Ok(())
@@ -233,13 +233,13 @@ impl<F: FieldExt> NumericInstructions<F> for FieldChip<F> {
                     || "lhs",
                     config.advice[0],
                     0,
-                    || a.value.ok_or(Error::SynthesisError),
+                    || a.value.ok_or(Error::Synthesis),
                 )?;
                 let rhs = region.assign_advice(
                     || "rhs",
                     config.advice[1],
                     0,
-                    || b.value.ok_or(Error::SynthesisError),
+                    || b.value.ok_or(Error::Synthesis),
                 )?;
                 region.constrain_equal(a.cell, lhs)?;
                 region.constrain_equal(b.cell, rhs)?;
@@ -250,7 +250,7 @@ impl<F: FieldExt> NumericInstructions<F> for FieldChip<F> {
                     || "lhs * rhs",
                     config.advice[0],
                     1,
-                    || value.ok_or(Error::SynthesisError),
+                    || value.ok_or(Error::Synthesis),
                 )?;
 
                 // Finally, we return a variable representing the output,
@@ -348,7 +348,8 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
 // ANCHOR_END: circuit
 
 fn main() {
-    use halo2::{dev::MockProver, pasta::Fp};
+    use halo2::dev::MockProver;
+    use pairing::bn256::Fr as Fp;
 
     // ANCHOR: test-circuit
     // The number of rows in our circuit cannot exceed 2^k. Since our example

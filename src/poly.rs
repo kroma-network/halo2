@@ -6,15 +6,15 @@ use crate::arithmetic::parallelize;
 use crate::plonk::Assigned;
 
 use group::ff::{BatchInvert, Field};
-use pasta_curves::arithmetic::FieldExt;
+use pairing::arithmetic::FieldExt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Mul, Neg, RangeFrom, RangeFull, Sub};
 
 pub mod commitment;
 mod domain;
+pub(crate) mod msm;
 pub mod multiopen;
-
 pub use domain::*;
 
 /// This is an error that could occur during proving or circuit synthesis.
@@ -265,6 +265,16 @@ impl<'a, F: Field> Polynomial<F, LagrangeCoeff> {
             values,
             _marker: PhantomData,
         }
+    }
+}
+
+impl<'a, F: Field, B: Basis> Sub<F> for &'a Polynomial<F, B> {
+    type Output = Polynomial<F, B>;
+
+    fn sub(self, rhs: F) -> Polynomial<F, B> {
+        let mut res = self.clone();
+        res.values[0] -= rhs;
+        res
     }
 }
 

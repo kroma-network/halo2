@@ -5,10 +5,7 @@ use ff::Field;
 use crate::{
     arithmetic::CurveAffine,
     plonk::{Error, VerifyingKey},
-    poly::{
-        commitment::{Params, MSM},
-        multiopen::VerifierQuery,
-    },
+    poly::{msm::MSM, multiopen::VerifierQuery},
     transcript::{read_n_points, EncodedChallenge, TranscriptRead},
 };
 
@@ -30,8 +27,8 @@ pub struct PartiallyEvaluated<C: CurveAffine> {
     random_eval: C::Scalar,
 }
 
-pub struct Evaluated<'params, C: CurveAffine> {
-    h_commitment: MSM<'params, C>,
+pub struct Evaluated<C: CurveAffine> {
+    h_commitment: MSM<C>,
     random_poly_commitment: C,
     expected_h_eval: C::Scalar,
     random_eval: C::Scalar,
@@ -44,9 +41,7 @@ impl<C: CurveAffine> Argument<C> {
     >(
         transcript: &mut T,
     ) -> Result<Committed<C>, Error> {
-        let random_poly_commitment = transcript
-            .read_point()
-            .map_err(|_| Error::TranscriptError)?;
+        let random_poly_commitment = transcript.read_point()?;
 
         Ok(Committed {
             random_poly_commitment,
@@ -64,8 +59,7 @@ impl<C: CurveAffine> Committed<C> {
         transcript: &mut T,
     ) -> Result<Constructed<C>, Error> {
         // Obtain a commitment to h(X) in the form of multiple pieces of degree n - 1
-        let h_commitments = read_n_points(transcript, vk.domain.get_quotient_poly_degree())
-            .map_err(|_| Error::TranscriptError)?;
+        let h_commitments = read_n_points(transcript, vk.domain.get_quotient_poly_degree())?;
 
         Ok(Constructed {
             h_commitments,
@@ -79,9 +73,7 @@ impl<C: CurveAffine> Constructed<C> {
         self,
         transcript: &mut T,
     ) -> Result<PartiallyEvaluated<C>, Error> {
-        let random_eval = transcript
-            .read_scalar()
-            .map_err(|_| Error::TranscriptError)?;
+        let random_eval = transcript.read_scalar()?;
 
         Ok(PartiallyEvaluated {
             h_commitments: self.h_commitments,
@@ -94,7 +86,6 @@ impl<C: CurveAffine> Constructed<C> {
 impl<C: CurveAffine> PartiallyEvaluated<C> {
     pub(in crate::plonk) fn verify(
         self,
-        params: &Params<C>,
         expressions: impl Iterator<Item = C::Scalar>,
         y: ChallengeY<C>,
         xn: C::Scalar,
@@ -106,7 +97,7 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
             self.h_commitments
                 .iter()
                 .rev()
-                .fold(params.empty_msm(), |mut acc, commitment| {
+                .fold(MSM::new(), |mut acc, commitment| {
                     acc.scale(xn);
                     acc.append_term(C::Scalar::one(), *commitment);
                     acc
@@ -121,14 +112,11 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
     }
 }
 
-impl<'params, C: CurveAffine> Evaluated<'params, C> {
+impl<C: CurveAffine> Evaluated<C> {
     pub(in crate::plonk) fn queries<'r>(
         &'r self,
         x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, 'params, C>> + Clone
-    where
-        'params: 'r,
-    {
+    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone {
         iter::empty()
             .chain(Some(VerifierQuery::new_msm(
                 &self.h_commitment,

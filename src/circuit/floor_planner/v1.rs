@@ -321,7 +321,7 @@ impl<'p, 'a, F: Field, CS: Assignment<F> + 'a> AssignmentPass<'p, 'a, F, CS> {
                     _ => None,
                 }) {
                 Some(Some(len)) => len,
-                _ => return Err(Error::SynthesisError), // TODO better error
+                _ => return Err(Error::Synthesis), // TODO better error
             }
         };
 
@@ -436,7 +436,7 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> RegionLayouter<F> for V1Region<'r
         let value = self.plan.cs.query_instance(instance, row)?;
 
         let cell = self.assign_advice(annotation, advice, offset, &mut || {
-            value.ok_or(Error::SynthesisError).map(|v| v.into())
+            value.ok_or(Error::Synthesis).map(|v| v.into())
         })?;
 
         self.plan.cs.copy(
@@ -489,7 +489,7 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> RegionLayouter<F> for V1Region<'r
 
 #[cfg(test)]
 mod tests {
-    use pasta_curves::vesta;
+    use pairing::bn256::Fr as Scalar;
 
     use crate::{
         dev::MockProver,
@@ -500,7 +500,7 @@ mod tests {
     fn not_enough_columns_for_constants() {
         struct MyCircuit {}
 
-        impl Circuit<vesta::Scalar> for MyCircuit {
+        impl Circuit<Scalar> for MyCircuit {
             type Config = Column<Advice>;
             type FloorPlanner = super::V1;
 
@@ -508,24 +508,19 @@ mod tests {
                 MyCircuit {}
             }
 
-            fn configure(meta: &mut crate::plonk::ConstraintSystem<vesta::Scalar>) -> Self::Config {
+            fn configure(meta: &mut crate::plonk::ConstraintSystem<Scalar>) -> Self::Config {
                 meta.advice_column()
             }
 
             fn synthesize(
                 &self,
                 config: Self::Config,
-                mut layouter: impl crate::circuit::Layouter<vesta::Scalar>,
+                mut layouter: impl crate::circuit::Layouter<Scalar>,
             ) -> Result<(), crate::plonk::Error> {
                 layouter.assign_region(
                     || "assign constant",
                     |mut region| {
-                        region.assign_advice_from_constant(
-                            || "one",
-                            config,
-                            0,
-                            vesta::Scalar::one(),
-                        )
+                        region.assign_advice_from_constant(|| "one", config, 0, Scalar::one())
                     },
                 )?;
 
@@ -534,9 +529,9 @@ mod tests {
         }
 
         let circuit = MyCircuit {};
-        assert_eq!(
+        assert!(matches!(
             MockProver::run(3, &circuit, vec![]).unwrap_err(),
             Error::NotEnoughColumnsForConstants,
-        );
+        ));
     }
 }

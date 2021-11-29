@@ -5,10 +5,7 @@ use super::{Argument, ProvingKey, VerifyingKey};
 use crate::{
     arithmetic::{CurveAffine, FieldExt},
     plonk::{Any, Column, Error},
-    poly::{
-        commitment::{Blind, Params},
-        EvaluationDomain,
-    },
+    poly::{commitment::Params, EvaluationDomain},
 };
 
 #[derive(Debug)]
@@ -51,12 +48,12 @@ impl Assembly {
             .columns
             .iter()
             .position(|c| c == &left_column)
-            .ok_or(Error::SynthesisError)?;
+            .ok_or(Error::ColumnNotInPermutation(left_column))?;
         let right_column = self
             .columns
             .iter()
             .position(|c| c == &right_column)
-            .ok_or(Error::SynthesisError)?;
+            .ok_or(Error::ColumnNotInPermutation(right_column))?;
 
         // Check bounds
         if left_row >= self.mapping[left_column].len()
@@ -141,11 +138,7 @@ impl Assembly {
             }
 
             // Compute commitment to permutation polynomial
-            commitments.push(
-                params
-                    .commit_lagrange(&permutation_poly, Blind::default())
-                    .to_affine(),
-            );
+            commitments.push(params.commit_lagrange(&permutation_poly).to_affine());
         }
         VerifyingKey { commitments }
     }

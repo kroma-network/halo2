@@ -12,12 +12,13 @@ use crate::{
     arithmetic::{FieldExt, Group},
     plonk::{
         permutation, Advice, Any, Assignment, Circuit, Column, ColumnType, ConstraintSystem, Error,
-        Expression, Fixed, FloorPlanner, Instance, Selector,
+        Expression, Fixed, FloorPlanner, Instance, Selector, VirtualCell,
     },
     poly::Rotation,
 };
 
 pub mod metadata;
+mod util;
 
 pub mod cost;
 pub use cost::CircuitCost;
@@ -54,6 +55,8 @@ pub enum VerifyFailure {
         constraint: metadata::Constraint,
         /// The row on which this constraint is not satisfied.
         row: usize,
+        /// The values of the virtual cells used by this constraint.
+        cell_values: Vec<(metadata::VirtualCell, String)>,
     },
     /// A constraint was active on an unusable row, and is likely missing a selector.
     ConstraintPoisoned {
@@ -93,8 +96,16 @@ impl fmt::Display for VerifyFailure {
                     region, gate, column, offset
                 )
             }
-            Self::ConstraintNotSatisfied { constraint, row } => {
-                write!(f, "{} is not satisfied on row {}", constraint, row)
+            Self::ConstraintNotSatisfied {
+                constraint,
+                row,
+                cell_values,
+            } => {
+                writeln!(f, "{} is not satisfied on row {}", constraint, row)?;
+                for (name, value) in cell_values {
+                    writeln!(f, "- {} = {}", name, value)?;
+                }
+                Ok(())
             }
             Self::ConstraintPoisoned { constraint } => {
                 write!(
@@ -155,7 +166,7 @@ enum CellValue<F: Group + Field> {
 }
 
 /// A value within an expression.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
 enum Value<F: Group + Field> {
     Real(F),
     Poison,
@@ -241,10 +252,11 @@ impl<F: Group + Field> Mul<F> for Value<F> {
 ///     arithmetic::FieldExt,
 ///     circuit::{Layouter, SimpleFloorPlanner},
 ///     dev::{MockProver, VerifyFailure},
-///     pasta::Fp,
-///     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector},
+///     plonk::{Advice, Any, Circuit, Column, ConstraintSystem, Error, Selector},
 ///     poly::Rotation,
 /// };
+/// use pairing::bn256::Fr as Fp;
+///
 /// const K: u32 = 5;
 ///
 /// #[derive(Copy, Clone)]
@@ -292,15 +304,15 @@ impl<F: Group + Field> Mul<F> for Value<F> {
 ///         layouter.assign_region(|| "Example region", |mut region| {
 ///             config.s.enable(&mut region, 0)?;
 ///             region.assign_advice(|| "a", config.a, 0, || {
-///                 self.a.map(|v| F::from(v)).ok_or(Error::SynthesisError)
+///                 self.a.map(|v| F::from(v)).ok_or(Error::Synthesis)
 ///             })?;
 ///             region.assign_advice(|| "b", config.b, 0, || {
-///                 self.b.map(|v| F::from(v)).ok_or(Error::SynthesisError)
+///                 self.b.map(|v| F::from(v)).ok_or(Error::Synthesis)
 ///             })?;
 ///             region.assign_advice(|| "c", config.c, 0, || {
 ///                 self.a
 ///                     .and_then(|a| self.b.map(|b| F::from(a * b)))
-///                     .ok_or(Error::SynthesisError)
+///                     .ok_or(Error::Synthesis)
 ///             })?;
 ///             Ok(())
 ///         })
@@ -321,12 +333,26 @@ impl<F: Group + Field> Mul<F> for Value<F> {
 ///     prover.verify(),
 ///     Err(vec![VerifyFailure::ConstraintNotSatisfied {
 ///         constraint: ((0, "R1CS constraint").into(), 0, "buggy R1CS").into(),
-///         row: 0
+///         row: 0,
+///         cell_values: vec![
+///             (((Any::Advice, 0).into(), 0).into(), "0x2".to_string()),
+///             (((Any::Advice, 1).into(), 0).into(), "0x4".to_string()),
+///             (((Any::Advice, 2).into(), 0).into(), "0x8".to_string()),
+///         ],
 ///     }])
 /// );
+///
+/// // If we provide a too-small K, we get an error.
+/// assert!(matches!(
+///     MockProver::<Fp>::run(2, &circuit, vec![]).unwrap_err(),
+///     Error::NotEnoughRowsAvailable {
+///         current_k,
+///     } if current_k == 2,
+/// ));
 /// ```
 #[derive(Debug)]
 pub struct MockProver<F: Group + Field> {
+    k: u32,
     n: u32,
     cs: ConstraintSystem<F>,
 
@@ -376,7 +402,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
         AR: Into<String>,
     {
         if !self.usable_rows.contains(&row) {
-            return Err(Error::BoundsFailure);
+            return Err(Error::not_enough_rows_available(self.k));
         }
 
         // Track that this selector was enabled. We require that all selectors are enabled
@@ -396,7 +422,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
 
     fn query_instance(&self, column: Column<Instance>, row: usize) -> Result<Option<F>, Error> {
         if !self.usable_rows.contains(&row) {
-            return Err(Error::BoundsFailure);
+            return Err(Error::not_enough_rows_available(self.k));
         }
 
         self.instance
@@ -420,7 +446,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
         AR: Into<String>,
     {
         if !self.usable_rows.contains(&row) {
-            return Err(Error::BoundsFailure);
+            return Err(Error::not_enough_rows_available(self.k));
         }
 
         if let Some(region) = self.current_region.as_mut() {
@@ -451,7 +477,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
         AR: Into<String>,
     {
         if !self.usable_rows.contains(&row) {
-            return Err(Error::BoundsFailure);
+            return Err(Error::not_enough_rows_available(self.k));
         }
 
         if let Some(region) = self.current_region.as_mut() {
@@ -476,7 +502,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
         right_row: usize,
     ) -> Result<(), crate::plonk::Error> {
         if !self.usable_rows.contains(&left_row) || !self.usable_rows.contains(&right_row) {
-            return Err(Error::BoundsFailure);
+            return Err(Error::not_enough_rows_available(self.k));
         }
 
         self.permutation
@@ -490,7 +516,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
         _: Option<Assigned<F>>,
     ) -> Result<(), Error> {
         if !self.usable_rows.contains(&from_row) {
-            return Err(Error::BoundsFailure);
+            return Err(Error::not_enough_rows_available(self.k));
         }
 
         Ok(())
@@ -524,11 +550,11 @@ impl<F: FieldExt> MockProver<F> {
         let cs = cs;
 
         if n < cs.minimum_rows() {
-            return Err(Error::NotEnoughRowsAvailable);
+            return Err(Error::not_enough_rows_available(k));
         }
 
         if instance.len() != cs.num_instance_columns {
-            return Err(Error::IncompatibleParams);
+            return Err(Error::InvalidInstances);
         }
 
         let instance = instance
@@ -564,6 +590,7 @@ impl<F: FieldExt> MockProver<F> {
         let constants = cs.constants.clone();
 
         let mut prover = MockProver {
+            k,
             n: n as u32,
             cs,
             regions: vec![],
@@ -697,6 +724,18 @@ impl<F: FieldExt> MockProver<F> {
                                     )
                                         .into(),
                                     row: (row - n) as usize,
+                                    cell_values: util::cell_values(
+                                        gate,
+                                        poly,
+                                        &load(n, row, &self.cs.fixed_queries, &self.fixed),
+                                        &load(n, row, &self.cs.advice_queries, &self.advice),
+                                        &load_instance(
+                                            n,
+                                            row,
+                                            &self.cs.instance_queries,
+                                            &self.instance,
+                                        ),
+                                    ),
                                 }),
                                 Value::Poison => Some(VerifyFailure::ConstraintPoisoned {
                                     constraint: (
@@ -756,7 +795,7 @@ impl<F: FieldExt> MockProver<F> {
 
                     // In the real prover, the lookup expressions are never enforced on
                     // unusable rows, due to the (1 - (l_last(X) + l_blind(X))) term.
-                    let table: Vec<_> = self
+                    let table: std::collections::BTreeSet<Vec<_>> = self
                         .usable_rows
                         .clone()
                         .map(|table_row| {
@@ -773,9 +812,7 @@ impl<F: FieldExt> MockProver<F> {
                             .iter()
                             .map(|c| load(c, input_row))
                             .collect();
-                        let lookup_passes = table
-                            .iter()
-                            .any(|table_row| table_row.iter().cloned().eq(inputs.iter().cloned()));
+                        let lookup_passes = table.contains(&inputs);
                         if lookup_passes {
                             None
                         } else {
@@ -853,7 +890,7 @@ impl<F: FieldExt> MockProver<F> {
 
 #[cfg(test)]
 mod tests {
-    use pasta_curves::Fp;
+    use pairing::bn256::Fr as Fp;
 
     use super::{MockProver, VerifyFailure};
     use crate::{

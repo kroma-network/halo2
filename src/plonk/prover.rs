@@ -12,12 +12,12 @@ use super::{
     ChallengeY, Error, ProvingKey,
 };
 use crate::poly::{
-    commitment::{Blind, Params},
+    commitment::Params,
     multiopen::{self, ProverQuery},
     Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial,
 };
 use crate::{
-    arithmetic::{eval_polynomial, CurveAffine, FieldExt},
+    arithmetic::{eval_polynomial, BaseExt, CurveAffine},
     plonk::Assigned,
 };
 use crate::{
@@ -43,14 +43,12 @@ pub fn create_proof<
 ) -> Result<(), Error> {
     for instance in instances.iter() {
         if instance.len() != pk.vk.cs.num_instance_columns {
-            return Err(Error::IncompatibleParams);
+            return Err(Error::InvalidInstances);
         }
     }
 
     // Hash verification key into transcript
-    pk.vk
-        .hash_into(transcript)
-        .map_err(|_| Error::TranscriptError)?;
+    pk.vk.hash_into(transcript)?;
 
     let domain = &pk.vk.domain;
     let mut meta = ConstraintSystem::default();
@@ -85,7 +83,7 @@ pub fn create_proof<
                 .collect::<Result<Vec<_>, _>>()?;
             let instance_commitments_projective: Vec<_> = instance_values
                 .iter()
-                .map(|poly| params.commit_lagrange(poly, Blind::default()))
+                .map(|poly| params.commit_lagrange(poly))
                 .collect();
             let mut instance_commitments =
                 vec![C::identity(); instance_commitments_projective.len()];
@@ -94,9 +92,7 @@ pub fn create_proof<
             drop(instance_commitments_projective);
 
             for commitment in &instance_commitments {
-                transcript
-                    .common_point(*commitment)
-                    .map_err(|_| Error::TranscriptError)?;
+                transcript.common_point(*commitment)?;
             }
 
             let instance_polys: Vec<_> = instance_values
@@ -124,7 +120,6 @@ pub fn create_proof<
         pub advice_values: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
         pub advice_polys: Vec<Polynomial<C::Scalar, Coeff>>,
         pub advice_cosets: Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>>,
-        pub advice_blinds: Vec<Blind<C::Scalar>>,
     }
 
     let advice: Vec<AdviceSingle<C>> = circuits
@@ -132,6 +127,7 @@ pub fn create_proof<
         .zip(instances.iter())
         .map(|(circuit, instances)| -> Result<AdviceSingle<C>, Error> {
             struct WitnessCollection<'a, F: Field> {
+                k: u32,
                 pub advice: Vec<Polynomial<Assigned<F>, LagrangeCoeff>>,
                 instances: &'a [&'a [F]],
                 usable_rows: RangeTo<usize>,
@@ -172,7 +168,7 @@ pub fn create_proof<
                     row: usize,
                 ) -> Result<Option<F>, Error> {
                     if !self.usable_rows.contains(&row) {
-                        return Err(Error::BoundsFailure);
+                        return Err(Error::not_enough_rows_available(self.k));
                     }
 
                     self.instances
@@ -196,7 +192,7 @@ pub fn create_proof<
                     AR: Into<String>,
                 {
                     if !self.usable_rows.contains(&row) {
-                        return Err(Error::BoundsFailure);
+                        return Err(Error::not_enough_rows_available(self.k));
                     }
 
                     *self
@@ -263,6 +259,7 @@ pub fn create_proof<
             let unusable_rows_start = params.n as usize - (meta.blinding_factors() + 1);
 
             let mut witness = WitnessCollection {
+                k: params.k,
                 advice: vec![domain.empty_lagrange_assigned(); meta.num_advice_columns],
                 instances,
                 // The prover will not be allowed to assign values to advice
@@ -291,11 +288,9 @@ pub fn create_proof<
             }
 
             // Compute commitments to advice column polynomials
-            let advice_blinds: Vec<_> = advice.iter().map(|_| Blind(C::Scalar::rand())).collect();
             let advice_commitments_projective: Vec<_> = advice
                 .iter()
-                .zip(advice_blinds.iter())
-                .map(|(poly, blind)| params.commit_lagrange(poly, *blind))
+                .map(|poly| params.commit_lagrange(poly))
                 .collect();
             let mut advice_commitments = vec![C::identity(); advice_commitments_projective.len()];
             C::Curve::batch_normalize(&advice_commitments_projective, &mut advice_commitments);
@@ -303,9 +298,7 @@ pub fn create_proof<
             drop(advice_commitments_projective);
 
             for commitment in &advice_commitments {
-                transcript
-                    .write_point(*commitment)
-                    .map_err(|_| Error::TranscriptError)?;
+                transcript.write_point(*commitment)?;
             }
 
             let advice_polys: Vec<_> = advice
@@ -323,7 +316,6 @@ pub fn create_proof<
                 advice_values: advice,
                 advice_polys,
                 advice_cosets,
-                advice_blinds,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -498,9 +490,7 @@ pub fn create_proof<
 
         // Hash each instance column evaluation
         for eval in instance_evals.iter() {
-            transcript
-                .write_scalar(*eval)
-                .map_err(|_| Error::TranscriptError)?;
+            transcript.write_scalar(*eval)?;
         }
     }
 
@@ -520,9 +510,7 @@ pub fn create_proof<
 
         // Hash each advice column evaluation
         for eval in advice_evals.iter() {
-            transcript
-                .write_scalar(*eval)
-                .map_err(|_| Error::TranscriptError)?;
+            transcript.write_scalar(*eval)?;
         }
     }
 
@@ -537,9 +525,7 @@ pub fn create_proof<
 
     // Hash each fixed column evaluation
     for eval in fixed_evals.iter() {
-        transcript
-            .write_scalar(*eval)
-            .map_err(|_| Error::TranscriptError)?;
+        transcript.write_scalar(*eval)?;
     }
 
     let vanishing = vanishing.evaluate(x, xn, domain, transcript)?;
@@ -579,7 +565,6 @@ pub fn create_proof<
                         .map(move |&(column, at)| ProverQuery {
                             point: domain.rotate_omega(*x, at),
                             poly: &instance.instance_polys[column.index()],
-                            blind: Blind::default(),
                         }),
                 )
                 .chain(
@@ -590,7 +575,6 @@ pub fn create_proof<
                         .map(move |&(column, at)| ProverQuery {
                             point: domain.rotate_omega(*x, at),
                             poly: &advice.advice_polys[column.index()],
-                            blind: advice.advice_blinds[column.index()],
                         }),
                 )
                 .chain(permutation.open(pk, x))
@@ -604,12 +588,11 @@ pub fn create_proof<
                 .map(|&(column, at)| ProverQuery {
                     point: domain.rotate_omega(*x, at),
                     poly: &pk.fixed_polys[column.index()],
-                    blind: Blind::default(),
                 }),
         )
         .chain(pk.permutation.open(x))
         // We query the h(X) polynomial at x
         .chain(vanishing.open(x));
 
-    multiopen::create_proof(params, transcript, instances).map_err(|_| Error::OpeningError)
+    multiopen::create_proof(params, transcript, instances).map_err(|_| Error::Opening)
 }
