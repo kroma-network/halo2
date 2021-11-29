@@ -4,7 +4,6 @@ use halo2::{
     circuit::{Cell, Layouter, Region, SimpleFloorPlanner},
     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, TableColumn},
     poly::Rotation,
-    poly::Rotation,
 };
 use pairing::bn256::Fr as Fp;
 use std::marker::PhantomData;

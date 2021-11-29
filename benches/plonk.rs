@@ -288,10 +288,8 @@ fn bench_with_k(name: &str, k: u32, c: &mut Criterion) {
 
     c.bench_function(&verifier_name, |b| {
         b.iter(|| {
-            let msm = params.empty_msm();
             let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
-            let _ =
-                verify_proof(&verifier_params, pk.get_vk(), msm, &[&[]], &mut transcript).unwrap();
+            let _ = verify_proof(&verifier_params, pk.get_vk(), &[&[]], &mut transcript).unwrap();
         });
     });
 }
