@@ -119,7 +119,7 @@ where
             let queries = point_query_map.get(point).unwrap();
             CommitmentData {
                 queries: queries.clone(),
-                point: point.clone(),
+                point: *point,
                 _marker: PhantomData,
             }
         })
@@ -151,11 +151,10 @@ fn test_multiopen() {
     ]);
 
     fn rand_poly(n: usize, mut rng: impl RngCore) -> Polynomial<Fr, Coeff> {
-        let poly = Polynomial {
+        Polynomial {
             values: (0..n).into_iter().map(|_| Fr::random(&mut rng)).collect(),
             _marker: PhantomData,
-        };
-        poly
+        }
     }
 
     let k = 3;
