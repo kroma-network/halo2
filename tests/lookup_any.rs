@@ -76,7 +76,7 @@ fn lookup_any() {
                         || "even input",
                         self.input,
                         0,
-                        || value.ok_or(Error::SynthesisError),
+                        || value.ok_or(Error::Synthesis),
                     )?;
                     Ok(())
                 },
@@ -98,7 +98,7 @@ fn lookup_any() {
                         || "odd input",
                         self.input,
                         0,
-                        || value.ok_or(Error::SynthesisError),
+                        || value.ok_or(Error::Synthesis),
                     )?;
                     Ok(())
                 },

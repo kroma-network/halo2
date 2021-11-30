@@ -51,7 +51,7 @@ impl SpreadVar {
             || {
                 dense_val
                     .map(|v| F::from_u64(v as u64))
-                    .ok_or(Error::SynthesisError)
+                    .ok_or(Error::Synthesis)
             },
         )?;
         let spread_var = region.assign_advice(
@@ -61,7 +61,7 @@ impl SpreadVar {
             || {
                 spread_val
                     .map(|v| F::from_u64(v as u64))
-                    .ok_or(Error::SynthesisError)
+                    .ok_or(Error::Synthesis)
             },
         )?;
 
@@ -90,7 +90,7 @@ impl SpreadVar {
             || {
                 dense_val
                     .map(|v| F::from_u64(v as u64))
-                    .ok_or(Error::SynthesisError)
+                    .ok_or(Error::Synthesis)
             },
         )?;
         let spread_var = region.assign_advice(
@@ -100,7 +100,7 @@ impl SpreadVar {
             || {
                 spread_val
                     .map(|v| F::from_u64(v as u64))
-                    .ok_or(Error::SynthesisError)
+                    .ok_or(Error::Synthesis)
             },
         )?;
 
@@ -209,14 +209,14 @@ impl<F: FieldExt> SpreadTableChip<F> {
                         index,
                         || {
                             row = rows.next();
-                            row.map(|(tag, _, _)| tag).ok_or(Error::SynthesisError)
+                            row.map(|(tag, _, _)| tag).ok_or(Error::Synthesis)
                         },
                     )?;
                     gate.assign_fixed(
                         || "dense",
                         config.table.dense,
                         index,
-                        || row.map(|(_, dense, _)| dense).ok_or(Error::SynthesisError),
+                        || row.map(|(_, dense, _)| dense).ok_or(Error::Synthesis),
                     )?;
                     gate.assign_fixed(
                         || "spread",
@@ -224,7 +224,7 @@ impl<F: FieldExt> SpreadTableChip<F> {
                         index,
                         || {
                             row.map(|(_, _, spread)| spread)
-                                .ok_or(Error::SynthesisError)
+                                .ok_or(Error::Synthesis)
                         },
                     )?;
                 }
