@@ -46,6 +46,7 @@ pub struct Setup<E: Engine> {
 impl<E: Engine> Setup<E> {
     /// Initializes parameters for the curve, given a random oracle to draw
     /// points from.
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(k: u32, mut rng: impl RngCore) -> Params<E::G1Affine> {
         // Largest root of unity exponent of the Engine is `2^E::Scalar::S`, so we can
         // only support FFTs of polynomials below degree `2^E::Scalar::S`.
@@ -59,7 +60,7 @@ impl<E: Engine> Setup<E> {
         g_projective.push(g1.into());
         // g = [G1, [s] G1, [s^2] G1, ..., [s^(n-1)] G1]
         for i in 1..(n as usize) {
-            g_projective.push((g_projective[i - 1] * s).into());
+            g_projective.push(g_projective[i - 1] * s);
         }
 
         let g = {
@@ -100,15 +101,13 @@ impl<E: Engine> Setup<E> {
         let g2 = <E::G2Affine as PrimeCurveAffine>::generator();
         let s_g2 = g2 * s;
         let additional_data = Vec::from(s_g2.to_bytes().as_ref());
-        let params = Params {
+        Params {
             k,
             n,
             g,
             g_lagrange,
             additional_data,
-        };
-
-        params
+        }
     }
 
     /// Returns verifier params with size of lagrage bases equal to number of public inputs
@@ -117,10 +116,7 @@ impl<E: Engine> Setup<E> {
         public_inputs_size: usize,
     ) -> io::Result<ParamsVerifier<E>> {
         assert!(public_inputs_size < params.n as usize);
-        let g_lagrange = params.g_lagrange[..public_inputs_size]
-            .iter()
-            .cloned()
-            .collect();
+        let g_lagrange = params.g_lagrange[..public_inputs_size].to_vec();
         let g2 = <E::G2Affine as PrimeCurveAffine>::generator();
 
         let additional_data = params.additional_data.clone();
@@ -130,7 +126,7 @@ impl<E: Engine> Setup<E> {
         let params = ParamsVerifier {
             k: params.k,
             n: params.n,
-            g1: params.g[0].clone(),
+            g1: params.g[0],
             g_lagrange,
             g2,
             s_g2,

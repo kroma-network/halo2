@@ -8,6 +8,12 @@ pub struct MSM<C: CurveAffine> {
     bases: Vec<C>,
 }
 
+impl<C: CurveAffine> Default for MSM<C> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, C: CurveAffine> MSM<C> {
     /// Create a new, empty MSM using the provided parameters.
     pub fn new() -> Self {

@@ -238,7 +238,7 @@ impl<C: CurveAffine> Evaluated<C> {
 }
 
 impl<C: CurveAffine> CommonEvaluated<C> {
-    pub(in crate::plonk) fn queries<'r, 'params: 'r>(
+    pub(in crate::plonk) fn queries<'r>(
         &'r self,
         vkey: &'r VerifyingKey<C>,
         x: ChallengeX<C>,

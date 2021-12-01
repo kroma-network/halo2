@@ -45,7 +45,7 @@ where
     let mut witness_with_aux = params.empty_msm();
 
     for commitment_at_a_point in commitment_data.iter() {
-        assert!(commitment_at_a_point.queries.len() > 0);
+        assert!(!commitment_at_a_point.queries.is_empty());
         let z = commitment_at_a_point.point;
 
         let wi = transcript.read_point().map_err(|_| Error::SamplingError)?;
@@ -93,7 +93,7 @@ where
     let s_g2_prepared = C::G2Prepared::from(params.s_g2);
     let n_g2_prepared = C::G2Prepared::from(-params.g2);
 
-    let term_1 = (&w.into(), &s_g2_prepared);
+    let term_1 = (&w, &s_g2_prepared);
     let term_2 = (&(zw + e + f).into(), &n_g2_prepared);
 
     Ok(C::multi_miller_loop(&[term_1, term_2])
