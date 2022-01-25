@@ -55,6 +55,7 @@ rand_xorshift = "0.3"
 dev-graph = ["plotters", "tabbycat"]
 gadget-traces = ["backtrace"]
 sanity-checks = []
+asm = ["pairing/asm"]
 
 [[example]]
 name = "circuit-layout"
