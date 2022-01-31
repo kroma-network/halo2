@@ -170,7 +170,7 @@ impl<F: Group + Field> Mul<F> for Value<F> {
 ///     arithmetic::FieldExt,
 ///     circuit::{Layouter, SimpleFloorPlanner, Value},
 ///     dev::{FailureLocation, MockProver, VerifyFailure},
-///     pasta::Fp,
+///     pairing::bn256::Fr as Fp,
 ///     plonk::{Advice, Any, Circuit, Column, ConstraintSystem, Error, Selector},
 ///     poly::Rotation,
 /// };
@@ -877,7 +877,7 @@ impl<F: FieldExt> MockProver<F> {
 
 #[cfg(test)]
 mod tests {
-    use pasta_curves::Fp;
+    use pairing::bn256::Fr as Fp;
 
     use super::{FailureLocation, MockProver, VerifyFailure};
     use crate::{

@@ -8,7 +8,7 @@
 use blake2b_simd::Params as Blake2bParams;
 use group::ff::Field;
 
-use crate::arithmetic::{CurveAffine, FieldExt};
+use crate::arithmetic::{BaseExt, CurveAffine, FieldExt};
 use crate::helpers::CurveRead;
 use crate::poly::{
     commitment::Params, Coeff, EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff,
