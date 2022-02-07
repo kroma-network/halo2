@@ -36,7 +36,7 @@ group = "0.11"
 rand = "0.8"
 rand_core = { version = "0.6", default-features = false }
 blake2b_simd = "1"
-pairing = { git = 'https://github.com/appliedzkp/pairing', package = "pairing_bn256" }
+pairing = { git = 'https://github.com/appliedzkp/pairing', package = "pairing_bn256", branch = "introduce-assembly-complete", features = ["asm"] }
 subtle = "2.3"
 cfg-if = "0.1"
 
@@ -62,12 +62,13 @@ rand_core = { version = "0.6", default-features = false, features = ["getrandom"
 getrandom = { version = "0.2", features = ["js"] }
 
 [features]
-default = ["gwc"]
+default = ["gwc", "asm"]
 dev-graph = ["plotters", "tabbycat"]
 gadget-traces = ["backtrace"]
 sanity-checks = []
 shplonk = []
 gwc = []
+asm = []
 
 [lib]
 bench = false
