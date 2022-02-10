@@ -670,6 +670,7 @@ pub fn create_proof<
                         .iter()
                         .map(move |&(column, at)| ProverQuery {
                             point: domain.rotate_omega(*x, at),
+                            rotation: at,
                             poly: &instance.instance_polys[column.index()],
                         }),
                 )
@@ -680,6 +681,7 @@ pub fn create_proof<
                         .iter()
                         .map(move |&(column, at)| ProverQuery {
                             point: domain.rotate_omega(*x, at),
+                            rotation: at,
                             poly: &advice.advice_polys[column.index()],
                         }),
                 )
@@ -693,6 +695,7 @@ pub fn create_proof<
                 .iter()
                 .map(|&(column, at)| ProverQuery {
                     point: domain.rotate_omega(*x, at),
+                    rotation: at,
                     poly: &pk.fixed_polys[column.index()],
                 }),
         )

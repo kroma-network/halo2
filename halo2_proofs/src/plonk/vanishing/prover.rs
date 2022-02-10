@@ -5,6 +5,7 @@ use group::Curve;
 use rand_core::RngCore;
 
 use super::Argument;
+use crate::poly::Rotation;
 use crate::{
     arithmetic::{eval_polynomial, CurveAffine, FieldExt},
     plonk::{ChallengeX, ChallengeY, Error},
@@ -136,10 +137,12 @@ impl<C: CurveAffine> Evaluated<C> {
         iter::empty()
             .chain(Some(ProverQuery {
                 point: *x,
+                rotation: Rotation::cur(),
                 poly: &self.h_poly,
             }))
             .chain(Some(ProverQuery {
                 point: *x,
+                rotation: Rotation::cur(),
                 poly: &self.committed.random_poly,
             }))
     }
