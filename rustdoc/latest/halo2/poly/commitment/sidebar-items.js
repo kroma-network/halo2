@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["Blind","Wrapper type around a blinding factor."],["Params","These are the public parameters for the polynomial commitment scheme."],["ParamsVerifier","These are the public parameters for the polynomial commitment scheme."],["Setup","Help to specify the engine we use to generate parameters"]]});

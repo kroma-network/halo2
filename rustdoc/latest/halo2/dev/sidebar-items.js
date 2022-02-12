@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["VerifyFailure","The reasons why a particular circuit is not satisfied."]],"mod":[["cost","Developer tools for investigating the cost of a circuit."],["metadata","Metadata about circuits."]],"struct":[["CircuitGates","A struct for collecting and displaying the gates within a circuit."],["MockProver","A test prover for debugging circuits."]]});
