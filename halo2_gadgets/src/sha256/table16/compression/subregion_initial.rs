@@ -2,7 +2,7 @@ use super::super::{RoundWord, StateWord, STATE};
 use super::{compression_util::*, CompressionConfig, State};
 use halo2_proofs::{
     circuit::{Region, Value},
-    pasta::pallas,
+    pairing::bn256::Fr,
     plonk::Error,
 };
 
@@ -10,7 +10,7 @@ impl CompressionConfig {
     #[allow(clippy::many_single_char_names)]
     pub fn initialize_iv(
         &self,
-        region: &mut Region<'_, pallas::Base>,
+        region: &mut Region<'_, Fr>,
         iv: [u32; STATE],
     ) -> Result<State, Error> {
         let a_7 = self.extras[3];
@@ -54,7 +54,7 @@ impl CompressionConfig {
     #[allow(clippy::many_single_char_names)]
     pub fn initialize_state(
         &self,
-        region: &mut Region<'_, pallas::Base>,
+        region: &mut Region<'_, Fr>,
         state: State,
     ) -> Result<State, Error> {
         let a_7 = self.extras[3];
@@ -104,9 +104,9 @@ impl CompressionConfig {
 
     fn decompose_b(
         &self,
-        region: &mut Region<'_, pallas::Base>,
+        region: &mut Region<'_, Fr>,
         round_idx: InitialRound,
-        b_val: Value<u32>,
+        b_val: Option<u32>,
     ) -> Result<RoundWord, Error> {
         let row = get_decompose_b_row(round_idx);
 
@@ -117,9 +117,9 @@ impl CompressionConfig {
 
     fn decompose_c(
         &self,
-        region: &mut Region<'_, pallas::Base>,
+        region: &mut Region<'_, Fr>,
         round_idx: InitialRound,
-        c_val: Value<u32>,
+        c_val: Option<u32>,
     ) -> Result<RoundWord, Error> {
         let row = get_decompose_c_row(round_idx);
 
@@ -130,9 +130,9 @@ impl CompressionConfig {
 
     fn decompose_f(
         &self,
-        region: &mut Region<'_, pallas::Base>,
+        region: &mut Region<'_, Fr>,
         round_idx: InitialRound,
-        f_val: Value<u32>,
+        f_val: Option<u32>,
     ) -> Result<RoundWord, Error> {
         let row = get_decompose_f_row(round_idx);
 
@@ -143,9 +143,9 @@ impl CompressionConfig {
 
     fn decompose_g(
         &self,
-        region: &mut Region<'_, pallas::Base>,
+        region: &mut Region<'_, Fr>,
         round_idx: InitialRound,
-        g_val: Value<u32>,
+        g_val: Option<u32>,
     ) -> Result<RoundWord, Error> {
         let row = get_decompose_g_row(round_idx);
 
