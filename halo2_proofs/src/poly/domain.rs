@@ -476,6 +476,30 @@ pub struct PinnedEvaluationDomain<'a, G: Group> {
 }
 
 #[test]
+fn test_fft() {
+    use crate::poly::EvaluationDomain;
+    use ark_std::{end_timer, start_timer};
+    use pairing::bn256::Fr;
+    use rand_core::OsRng;
+
+    fn test_best_fft<G: Group>() {
+        let mut rng = OsRng;
+        let k = 19;
+        // polynomial degree n = 2^k
+        let n = 1u64 << k;
+        // polynomial coeffs
+        let mut coeffs: Vec<_> = (0..n).map(|_| G::Scalar::random(&mut rng)).collect();
+        let domain: EvaluationDomain<G> = EvaluationDomain::new(1, k);
+
+        let message = format!("best_fft");
+        let start = start_timer!(|| message);
+        best_fft(&mut coeffs, domain.get_omega(), k);
+        end_timer!(start);
+    }
+    test_best_fft::<Fr>();
+}
+
+#[test]
 fn test_rotate() {
     use rand_core::OsRng;
 
