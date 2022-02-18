@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_USER: ${{ github.actor }}
-      TOKEN: ${{ secrets.PAT2 }}
+      TOKEN: ${{ secrets.BENCHMARKER }}
       REVISION: ${{ github.event.pull_request.head.sha }}
       REPO: ${{ github.event.repository.name }}
       PR_NUMBER: ${{ github.event.number }}
