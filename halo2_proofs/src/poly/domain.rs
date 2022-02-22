@@ -15,8 +15,10 @@ use std::marker::PhantomData;
 /// This structure manages fft radix and length
 #[derive(Debug)]
 pub struct FFTStage {
-    radix: usize,
-    length: usize,
+    /// radix of fft
+    pub radix: usize,
+    /// twiddles length
+    pub length: usize,
 }
 
 /// Return fft stages. The size is 2^k and radixes should be an exponent of 2.
@@ -52,11 +54,12 @@ pub fn get_stages(size: usize, radixes: Vec<usize>) -> Vec<FFTStage> {
 
 /// This structure hold the twiddles and `FFTStage` in order not to recompute
 #[derive(Debug)]
-struct FFTData<F: FieldExt> {
+pub struct FFTData<F: FieldExt> {
     n: usize,
     smt: bool,
 
-    stages: Vec<FFTStage>,
+    /// stages
+    pub stages: Vec<FFTStage>,
 
     f_twiddles: Vec<Vec<F>>,
     inv_twiddles: Vec<Vec<F>>,
@@ -626,17 +629,22 @@ fn test_fft() {
     use pairing::bn256::Fr;
     use rand_core::OsRng;
 
-    fn test_best_fft<G: Group + std::fmt::Debug>() {
-        let mut rng = OsRng;
-        let k = 19;
-        // polynomial degree n = 2^k
-        let n = 1u64 << k;
+    let mut rng = OsRng;
+    let k = 19;
+    // polynomial degree n = 2^k
+    let n = 1u64 << k;
+    // polynomial coeffs
+    let coeffs: Vec<_> = (0..n).map(|_| Fr::random(&mut rng)).collect();
+    // evaluation domain
+    let domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
 
-        // polynomial coeffs
-        let mut best_fft_coeffs: Vec<_> = (0..n).map(|_| G::Scalar::random(&mut rng)).collect();
-        let mut recursive_fft_coeffs: Vec<_> =
-            (0..n).map(|_| G::Scalar::random(&mut rng)).collect();
-        let domain: EvaluationDomain<G> = EvaluationDomain::new(1, k);
+    fn test_best_fft<G: Group + std::fmt::Debug>(
+        k: u32,
+        coeffs: Vec<Fr>,
+        domain: EvaluationDomain<Fr>,
+    ) {
+        let mut best_fft_coeffs = coeffs.clone();
+        let mut recursive_fft_coeffs = coeffs.clone();
 
         let message = format!("best_fft");
         let start = start_timer!(|| message);
@@ -645,11 +653,11 @@ fn test_fft() {
 
         let message = format!("recursive_fft");
         let start = start_timer!(|| message);
-        recursive_fft(&mut recursive_fft_coeffs, domain.get_omega(), k);
+        recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data, k);
         end_timer!(start);
     }
 
-    test_best_fft::<Fr>();
+    test_best_fft::<Fr>(k, coeffs, domain);
 }
 
 #[test]

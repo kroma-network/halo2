@@ -2,12 +2,12 @@
 //! field and polynomial arithmetic.
 
 use super::multicore;
+use crate::poly::FFTData;
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
     Group as _,
 };
-
 pub use pairing::arithmetic::*;
 
 fn multiexp_serial<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C], acc: &mut C::Curve) {
@@ -180,50 +180,111 @@ pub fn best_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
 }
 
 /// recursive fft
-pub fn recursive_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
-    serial_recursive_fft(a, omega, log_n);
+pub fn recursive_fft<F: FieldExt>(a: &mut [F], data: &FFTData<F>, log_n: u32) {
+    serial_recursive_fft(a, data, log_n);
 }
 
-fn serial_recursive_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
-    fn bitreverse(mut n: u32, l: u32) -> u32 {
-        let mut r = 0;
-        for _ in 0..l {
-            r = (r << 1) | (n & 1);
-            n >>= 1;
+fn serial_recursive_fft<F: FieldExt>(a: &mut [F], data: &FFTData<F>, log_n: u32) {
+    let mut scratch = vec![F::zero(); a.len()];
+    let radix = data.stages[0].radix;
+    let stage_length = data.stages[0].length;
+
+    if stage_length == 1 {
+        for i in 0..radix {
+            scratch[i] = a[0 + i * 1];
         }
-        r
+    } else {
+        for i in 0..radix {
+            recursive_fft_inner(
+                a,
+                &mut a[i * stage_length..(i + 1) * stage_length],
+                twiddles,
+                data.stages,
+                0 + i * 1,
+                1 * radix,
+                0 + 1,
+            );
+        }
+    }
+    match radix {
+        2 => butterfly_2(a, &twiddles[0], stage_length),
+        4 => butterfly_4(a, &twiddles[0], stage_length),
+        _ => unimplemented!("radix unsupported"),
+    }
+}
+
+/// Radix 2 butterfly
+pub fn butterfly_2<F: FieldExt>(out: &mut [F], twiddles: &[F], stage_length: usize) {
+    let mut out_offset = 0;
+    let mut out_offset2 = stage_length;
+
+    let t = out[out_offset2];
+    out[out_offset2] = out[out_offset] - t;
+    out[out_offset] += t;
+    out_offset2 += 1;
+    out_offset += 1;
+
+    for k in 1..stage_length {
+        let t = twiddles[k] * out[out_offset2];
+        out[out_offset2] = out[out_offset] - t;
+        out[out_offset] += t;
+        out_offset2 += 1;
+        out_offset += 1;
+    }
+}
+
+/// Radix 4 butterfly
+pub fn butterfly_4<F: FieldExt>(out: &mut [F], twiddles: &[F], stage_length: usize) {
+    let j = twiddles[twiddles.len() - 1];
+    let mut tw = 0;
+
+    /* Case twiddle == one */
+    {
+        let i0 = 0;
+        let i1 = stage_length;
+        let i2 = stage_length * 2;
+        let i3 = stage_length * 3;
+
+        let z0 = out[i0];
+        let z1 = out[i1];
+        let z2 = out[i2];
+        let z3 = out[i3];
+
+        let t1 = z0 + z2;
+        let t2 = z1 + z3;
+        let t3 = z0 - z2;
+        let t4j = j * (z1 - z3);
+
+        out[i0] = t1 + t2;
+        out[i1] = t3 - t4j;
+        out[i2] = t1 - t2;
+        out[i3] = t3 + t4j;
+
+        tw += 3;
     }
 
-    let n = a.len() as u32;
-    assert_eq!(n, 1 << log_n);
+    for k in 1..stage_length {
+        let i0 = k;
+        let i1 = k + stage_length;
+        let i2 = k + stage_length * 2;
+        let i3 = k + stage_length * 3;
 
-    for k in 0..n {
-        let rk = bitreverse(k, log_n);
-        if k < rk {
-            a.swap(rk as usize, k as usize);
-        }
-    }
+        let z0 = out[i0];
+        let z1 = out[i1] * twiddles[tw];
+        let z2 = out[i2] * twiddles[tw + 1];
+        let z3 = out[i3] * twiddles[tw + 2];
 
-    let mut m = 1;
-    for _ in 0..log_n {
-        let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
+        let t1 = z0 + z2;
+        let t2 = z1 + z3;
+        let t3 = z0 - z2;
+        let t4j = j * (z1 - z3);
 
-        let mut k = 0;
-        while k < n {
-            let mut w = G::Scalar::one();
-            for j in 0..m {
-                let mut t = a[(k + j + m) as usize];
-                t.group_scale(&w);
-                a[(k + j + m) as usize] = a[(k + j) as usize];
-                a[(k + j + m) as usize].group_sub(&t);
-                a[(k + j) as usize].group_add(&t);
-                w *= &w_m;
-            }
+        out[i0] = t1 + t2;
+        out[i1] = t3 - t4j;
+        out[i2] = t1 - t2;
+        out[i3] = t3 + t4j;
 
-            k += 2 * m;
-        }
-
-        m *= 2;
+        tw += 3;
     }
 }
 
