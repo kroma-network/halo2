@@ -179,7 +179,12 @@ pub fn best_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     }
 }
 
-fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
+/// recursive fft
+pub fn recursive_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
+    serial_recursive_fft(a, omega, log_n);
+}
+
+fn serial_recursive_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     fn bitreverse(mut n: u32, l: u32) -> u32 {
         let mut r = 0;
         for _ in 0..l {
@@ -220,6 +225,54 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
 
         m *= 2;
     }
+}
+
+fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
+    // k times
+    fn bitreverse(mut n: u32, l: u32) -> u32 {
+        let mut r = 0;
+        for _ in 0..l {
+            r = (r << 1) | (n & 1);
+            n >>= 1;
+        }
+        r
+    }
+
+    let n = a.len() as u32;
+    assert_eq!(n, 1 << log_n);
+
+    // n = 2^k times
+    for k in 0..n {
+        let rk = bitreverse(k, log_n);
+        if k < rk {
+            a.swap(rk as usize, k as usize);
+        }
+    }
+
+    let mut m = 1;
+    // k times
+    for _ in 0..log_n {
+        let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
+
+        let mut k = 0;
+        // n times
+        while k < n {
+            let mut w = G::Scalar::one();
+            for j in 0..m {
+                let mut t = a[(k + j + m) as usize];
+                t.group_scale(&w);
+                a[(k + j + m) as usize] = a[(k + j) as usize];
+                a[(k + j + m) as usize].group_sub(&t);
+                a[(k + j) as usize].group_add(&t);
+                w *= &w_m;
+            }
+
+            k += 2 * m;
+        }
+
+        m *= 2;
+    }
+    // a is a result
 }
 
 fn parallel_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32, log_threads: u32) {
