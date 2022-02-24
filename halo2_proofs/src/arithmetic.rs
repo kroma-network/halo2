@@ -2,7 +2,7 @@
 //! field and polynomial arithmetic.
 
 use super::multicore;
-use crate::poly::FFTData;
+use crate::poly::{FFTData, FFTStage};
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
@@ -186,31 +186,16 @@ pub fn recursive_fft<F: FieldExt>(a: &mut [F], data: &FFTData<F>, log_n: u32) {
 
 fn serial_recursive_fft<F: FieldExt>(a: &mut [F], data: &FFTData<F>, log_n: u32) {
     let mut scratch = vec![F::zero(); a.len()];
-    let radix = data.stages[0].radix;
-    let stage_length = data.stages[0].length;
 
-    if stage_length == 1 {
-        for i in 0..radix {
-            scratch[i] = a[0 + i * 1];
-        }
-    } else {
-        for i in 0..radix {
-            recursive_fft_inner(
-                a,
-                &mut a[i * stage_length..(i + 1) * stage_length],
-                twiddles,
-                data.stages,
-                0 + i * 1,
-                1 * radix,
-                0 + 1,
-            );
-        }
-    }
-    match radix {
-        2 => butterfly_2(a, &twiddles[0], stage_length),
-        4 => butterfly_4(a, &twiddles[0], stage_length),
-        _ => unimplemented!("radix unsupported"),
-    }
+    recursive_fft_inner(
+        a,
+        &mut /*data.*/scratch,
+        &data.f_twiddles,
+        &data.stages,
+        0,
+        1,
+        0,
+    );
 }
 
 /// Radix 2 butterfly
@@ -285,6 +270,43 @@ pub fn butterfly_4<F: FieldExt>(out: &mut [F], twiddles: &[F], stage_length: usi
         out[i3] = t3 + t4j;
 
         tw += 3;
+    }
+}
+
+/// Inner recursion
+fn recursive_fft_inner<F: FieldExt>(
+    data_in: &[F],
+    data_out: &mut [F],
+    twiddles: &Vec<Vec<F>>,
+    stages: &Vec<FFTStage>,
+    in_offset: usize,
+    stride: usize,
+    level: usize,
+) {
+    let radix = stages[level].radix;
+    let stage_length = stages[level].length;
+
+    if stage_length == 1 {
+        for i in 0..radix {
+            data_out[i] = data_in[in_offset + i * stride];
+        }
+    } else {
+        for i in 0..radix {
+            recursive_fft_inner(
+                data_in,
+                &mut data_out[i * stage_length..(i + 1) * stage_length],
+                twiddles,
+                stages,
+                in_offset + i * stride,
+                stride * radix,
+                level + 1,
+            );
+        }
+    }
+    match radix {
+        2 => butterfly_2(data_out, &twiddles[level], stage_length),
+        4 => butterfly_4(data_out, &twiddles[level], stage_length),
+        _ => unimplemented!("radix unsupported"),
     }
 }
 

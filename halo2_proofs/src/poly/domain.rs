@@ -61,15 +61,18 @@ pub struct FFTData<F: FieldExt> {
     /// stages
     pub stages: Vec<FFTStage>,
 
-    f_twiddles: Vec<Vec<F>>,
-    inv_twiddles: Vec<Vec<F>>,
+    /// twiddles
+    pub f_twiddles: Vec<Vec<F>>,
+
+    /// inverse twiddles
+    pub inv_twiddles: Vec<Vec<F>>,
     scratch: Vec<F>,
 }
 
 impl<F: FieldExt> FFTData<F> {
     /// Create FFT data
     pub fn new(n: usize, omega: F, omega_inv: F) -> Self {
-        let stages = get_stages(n as usize, vec![]);
+        let stages = get_stages(n as usize, vec![2]);
         let mut f_twiddles = vec![];
         let mut inv_twiddles = vec![];
         let mut scratch = vec![F::zero(); n];
@@ -630,7 +633,7 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let mut rng = OsRng;
-    let k = 19;
+    let k = 2;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
@@ -655,6 +658,8 @@ fn test_fft() {
         let start = start_timer!(|| message);
         recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data, k);
         end_timer!(start);
+
+        assert_eq!(best_fft_coeffs, recursive_fft_coeffs)
     }
 
     test_best_fft::<Fr>(k, coeffs, domain);
