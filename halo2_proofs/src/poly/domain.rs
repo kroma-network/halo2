@@ -56,7 +56,6 @@ pub fn get_stages(size: usize, radixes: Vec<usize>) -> Vec<FFTStage> {
 #[derive(Debug)]
 pub struct FFTData<F: FieldExt> {
     n: usize,
-    smt: bool,
 
     /// stages
     pub stages: Vec<FFTStage>,
@@ -65,70 +64,63 @@ pub struct FFTData<F: FieldExt> {
     pub f_twiddles: Vec<Vec<F>>,
 
     /// inverse twiddles
-    pub inv_twiddles: Vec<Vec<F>>,
-    scratch: Vec<F>,
+    // pub inv_twiddles: Vec<Vec<F>>,
+
+    /// scratch
+    pub scratch: Vec<F>,
 }
 
 impl<F: FieldExt> FFTData<F> {
     /// Create FFT data
-    pub fn new(n: usize, omega: F, omega_inv: F) -> Self {
-        let stages = get_stages(n as usize, vec![2]);
+    pub fn new(n: usize, omega: F) -> Self {
+        let stages = get_stages(n as usize, vec![]);
         let mut f_twiddles = vec![];
-        let mut inv_twiddles = vec![];
         let mut scratch = vec![F::zero(); n];
 
         // Generate stage twiddles
-        for inv in 0..2 {
-            let inverse = inv == 0;
-            let o = if inverse { omega_inv } else { omega };
-            let stage_twiddles = if inverse {
-                &mut inv_twiddles
-            } else {
-                &mut f_twiddles
-            };
+        let o = omega;
+        let stage_twiddles = &mut f_twiddles;
 
-            let mut twiddles = &mut scratch;
+        let mut twiddles = &mut scratch;
 
-            // Twiddles
-            parallelize(&mut twiddles, |twiddles, start| {
-                let w_m = o;
-                let mut w = o.pow_vartime(&[start as u64, 0, 0, 0]);
-                for value in twiddles.iter_mut() {
-                    *value = w;
-                    w *= w_m;
-                }
-            });
+        // Twiddles
+        parallelize(&mut twiddles, |twiddles, start| {
+            let w_m = o;
+            let mut w = o.pow_vartime(&[start as u64, 0, 0, 0]);
+            for value in twiddles.iter_mut() {
+                *value = w;
+                w *= w_m;
+            }
+        });
+        println!("recursive fft twiddles {:?}", twiddles);
 
-            // Re-order twiddles for cache friendliness
-            let num_stages = stages.len();
-            stage_twiddles.resize(num_stages, vec![]);
-            for l in 0..num_stages {
-                let radix = stages[l].radix;
-                let stage_length = stages[l].length;
+        // Re-order twiddles for cache friendliness
+        let num_stages = stages.len();
+        stage_twiddles.resize(num_stages, vec![]);
+        for l in 0..num_stages {
+            let radix = stages[l].radix;
+            let stage_length = stages[l].length;
 
-                let num_twiddles = stage_length * (radix - 1);
-                stage_twiddles[l].resize(num_twiddles + 1, F::zero());
+            let num_twiddles = stage_length * (radix - 1);
+            stage_twiddles[l].resize(num_twiddles + 1, F::zero());
 
-                // Set j
-                stage_twiddles[l][num_twiddles] = twiddles[(twiddles.len() * 3) / 4];
+            // Set j
+            stage_twiddles[l][num_twiddles] = twiddles[(twiddles.len() * 3) / 4];
 
-                let stride = n / (stage_length * radix);
-                let mut tws = vec![0usize; radix - 1];
-                for i in 0..stage_length {
-                    for j in 0..radix - 1 {
-                        stage_twiddles[l][i * (radix - 1) + j] = twiddles[tws[j]];
-                        tws[j] += (j + 1) * stride;
-                    }
+            let stride = n / (stage_length * radix);
+            let mut tws = vec![0usize; radix - 1];
+            for i in 0..stage_length {
+                for j in 0..radix - 1 {
+                    stage_twiddles[l][i * (radix - 1) + j] = twiddles[tws[j]];
+                    tws[j] += (j + 1) * stride;
                 }
             }
         }
 
         Self {
             n,
-            smt: false,
             stages,
             f_twiddles,
-            inv_twiddles,
             scratch,
         }
     }
@@ -139,18 +131,15 @@ pub fn butterfly_2<F: FieldExt>(out: &mut [F], twiddles: &[F], stage_length: usi
     let mut out_offset = 0;
     let mut out_offset2 = stage_length;
 
-    let t = out[out_offset2];
-    out[out_offset2] = out[out_offset] - t;
-    out[out_offset] += t;
-    out_offset2 += 1;
-    out_offset += 1;
+    let mut t = out[out_offset2];
 
-    for k in 1..stage_length {
-        let t = twiddles[k] * out[out_offset2];
-        out[out_offset2] = out[out_offset] - t;
+    for k in 0..stage_length {
+        out[out_offset2] = out[out_offset];
+        out[out_offset2] -= t;
         out[out_offset] += t;
         out_offset2 += 1;
         out_offset += 1;
+        t *= twiddles[k];
     }
 }
 
@@ -174,10 +163,9 @@ pub struct EvaluationDomain<G: Group> {
     t_evaluations: Vec<G::Scalar>,
     barycentric_weight: G::Scalar,
     fft_data: FFTData<G::Scalar>,
-    extended_fft_data: FFTData<G::Scalar>,
 }
 
-impl<G: Group> EvaluationDomain<G> {
+impl<G: Group + std::fmt::Debug> EvaluationDomain<G> {
     /// This constructs a new evaluation domain object based on the provided
     /// values $j, k$.
     pub fn new(j: u32, k: u32) -> Self {
@@ -282,12 +270,7 @@ impl<G: Group> EvaluationDomain<G> {
             extended_ifft_divisor,
             t_evaluations,
             barycentric_weight,
-            fft_data: FFTData::<G::Scalar>::new(n as usize, omega, omega_inv),
-            extended_fft_data: FFTData::<G::Scalar>::new(
-                (1 << extended_k) as usize,
-                extended_omega,
-                extended_omega_inv,
-            ),
+            fft_data: FFTData::<G::Scalar>::new(n as usize, omega),
         }
     }
 
@@ -639,13 +622,14 @@ fn test_fft() {
     // polynomial coeffs
     let coeffs: Vec<_> = (0..n).map(|_| Fr::random(&mut rng)).collect();
     // evaluation domain
-    let domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
+    let mut domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
 
     fn test_best_fft<G: Group + std::fmt::Debug>(
         k: u32,
         coeffs: Vec<Fr>,
-        domain: EvaluationDomain<Fr>,
+        domain: &mut EvaluationDomain<Fr>,
     ) {
+        println!("stg {:?}", domain.fft_data.f_twiddles);
         let mut best_fft_coeffs = coeffs.clone();
         let mut recursive_fft_coeffs = coeffs.clone();
 
@@ -656,13 +640,18 @@ fn test_fft() {
 
         let message = format!("recursive_fft");
         let start = start_timer!(|| message);
-        recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data, k);
+        recursive_fft(
+            &mut recursive_fft_coeffs,
+            domain.get_omega(),
+            &mut domain.fft_data,
+            k,
+        );
         end_timer!(start);
 
         assert_eq!(best_fft_coeffs, recursive_fft_coeffs)
     }
 
-    test_best_fft::<Fr>(k, coeffs, domain);
+    test_best_fft::<Fr>(k, coeffs, &mut domain);
 }
 
 #[test]

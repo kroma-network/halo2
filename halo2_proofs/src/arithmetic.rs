@@ -168,7 +168,7 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
 /// by $n$.
 ///
 /// This will use multithreading if beneficial.
-pub fn best_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
+pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     let threads = multicore::current_num_threads();
     let log_threads = log2_floor(threads);
 
@@ -180,137 +180,60 @@ pub fn best_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
 }
 
 /// recursive fft
-pub fn recursive_fft<F: FieldExt>(a: &mut [F], data: &FFTData<F>, log_n: u32) {
-    serial_recursive_fft(a, data, log_n);
-}
-
-fn serial_recursive_fft<F: FieldExt>(a: &mut [F], data: &FFTData<F>, log_n: u32) {
-    let mut scratch = vec![F::zero(); a.len()];
-
-    recursive_fft_inner(
-        a,
-        &mut /*data.*/scratch,
-        &data.f_twiddles,
-        &data.stages,
-        0,
-        1,
-        0,
-    );
-}
-
-/// Radix 2 butterfly
-pub fn butterfly_2<F: FieldExt>(out: &mut [F], twiddles: &[F], stage_length: usize) {
-    let mut out_offset = 0;
-    let mut out_offset2 = stage_length;
-
-    let t = out[out_offset2];
-    out[out_offset2] = out[out_offset] - t;
-    out[out_offset] += t;
-    out_offset2 += 1;
-    out_offset += 1;
-
-    for k in 1..stage_length {
-        let t = twiddles[k] * out[out_offset2];
-        out[out_offset2] = out[out_offset] - t;
-        out[out_offset] += t;
-        out_offset2 += 1;
-        out_offset += 1;
-    }
-}
-
-/// Radix 4 butterfly
-pub fn butterfly_4<F: FieldExt>(out: &mut [F], twiddles: &[F], stage_length: usize) {
-    let j = twiddles[twiddles.len() - 1];
-    let mut tw = 0;
-
-    /* Case twiddle == one */
-    {
-        let i0 = 0;
-        let i1 = stage_length;
-        let i2 = stage_length * 2;
-        let i3 = stage_length * 3;
-
-        let z0 = out[i0];
-        let z1 = out[i1];
-        let z2 = out[i2];
-        let z3 = out[i3];
-
-        let t1 = z0 + z2;
-        let t2 = z1 + z3;
-        let t3 = z0 - z2;
-        let t4j = j * (z1 - z3);
-
-        out[i0] = t1 + t2;
-        out[i1] = t3 - t4j;
-        out[i2] = t1 - t2;
-        out[i3] = t3 + t4j;
-
-        tw += 3;
-    }
-
-    for k in 1..stage_length {
-        let i0 = k;
-        let i1 = k + stage_length;
-        let i2 = k + stage_length * 2;
-        let i3 = k + stage_length * 3;
-
-        let z0 = out[i0];
-        let z1 = out[i1] * twiddles[tw];
-        let z2 = out[i2] * twiddles[tw + 1];
-        let z3 = out[i3] * twiddles[tw + 2];
-
-        let t1 = z0 + z2;
-        let t2 = z1 + z3;
-        let t3 = z0 - z2;
-        let t4j = j * (z1 - z3);
-
-        out[i0] = t1 + t2;
-        out[i1] = t3 - t4j;
-        out[i2] = t1 - t2;
-        out[i3] = t3 + t4j;
-
-        tw += 3;
-    }
+pub fn recursive_fft<F: FieldExt>(a: &mut [F], omega: F, data: &mut FFTData<F>, log_n: u32) {
+    recursive_fft_inner(a, omega, &data.f_twiddles, &data.stages, log_n);
 }
 
 /// Inner recursion
 fn recursive_fft_inner<F: FieldExt>(
-    data_in: &[F],
-    data_out: &mut [F],
+    a: &mut [F],
+    omega: F,
     twiddles: &Vec<Vec<F>>,
     stages: &Vec<FFTStage>,
-    in_offset: usize,
-    stride: usize,
-    level: usize,
+    log_n: u32,
 ) {
-    let radix = stages[level].radix;
-    let stage_length = stages[level].length;
+    let n = a.len() as u32;
+    let mut m = 1;
 
-    if stage_length == 1 {
-        for i in 0..radix {
-            data_out[i] = data_in[in_offset + i * stride];
+    fn bitreverse(mut n: u32, l: u32) -> u32 {
+        let mut r = 0;
+        for _ in 0..l {
+            r = (r << 1) | (n & 1);
+            n >>= 1;
         }
-    } else {
-        for i in 0..radix {
-            recursive_fft_inner(
-                data_in,
-                &mut data_out[i * stage_length..(i + 1) * stage_length],
-                twiddles,
-                stages,
-                in_offset + i * stride,
-                stride * radix,
-                level + 1,
-            );
+        r
+    }
+
+    for k in 0..n {
+        let rk = bitreverse(k, log_n);
+        if k < rk {
+            a.swap(rk as usize, k as usize);
         }
     }
-    match radix {
-        2 => butterfly_2(data_out, &twiddles[level], stage_length),
-        4 => butterfly_4(data_out, &twiddles[level], stage_length),
-        _ => unimplemented!("radix unsupported"),
+
+    for l in 0..2 {
+        // let radix = stages[l].radix;
+        // let stage_length = stages[l].length;
+        let w_m = omega.pow_vartime(&[(n / (2 * m)) as u64, 0, 0, 0]);
+
+        let mut k = 0;
+        while k < n {
+            let mut w = F::one();
+            for j in 0..m {
+                let mut t = a[(k + j + m) as usize];
+                t *= w;
+                a[(k + j + m) as usize] = a[(k + j) as usize];
+                a[(k + j + m) as usize] -= t;
+                a[(k + j) as usize] += t;
+                w *= w_m;
+            }
+            k += 2 * m;
+        }
+        m *= 2;
     }
 }
 
-fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
+fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     // k times
     fn bitreverse(mut n: u32, l: u32) -> u32 {
         let mut r = 0;
@@ -324,7 +247,7 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     let n = a.len() as u32;
     assert_eq!(n, 1 << log_n);
 
-    // n = 2^k times
+    // n = 2^k times result is bitreversed coeffs
     for k in 0..n {
         let rk = bitreverse(k, log_n);
         if k < rk {
@@ -333,16 +256,18 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     }
 
     let mut m = 1;
-    // k times
+    // k times exponent of 2
     for _ in 0..log_n {
         let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
 
         let mut k = 0;
-        // n times
+        // n times polynomial degree
         while k < n {
             let mut w = G::Scalar::one();
+            // radix 2 butterfly
             for j in 0..m {
                 let mut t = a[(k + j + m) as usize];
+                println!("best fft twiddle {:?} k {:?} j {:?}", w, k, j);
                 t.group_scale(&w);
                 a[(k + j + m) as usize] = a[(k + j) as usize];
                 a[(k + j + m) as usize].group_sub(&t);
@@ -358,7 +283,12 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     // a is a result
 }
 
-fn parallel_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32, log_threads: u32) {
+fn parallel_fft<G: Group + std::fmt::Debug>(
+    a: &mut [G],
+    omega: G::Scalar,
+    log_n: u32,
+    log_threads: u32,
+) {
     assert!(log_n >= log_threads);
 
     let num_threads = 1 << log_threads;
