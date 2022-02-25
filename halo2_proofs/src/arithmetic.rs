@@ -180,18 +180,12 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 }
 
 /// recursive fft
-pub fn recursive_fft<F: FieldExt>(a: &mut [F], omega: F, data: &mut FFTData<F>, log_n: u32) {
-    recursive_fft_inner(a, omega, &data.f_twiddles, &data.stages, log_n);
+pub fn recursive_fft<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, log_n: u32) {
+    recursive_fft_inner(a, &twiddles, log_n);
 }
 
 /// Inner recursion
-fn recursive_fft_inner<F: FieldExt>(
-    a: &mut [F],
-    omega: F,
-    twiddles: &Vec<Vec<F>>,
-    stages: &Vec<FFTStage>,
-    log_n: u32,
-) {
+fn recursive_fft_inner<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, log_n: u32) {
     let n = a.len() as u32;
     let mut m = 1;
 
@@ -212,20 +206,14 @@ fn recursive_fft_inner<F: FieldExt>(
     }
 
     for l in 0..log_n {
-        // let radix = stages[l].radix;
-        // let stage_length = stages[l].length;
-        let w_m = omega.pow_vartime(&[(n / (2 * m)) as u64, 0, 0, 0]);
-
         let mut k = 0;
         while k < n {
-            let mut w = F::one();
             for j in 0..m {
                 let mut t = a[(k + j + m) as usize];
                 t *= twiddles[l as usize][j as usize];
                 a[(k + j + m) as usize] = a[(k + j) as usize];
                 a[(k + j + m) as usize] -= t;
                 a[(k + j) as usize] += t;
-                w *= w_m;
             }
             k += 2 * m;
         }
@@ -261,10 +249,9 @@ fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: 
         let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
 
         let mut k = 0;
-        // polynomial degree n times
+
         while k < n {
             let mut w = G::Scalar::one();
-            // radix 2 butterfly
             for j in 0..m {
                 let mut t = a[(k + j + m) as usize];
                 t.group_scale(&w);
@@ -279,7 +266,6 @@ fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: 
 
         m *= 2;
     }
-    // a is a result
 }
 
 fn parallel_fft<G: Group + std::fmt::Debug>(

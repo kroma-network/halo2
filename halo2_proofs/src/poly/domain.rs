@@ -55,27 +55,18 @@ pub fn get_stages(size: usize, radixes: Vec<usize>) -> Vec<FFTStage> {
 /// This structure hold the twiddles and `FFTStage` in order not to recompute
 #[derive(Debug)]
 pub struct FFTData<F: FieldExt> {
-    n: usize,
-
     /// stages
     pub stages: Vec<FFTStage>,
 
     /// twiddles
     pub f_twiddles: Vec<Vec<F>>,
-
-    /// inverse twiddles
-    // pub inv_twiddles: Vec<Vec<F>>,
-
-    /// scratch
-    pub scratch: Vec<F>,
 }
 
 impl<F: FieldExt> FFTData<F> {
     /// Create FFT data
     pub fn new(n: usize, omega: F, log_n: u32) -> Self {
         let stages = get_stages(n as usize, vec![]);
-        let mut f_twiddles = vec![];
-        let scratch = vec![F::zero(); n];
+        let mut f_twiddles = vec![vec![]];
 
         let mut m = 1;
 
@@ -85,7 +76,7 @@ impl<F: FieldExt> FFTData<F> {
             let mut k = 0;
             while k < n {
                 let mut w = F::one();
-                for j in 0..m {
+                for _ in 0..m {
                     f_twiddles[l as usize].push(w);
                     w *= &w_m;
                 }
@@ -94,12 +85,7 @@ impl<F: FieldExt> FFTData<F> {
             m *= 2;
         }
 
-        Self {
-            n,
-            stages,
-            f_twiddles,
-            scratch,
-        }
+        Self { stages, f_twiddles }
     }
 }
 
@@ -576,7 +562,7 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let mut rng = OsRng;
-    let k = 19;
+    let k = 3;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
@@ -599,12 +585,7 @@ fn test_fft() {
 
         let message = format!("recursive_fft");
         let start = start_timer!(|| message);
-        recursive_fft(
-            &mut recursive_fft_coeffs,
-            domain.get_omega(),
-            &mut domain.fft_data,
-            k,
-        );
+        recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data.f_twiddles, k);
         end_timer!(start);
 
         assert_eq!(best_fft_coeffs, recursive_fft_coeffs)
