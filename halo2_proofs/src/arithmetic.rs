@@ -180,15 +180,8 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 }
 
 /// recursive fft
-pub fn recursive_fft<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, log_n: u32) {
-    recursive_fft_inner(a, &twiddles, log_n);
-}
-
-/// Inner recursion
-fn recursive_fft_inner<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, log_n: u32) {
+pub fn recursive_fft<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, stages: &Vec<FFTStage>, log_n: u32) {
     let n = a.len() as u32;
-    let mut m = 1;
-
     fn bitreverse(mut n: u32, l: u32) -> u32 {
         let mut r = 0;
         for _ in 0..l {
@@ -205,9 +198,19 @@ fn recursive_fft_inner<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, log_n: 
         }
     }
 
-    for l in 0..log_n {
+    recursive_fft_inner(a, &twiddles, stages);
+}
+
+/// Inner recursion
+fn recursive_fft_inner<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, stages: &Vec<FFTStage>) {
+    let mut m = 1;
+
+    for l in 0..stages.len() {
         let mut k = 0;
-        while k < n {
+        let radix = stages[l as usize].radix;
+        let stages_length = stages[l as usize].length;
+
+        for _ in 0..stages_length {
             for j in 0..m {
                 let mut t = a[(k + j + m) as usize];
                 t *= twiddles[l as usize][j as usize];
@@ -215,9 +218,9 @@ fn recursive_fft_inner<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, log_n: 
                 a[(k + j + m) as usize] -= t;
                 a[(k + j) as usize] += t;
             }
-            k += 2 * m;
+            k += radix * m;
         }
-        m *= 2;
+        m *= radix;
     }
 }
 

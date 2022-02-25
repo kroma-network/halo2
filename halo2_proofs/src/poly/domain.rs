@@ -585,7 +585,12 @@ fn test_fft() {
 
         let message = format!("recursive_fft");
         let start = start_timer!(|| message);
-        recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data.f_twiddles, k);
+        recursive_fft(
+            &mut recursive_fft_coeffs,
+            &domain.fft_data.f_twiddles,
+            &domain.fft_data.stages,
+            k,
+        );
         end_timer!(start);
 
         assert_eq!(best_fft_coeffs, recursive_fft_coeffs)
