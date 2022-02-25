@@ -211,7 +211,7 @@ fn recursive_fft_inner<F: FieldExt>(
         }
     }
 
-    for l in 0..2 {
+    for l in 0..log_n {
         // let radix = stages[l].radix;
         // let stage_length = stages[l].length;
         let w_m = omega.pow_vartime(&[(n / (2 * m)) as u64, 0, 0, 0]);
@@ -221,7 +221,7 @@ fn recursive_fft_inner<F: FieldExt>(
             let mut w = F::one();
             for j in 0..m {
                 let mut t = a[(k + j + m) as usize];
-                t *= w;
+                t *= twiddles[l as usize][j as usize];
                 a[(k + j + m) as usize] = a[(k + j) as usize];
                 a[(k + j + m) as usize] -= t;
                 a[(k + j) as usize] += t;
@@ -257,17 +257,16 @@ fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: 
 
     let mut m = 1;
     // k times exponent of 2
-    for _ in 0..log_n {
+    for l in 0..log_n {
         let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
 
         let mut k = 0;
-        // n times polynomial degree
+        // polynomial degree n times
         while k < n {
             let mut w = G::Scalar::one();
             // radix 2 butterfly
             for j in 0..m {
                 let mut t = a[(k + j + m) as usize];
-                println!("best fft twiddle {:?} k {:?} j {:?}", w, k, j);
                 t.group_scale(&w);
                 a[(k + j + m) as usize] = a[(k + j) as usize];
                 a[(k + j + m) as usize].group_sub(&t);

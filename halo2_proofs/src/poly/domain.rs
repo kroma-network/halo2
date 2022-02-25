@@ -72,49 +72,26 @@ pub struct FFTData<F: FieldExt> {
 
 impl<F: FieldExt> FFTData<F> {
     /// Create FFT data
-    pub fn new(n: usize, omega: F) -> Self {
+    pub fn new(n: usize, omega: F, log_n: u32) -> Self {
         let stages = get_stages(n as usize, vec![]);
         let mut f_twiddles = vec![];
-        let mut scratch = vec![F::zero(); n];
+        let scratch = vec![F::zero(); n];
 
-        // Generate stage twiddles
-        let o = omega;
-        let stage_twiddles = &mut f_twiddles;
+        let mut m = 1;
 
-        let mut twiddles = &mut scratch;
-
-        // Twiddles
-        parallelize(&mut twiddles, |twiddles, start| {
-            let w_m = o;
-            let mut w = o.pow_vartime(&[start as u64, 0, 0, 0]);
-            for value in twiddles.iter_mut() {
-                *value = w;
-                w *= w_m;
-            }
-        });
-        println!("recursive fft twiddles {:?}", twiddles);
-
-        // Re-order twiddles for cache friendliness
-        let num_stages = stages.len();
-        stage_twiddles.resize(num_stages, vec![]);
-        for l in 0..num_stages {
-            let radix = stages[l].radix;
-            let stage_length = stages[l].length;
-
-            let num_twiddles = stage_length * (radix - 1);
-            stage_twiddles[l].resize(num_twiddles + 1, F::zero());
-
-            // Set j
-            stage_twiddles[l][num_twiddles] = twiddles[(twiddles.len() * 3) / 4];
-
-            let stride = n / (stage_length * radix);
-            let mut tws = vec![0usize; radix - 1];
-            for i in 0..stage_length {
-                for j in 0..radix - 1 {
-                    stage_twiddles[l][i * (radix - 1) + j] = twiddles[tws[j]];
-                    tws[j] += (j + 1) * stride;
+        for l in 0..log_n {
+            f_twiddles.resize(stages[(log_n - l - 1) as usize].length, vec![]);
+            let w_m = omega.pow_vartime(&[(n / (2 * m)) as u64, 0, 0, 0]);
+            let mut k = 0;
+            while k < n {
+                let mut w = F::one();
+                for j in 0..m {
+                    f_twiddles[l as usize].push(w);
+                    w *= &w_m;
                 }
+                k += 2 * m;
             }
+            m *= 2;
         }
 
         Self {
@@ -123,23 +100,6 @@ impl<F: FieldExt> FFTData<F> {
             f_twiddles,
             scratch,
         }
-    }
-}
-
-/// Radix 2 butterfly
-pub fn butterfly_2<F: FieldExt>(out: &mut [F], twiddles: &[F], stage_length: usize) {
-    let mut out_offset = 0;
-    let mut out_offset2 = stage_length;
-
-    let mut t = out[out_offset2];
-
-    for k in 0..stage_length {
-        out[out_offset2] = out[out_offset];
-        out[out_offset2] -= t;
-        out[out_offset] += t;
-        out_offset2 += 1;
-        out_offset += 1;
-        t *= twiddles[k];
     }
 }
 
@@ -270,7 +230,7 @@ impl<G: Group + std::fmt::Debug> EvaluationDomain<G> {
             extended_ifft_divisor,
             t_evaluations,
             barycentric_weight,
-            fft_data: FFTData::<G::Scalar>::new(n as usize, omega),
+            fft_data: FFTData::<G::Scalar>::new(n as usize, omega, k),
         }
     }
 
@@ -616,7 +576,7 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let mut rng = OsRng;
-    let k = 2;
+    let k = 19;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
@@ -629,7 +589,6 @@ fn test_fft() {
         coeffs: Vec<Fr>,
         domain: &mut EvaluationDomain<Fr>,
     ) {
-        println!("stg {:?}", domain.fft_data.f_twiddles);
         let mut best_fft_coeffs = coeffs.clone();
         let mut recursive_fft_coeffs = coeffs.clone();
 
