@@ -754,7 +754,25 @@ impl<F: FieldExt> MockProver<F> {
     /// Returns `Ok(())` if this `MockProver` is satisfied, or a list of errors indicating
     /// the reasons that the circuit is not satisfied.
     pub fn verify(&self) -> Result<(), Vec<VerifyFailure>> {
+        self.verify_at_rows(self.usable_rows.clone())
+    }
+
+    /// Returns `Ok(())` if this `MockProver` is satisfied, or a list of errors indicating
+    /// the reasons that the circuit is not satisfied.
+    /// Constraints and lookups are only checked at `row_ids`.
+    pub fn verify_at_rows<I: Iterator<Item = usize>>(
+        &self,
+        row_ids: I,
+    ) -> Result<(), Vec<VerifyFailure>> {
         let n = self.n as i32;
+
+        let row_ids: Vec<_> = row_ids.collect();
+        // check all the row_ids are valid
+        for row_id in row_ids.iter() {
+            if !self.usable_rows.contains(row_id) {
+                panic!("invalid row id {}", row_id)
+            }
+        }
 
         // Check that within each region, all cells used in instantiated gates have been
         // assigned to.
@@ -808,7 +826,43 @@ impl<F: FieldExt> MockProver<F> {
                 .enumerate()
                 .flat_map(|(gate_index, gate)| {
                     // We iterate from n..2n so we can just reduce to handle wrapping.
+<<<<<<< HEAD
                     (n..(2 * n)).flat_map(move |row| {
+=======
+                    let mut row_ids = row_ids.clone();
+                    let blinding_rows =
+                        (self.n as usize - (self.cs.blinding_factors() + 1))..(self.n as usize);
+                    row_ids.extend(blinding_rows);
+                    (row_ids.into_iter()).flat_map(move |row| {
+                        fn load_instance<'a, F: FieldExt, T: ColumnType>(
+                            n: i32,
+                            row: i32,
+                            queries: &'a [(Column<T>, Rotation)],
+                            cells: &'a [Vec<F>],
+                        ) -> impl Fn(usize, usize, Rotation) -> Value<F> + 'a
+                        {
+                            move |index, _, _| {
+                                let (column, at) = &queries[index];
+                                let resolved_row = (row + n + at.0) % n;
+                                Value::Real(cells[column.index()][resolved_row as usize])
+                            }
+                        }
+
+                        fn load<'a, F: FieldExt, T: ColumnType>(
+                            n: i32,
+                            row: i32,
+                            queries: &'a [(Column<T>, Rotation)],
+                            cells: &'a [Vec<CellValue<F>>],
+                        ) -> impl Fn(usize, usize, Rotation) -> Value<F> + 'a
+                        {
+                            move |index, _, _| {
+                                let (column, at) = &queries[index];
+                                let resolved_row = (row + n + at.0) % n;
+                                cells[column.index()][resolved_row as usize].into()
+                            }
+                        }
+                        let row = row as i32;
+>>>>>>> b0115572 (feat: add verify_at_rows in MockProver for testing speed)
                         gate.polynomials().iter().enumerate().filter_map(
                             move |(poly_index, poly)| match poly.evaluate(
                                 &|scalar| Value::Real(scalar),
@@ -837,7 +891,7 @@ impl<F: FieldExt> MockProver<F> {
                                     location: FailureLocation::find_expressions(
                                         &self.cs,
                                         &self.regions,
-                                        (row - n) as usize,
+                                        row as usize,
                                         Some(poly).into_iter(),
                                     ),
                                     cell_values: util::cell_values(
@@ -943,6 +997,7 @@ impl<F: FieldExt> MockProver<F> {
                             }
                         })
                         .collect();
+<<<<<<< HEAD
                     table.sort_unstable();
 
                     let mut inputs: Vec<(Vec<_>, usize)> = self
@@ -989,6 +1044,30 @@ impl<F: FieldExt> MockProver<F> {
                             }
                         })
                         .collect::<Vec<_>>()
+=======
+                    row_ids.into_iter().filter_map(move |input_row| {
+                        let inputs: Vec<_> = lookup
+                            .input_expressions
+                            .iter()
+                            .map(|c| load(c, input_row))
+                            .collect();
+                        let lookup_passes = table.contains(&inputs);
+                        if lookup_passes {
+                            None
+                        } else {
+                            Some(VerifyFailure::Lookup {
+                                name: lookup.name,
+                                lookup_index,
+                                location: FailureLocation::find_expressions(
+                                    &self.cs,
+                                    &self.regions,
+                                    input_row,
+                                    lookup.input_expressions.iter(),
+                                ),
+                            })
+                        }
+                    })
+>>>>>>> b0115572 (feat: add verify_at_rows in MockProver for testing speed)
                 });
 
         // Check that permutations preserve the original values of the cells.
