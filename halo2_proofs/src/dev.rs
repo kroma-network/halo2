@@ -754,23 +754,29 @@ impl<F: FieldExt> MockProver<F> {
     /// Returns `Ok(())` if this `MockProver` is satisfied, or a list of errors indicating
     /// the reasons that the circuit is not satisfied.
     pub fn verify(&self) -> Result<(), Vec<VerifyFailure>> {
-        self.verify_at_rows(self.usable_rows.clone())
+        self.verify_at_rows(self.usable_rows.clone(), self.usable_rows.clone())
     }
 
     /// Returns `Ok(())` if this `MockProver` is satisfied, or a list of errors indicating
     /// the reasons that the circuit is not satisfied.
-    /// Constraints and lookups are only checked at `row_ids`.
-    pub fn verify_at_rows<I: Iterator<Item = usize>>(
+    /// Constraints are only checked at `gate_row_ids`,
+    /// and lookup inputs are only checked at `lookup_input_row_ids`
+    pub fn verify_at_rows<I: Clone + Iterator<Item = usize>>(
         &self,
-        row_ids: I,
+        gate_row_ids: I,
+        lookup_input_row_ids: I,
     ) -> Result<(), Vec<VerifyFailure>> {
         let n = self.n as i32;
 
-        let row_ids: Vec<_> = row_ids.collect();
-        // check all the row_ids are valid
-        for row_id in row_ids.iter() {
-            if !self.usable_rows.contains(row_id) {
-                panic!("invalid row id {}", row_id)
+        // check all the row ids are valid
+        for row_id in gate_row_ids.clone() {
+            if !self.usable_rows.contains(&row_id) {
+                panic!("invalid gate row id {}", row_id)
+            }
+        }
+        for row_id in lookup_input_row_ids.clone() {
+            if !self.usable_rows.contains(&row_id) {
+                panic!("invalid lookup row id {}", row_id)
             }
         }
 
