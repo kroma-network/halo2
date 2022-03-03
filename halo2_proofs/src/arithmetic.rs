@@ -8,7 +8,6 @@ use group::{
     ff::{BatchInvert, PrimeField},
     Group as _,
 };
-use itertools::{Either, Itertools};
 pub use pairing::arithmetic::*;
 
 fn multiexp_serial<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C], acc: &mut C::Curve) {
@@ -181,9 +180,10 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 }
 
 /// recursive fft
-pub fn recursive_fft<F: FieldExt>(input: &mut [F], omega: F::Scalar, n: u64) {
+pub fn recursive_fft<F: FieldExt>(input: &mut [F], omega: F::Scalar, k: u32) {
+    let n = 1u64 << k;
     let mut output = vec![F::zero(); n as usize];
-    recursive_fft_inner(input, &mut output, omega, n, 0);
+    recursive_fft_inner(input, &mut output, omega, k, n, 1, 0);
 }
 
 /// recursive fft operation
@@ -191,15 +191,16 @@ pub fn recursive_fft_inner<F: FieldExt>(
     input: &mut [F],
     output: &mut [F],
     omega: F::Scalar,
+    k: u32,
     n: u64,
+    level: u64,
     counter: usize,
 ) {
     if n == 1 {
         output[counter] = input[0];
-        if counter == 7 {
-            println!("{:?} {:?}", counter, output);
-        }
     } else {
+        println!("{:?}", n / level);
+        let w_m = omega.pow_vartime(&[n / level, 0, 0, 0]);
         let mut even_coeffs = (0..)
             .take_while(|i| i * 2 < input.len())
             .map(|i| input[i * 2])
@@ -209,23 +210,33 @@ pub fn recursive_fft_inner<F: FieldExt>(
             .map(|i| input[i * 2 + 1])
             .collect::<Vec<F>>();
 
-        recursive_fft_inner(&mut even_coeffs, output, omega, n / 2, counter);
+        recursive_fft_inner(
+            &mut even_coeffs,
+            output,
+            omega,
+            k,
+            n / 2,
+            level * 2,
+            counter,
+        );
         recursive_fft_inner(
             &mut odd_coeffs,
             output,
             omega,
+            k,
             n / 2,
+            level * 2,
             counter + (n / 2) as usize,
         );
-        // let mut w = F::one();
-        // for k in 0..(n /2 - 1) as usize {
-        //     let t = input[k] * w;
-        //     input[k] += t;
-        //     input[k + (n /2) as usize] -= t;
-        //     w *= omega;
-        // }
+        let mut w = F::one();
+        for k in 0..(n / 2) as usize {
+            // println!("k:{:?} n:{:?}", k, n);
+            let t = output[k] * w;
+            input[k] = output[k] + t;
+            input[k + (n / 2) as usize] = output[k + (n / 2) as usize] - t;
+            w *= w_m;
+        }
     }
-    // println!("end {:?}", input);
 }
 
 fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: u32) {
