@@ -572,6 +572,7 @@ fn test_fft() {
 
     fn test_best_fft<G: Group + std::fmt::Debug>(
         k: u32,
+        n: u64,
         coeffs: Vec<Fr>,
         domain: &mut EvaluationDomain<Fr>,
     ) {
@@ -585,18 +586,14 @@ fn test_fft() {
 
         let message = format!("recursive_fft");
         let start = start_timer!(|| message);
-        recursive_fft(
-            &mut recursive_fft_coeffs,
-            &domain.fft_data.f_twiddles,
-            &domain.fft_data.stages,
-            k,
-        );
+        println!("start {:?}", recursive_fft_coeffs);
+        recursive_fft(&mut recursive_fft_coeffs, domain.get_omega(), n);
         end_timer!(start);
 
         assert_eq!(best_fft_coeffs, recursive_fft_coeffs)
     }
 
-    test_best_fft::<Fr>(k, coeffs, &mut domain);
+    test_best_fft::<Fr>(k, n, coeffs, &mut domain);
 }
 
 #[test]

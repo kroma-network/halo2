@@ -8,6 +8,7 @@ use group::{
     ff::{BatchInvert, PrimeField},
     Group as _,
 };
+use itertools::{Either, Itertools};
 pub use pairing::arithmetic::*;
 
 fn multiexp_serial<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C], acc: &mut C::Curve) {
@@ -180,48 +181,51 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 }
 
 /// recursive fft
-pub fn recursive_fft<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, stages: &Vec<FFTStage>, log_n: u32) {
-    let n = a.len() as u32;
-    fn bitreverse(mut n: u32, l: u32) -> u32 {
-        let mut r = 0;
-        for _ in 0..l {
-            r = (r << 1) | (n & 1);
-            n >>= 1;
-        }
-        r
-    }
-
-    for k in 0..n {
-        let rk = bitreverse(k, log_n);
-        if k < rk {
-            a.swap(rk as usize, k as usize);
-        }
-    }
-
-    recursive_fft_inner(a, &twiddles, stages);
+pub fn recursive_fft<F: FieldExt>(input: &mut [F], omega: F::Scalar, n: u64) {
+    let mut output = vec![F::zero(); n as usize];
+    recursive_fft_inner(input, &mut output, omega, n, 0);
 }
 
-/// Inner recursion
-fn recursive_fft_inner<F: FieldExt>(a: &mut [F], twiddles: &Vec<Vec<F>>, stages: &Vec<FFTStage>) {
-    let mut m = 1;
-
-    for l in 0..stages.len() {
-        let mut k = 0;
-        let radix = stages[l as usize].radix;
-        let stages_length = stages[l as usize].length;
-
-        for _ in 0..stages_length {
-            for j in 0..m {
-                let mut t = a[(k + j + m) as usize];
-                t *= twiddles[l as usize][j as usize];
-                a[(k + j + m) as usize] = a[(k + j) as usize];
-                a[(k + j + m) as usize] -= t;
-                a[(k + j) as usize] += t;
-            }
-            k += radix * m;
+/// recursive fft operation
+pub fn recursive_fft_inner<F: FieldExt>(
+    input: &mut [F],
+    output: &mut [F],
+    omega: F::Scalar,
+    n: u64,
+    counter: usize,
+) {
+    if n == 1 {
+        output[counter] = input[0];
+        if counter == 7 {
+            println!("{:?} {:?}", counter, output);
         }
-        m *= radix;
+    } else {
+        let mut even_coeffs = (0..)
+            .take_while(|i| i * 2 < input.len())
+            .map(|i| input[i * 2])
+            .collect::<Vec<F>>();
+        let mut odd_coeffs = (0..)
+            .take_while(|i| i * 2 + 1 < input.len())
+            .map(|i| input[i * 2 + 1])
+            .collect::<Vec<F>>();
+
+        recursive_fft_inner(&mut even_coeffs, output, omega, n / 2, counter);
+        recursive_fft_inner(
+            &mut odd_coeffs,
+            output,
+            omega,
+            n / 2,
+            counter + (n / 2) as usize,
+        );
+        // let mut w = F::one();
+        // for k in 0..(n /2 - 1) as usize {
+        //     let t = input[k] * w;
+        //     input[k] += t;
+        //     input[k + (n /2) as usize] -= t;
+        //     w *= omega;
+        // }
     }
+    // println!("end {:?}", input);
 }
 
 fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: u32) {
