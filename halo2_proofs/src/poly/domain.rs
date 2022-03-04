@@ -562,11 +562,11 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let mut rng = OsRng;
-    let k = 3;
+    let k = 19;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
-    let coeffs: Vec<_> = (0..n).map(|_| Fr::random(&mut rng)).collect();
+    let coeffs: Vec<Fr> = (0..n).map(|_| Fr::one()).collect();
     // evaluation domain
     let mut domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
 

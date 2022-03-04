@@ -181,60 +181,49 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 
 /// recursive fft
 pub fn recursive_fft<F: FieldExt>(input: &mut [F], omega: F::Scalar, k: u32) {
-    let n = 1u64 << k;
-    let mut output = vec![F::zero(); n as usize];
-    recursive_fft_inner(input, &mut output, omega, k, n, 1, 0);
+    recursive_fft_inner(input, input.to_vec(), omega, k, 1u64 << k, 0, 1);
 }
 
 /// recursive fft operation
 pub fn recursive_fft_inner<F: FieldExt>(
     input: &mut [F],
-    output: &mut [F],
+    stash: Vec<F>,
     omega: F::Scalar,
     k: u32,
     n: u64,
-    level: u64,
     counter: usize,
+    level: usize,
 ) {
     if n == 1 {
-        output[counter] = input[0];
+        input[counter] = stash[0];
     } else {
-        println!("{:?}", n / level);
-        let w_m = omega.pow_vartime(&[n / level, 0, 0, 0]);
-        let mut even_coeffs = (0..)
-            .take_while(|i| i * 2 < input.len())
-            .map(|i| input[i * 2])
+        let even_coeffs = (0..)
+            .take_while(|i| i * 2 < stash.len())
+            .map(|i| stash[i * 2])
             .collect::<Vec<F>>();
-        let mut odd_coeffs = (0..)
-            .take_while(|i| i * 2 + 1 < input.len())
-            .map(|i| input[i * 2 + 1])
+        let odd_coeffs = (0..)
+            .take_while(|i| i * 2 + 1 < stash.len())
+            .map(|i| stash[i * 2 + 1])
             .collect::<Vec<F>>();
 
+        recursive_fft_inner(input, even_coeffs, omega, k, n / 2, counter, level * 2);
         recursive_fft_inner(
-            &mut even_coeffs,
-            output,
+            input,
+            odd_coeffs,
             omega,
             k,
             n / 2,
-            level * 2,
-            counter,
-        );
-        recursive_fft_inner(
-            &mut odd_coeffs,
-            output,
-            omega,
-            k,
-            n / 2,
-            level * 2,
             counter + (n / 2) as usize,
+            level * 2,
         );
+
+        let w_m = omega.pow_vartime(&[n / 2, 0, 0, 0]);
         let mut w = F::one();
-        for k in 0..(n / 2) as usize {
-            // println!("k:{:?} n:{:?}", k, n);
-            let t = output[k] * w;
-            input[k] = output[k] + t;
-            input[k + (n / 2) as usize] = output[k + (n / 2) as usize] - t;
-            w *= w_m;
+        for i in 0..(n / 2) as usize {
+            let t = input[counter + i];
+            input[counter + i] += input[counter + i + (n / 2) as usize];
+            input[counter + i + (n / 2) as usize] -= t;
+            w *= &w_m;
         }
     }
 }
@@ -263,14 +252,14 @@ fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: 
 
     let mut m = 1;
     // k times exponent of 2
-    for l in 0..log_n {
+    for _ in 0..log_n {
         let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
 
         let mut k = 0;
-
         while k < n {
             let mut w = G::Scalar::one();
             for j in 0..m {
+                // println!("{:?}", w);
                 let mut t = a[(k + j + m) as usize];
                 t.group_scale(&w);
                 a[(k + j + m) as usize] = a[(k + j) as usize];
