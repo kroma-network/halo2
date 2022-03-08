@@ -566,7 +566,7 @@ fn test_fft() {
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
-    let coeffs: Vec<Fr> = (0..n).map(|_| Fr::one()).collect();
+    let coeffs: Vec<Fr> = (0..n).map(|_| Fr::random(rng)).collect();
     // evaluation domain
     let mut domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
 

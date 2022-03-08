@@ -217,12 +217,14 @@ pub fn recursive_fft_inner<F: FieldExt>(
             level * 2,
         );
 
-        let w_m = omega.pow_vartime(&[n / 2, 0, 0, 0]);
+        let w_m = omega.pow_vartime(&[(1u64 << k as u64) / (n as u64), 0, 0, 0]);
         let mut w = F::one();
+
         for i in 0..(n / 2) as usize {
-            let t = input[counter + i];
-            input[counter + i] += input[counter + i + (n / 2) as usize];
+            let t = input[counter + i + (n / 2) as usize] * w;
+            input[counter + i + (n / 2) as usize] = input[counter + i];
             input[counter + i + (n / 2) as usize] -= t;
+            input[counter + i] += t;
             w *= &w_m;
         }
     }
@@ -259,7 +261,6 @@ fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: 
         while k < n {
             let mut w = G::Scalar::one();
             for j in 0..m {
-                // println!("{:?}", w);
                 let mut t = a[(k + j + m) as usize];
                 t.group_scale(&w);
                 a[(k + j + m) as usize] = a[(k + j) as usize];
