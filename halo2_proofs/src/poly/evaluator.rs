@@ -122,10 +122,11 @@ impl<E, F: Field, B: Basis> Evaluator<E, F, B> {
     ///
     /// This API treats each registered polynomial as unique, even if the same polynomial
     /// is added multiple times.
-    pub(crate) fn register_poly(&mut self, poly: Polynomial<F, B>) -> AstLeaf<E, B> {
+    pub(crate) fn register_poly(&mut self, name: &str, poly: Polynomial<F, B>) -> AstLeaf<E, B> {
         let index = self.polys.len();
         self.polys.push(PolyLeaf::Normal(poly));
 
+        println!("coset poly {} {}", name, index);
         AstLeaf {
             index,
             rotation: Rotation::cur(),
@@ -685,7 +686,7 @@ mod tests {
         ) {
             // Instantiate the evaluator with a trivial polynomial.
             let domain = EvaluationDomain::new(1, k);
-            evaluator.register_poly(B::empty_poly(&domain));
+            evaluator.register_poly("test", B::empty_poly(&domain));
 
             // With the bug present, these will panic.
             let _ = evaluator.evaluate(&Ast::ConstantTerm(Fr::zero()), &domain);

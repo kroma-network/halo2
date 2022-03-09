@@ -330,7 +330,7 @@ pub fn create_proof<
     let fixed_values: Vec<_> = pk
         .fixed_values
         .iter()
-        .map(|poly| value_evaluator.register_poly(poly.clone()))
+        .map(|poly| value_evaluator.register_poly("fixed small", poly.clone()))
         .collect();
 
     // Register advice values with the polynomial evaluator.
@@ -340,7 +340,7 @@ pub fn create_proof<
             advice
                 .advice_values
                 .iter()
-                .map(|poly| value_evaluator.register_poly(poly.clone()))
+                .map(|poly| value_evaluator.register_poly("advice small", poly.clone()))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -352,7 +352,7 @@ pub fn create_proof<
             instance
                 .instance_values
                 .iter()
-                .map(|poly| value_evaluator.register_poly(poly.clone()))
+                .map(|poly| value_evaluator.register_poly("instance small", poly.clone()))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -364,7 +364,7 @@ pub fn create_proof<
     let fixed_cosets: Vec<_> = pk
         .fixed_cosets
         .iter()
-        .map(|poly| coset_evaluator.register_poly(poly.clone()))
+        .map(|poly| coset_evaluator.register_poly("fixed", poly.clone()))
         .collect();
 
     // Register advice cosets with the polynomial evaluator.
@@ -374,7 +374,7 @@ pub fn create_proof<
             advice
                 .advice_cosets
                 .iter()
-                .map(|poly| coset_evaluator.register_poly(poly.clone()))
+                .map(|poly| coset_evaluator.register_poly("advice", poly.clone()))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -386,7 +386,7 @@ pub fn create_proof<
             instance
                 .instance_cosets
                 .iter()
-                .map(|poly| coset_evaluator.register_poly(poly.clone()))
+                .map(|poly| coset_evaluator.register_poly("instance", poly.clone()))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -396,13 +396,13 @@ pub fn create_proof<
         .permutation
         .cosets
         .iter()
-        .map(|poly| coset_evaluator.register_poly(poly.clone()))
+        .map(|poly| coset_evaluator.register_poly("perm", poly.clone()))
         .collect();
 
     // Register boundary polynomials used in the lookup and permutation arguments.
-    let l0 = coset_evaluator.register_poly(pk.l0.clone());
-    let l_blind = coset_evaluator.register_poly(pk.l_blind.clone());
-    let l_last = coset_evaluator.register_poly(pk.l_last.clone());
+    let l0 = coset_evaluator.register_poly("real l0", pk.l0.clone());
+    let l_blind = coset_evaluator.register_poly("real l_blind",pk.l_blind.clone());
+    let l_last = coset_evaluator.register_poly("real l_last", pk.l_last.clone());
 
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();

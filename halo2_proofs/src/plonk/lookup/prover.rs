@@ -412,9 +412,9 @@ impl<'a, C: CurveAffine, Ev: Copy + Send + Sync + 'a> Committed<C, Ev> {
         let gamma = poly::Ast::ConstantTerm(*gamma);
 
         
-        let product_coset = coset_evaluator.register_poly(domain.coeff_to_extended(self.product_poly.clone()));
-        let permuted_input_coset = coset_evaluator.register_poly(domain.coeff_to_extended(permuted.permuted_input_poly.clone()));
-        let permuted_table_coset = coset_evaluator.register_poly(domain.coeff_to_extended(permuted.permuted_table_poly.clone()));
+        let product_coset = coset_evaluator.register_poly("l1", domain.coeff_to_extended(self.product_poly.clone()));
+        let permuted_input_coset = coset_evaluator.register_poly("l2", domain.coeff_to_extended(permuted.permuted_input_poly.clone()));
+        let permuted_table_coset = coset_evaluator.register_poly("l3", domain.coeff_to_extended(permuted.permuted_table_poly.clone()));
 
         let expressions = iter::empty()
             // l_0(X) * (1 - z(X)) = 0
@@ -487,7 +487,7 @@ impl<'a, C: CurveAffine, Ev: Copy + Send + Sync + 'a> Committed<C, Ev> {
                 permuted_table_poly: permuted.permuted_table_poly,
                 product_poly: self.product_poly,
             },
-            (ploy_count, poly::Ast::from(coset_evaluator.register_poly(partial_combine)))
+            (ploy_count, poly::Ast::from(coset_evaluator.register_poly("l4", partial_combine)))
         )
     }
 }

@@ -169,7 +169,7 @@ impl Argument {
             let permutation_product_poly = z.clone();
 
             let permutation_product_coset =
-                evaluator.register_poly(domain.coeff_to_extended(z.clone()));
+                evaluator.register_poly("perm inner", domain.coeff_to_extended(z.clone()));
 
             let permutation_product_commitment =
                 permutation_product_commitment_projective.to_affine();
