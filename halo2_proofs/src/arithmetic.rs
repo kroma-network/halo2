@@ -182,7 +182,7 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 /// recursive fft
 pub fn recursive_fft<F: FieldExt>(input: &mut [F], twiddles: &Vec<F>, k: u32) {
     let stash = input.to_vec();
-    recursive_fft_inner(input, &stash, twiddles, k, 1u64 << k, 0, 1, 0);
+    recursive_fft_inner(input, &stash, twiddles, 1u64 << k, 0, 1, 0);
 }
 
 /// recursive fft operation
@@ -190,21 +190,20 @@ pub fn recursive_fft_inner<F: FieldExt>(
     input: &mut [F],
     stash: &Vec<F>,
     twiddles: &Vec<F>,
-    k: u32,
     n: u64,
     counter: usize,
     level: usize,
     order: usize,
 ) {
-    if n == 1 {
-        input[counter] = stash[order];
+    if n == 2 {
+        input[counter + 1] = stash[order] - stash[order + level];
+        input[counter] = stash[order + level] + stash[order];
     } else {
-        recursive_fft_inner(input, stash, twiddles, k, n / 2, counter, level * 2, order);
+        recursive_fft_inner(input, stash, twiddles, n / 2, counter, level * 2, order);
         recursive_fft_inner(
             input,
             stash,
             twiddles,
-            k,
             n / 2,
             counter + (n / 2) as usize,
             level * 2,
