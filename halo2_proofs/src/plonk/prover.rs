@@ -517,18 +517,24 @@ pub fn create_proof<
         })
         .unzip();
 
-    let (lookups, lookup_expressions): (Vec<Vec<_>>, Vec<Vec<_>>) = lookups
+    let (lookups, lookup_expressions): (Vec<Vec<_>>, Vec<Vec<(usize, poly::Ast<_, C::Scalar, ExtendedLagrangeCoeff>)>>) = lookups
         .into_iter()
         .map(|lookups| {
             // Evaluate the h(X) polynomial's constraint system expressions for the lookup constraints, if any.
             lookups
                 .into_iter()
-                .map(|p| p.construct(theta, beta, gamma, l0, l_blind, l_last))
+                .map(|p| p.construct(theta, beta, gamma, l0, l_blind, l_last, &domain, &mut coset_evaluator, y))
                 .unzip()
         })
         .unzip();
 
-    let expressions = advice_cosets
+    // due to memory usage reasons, we calculate y-combined lookup_expressions first
+   // let mut total_lookup_expression_num = 0;
+    //let vanishing_ploy: Polynomial<C::Scalar, ExtendedLagrangeCoeff> = domain.empty_extended();
+    //for lookup_expressions_of_one_lookup in lookup_expressions {
+
+    //}
+    let h_poly = advice_cosets
         .iter()
         .zip(instance_cosets.iter())
         .zip(permutation_expressions.into_iter())
@@ -540,7 +546,7 @@ pub fn create_proof<
                     // Custom constraints
                     .chain(meta.gates.iter().flat_map(move |gate| {
                         gate.polynomials().iter().map(move |expr| {
-                            expr.evaluate(
+                            (1 as usize, expr.evaluate(
                                 &poly::Ast::ConstantTerm,
                                 &|_| panic!("virtual selectors are removed during optimization"),
                                 &|_, column_index, rotation| {
@@ -556,19 +562,29 @@ pub fn create_proof<
                                 &|a, b| a + b,
                                 &|a, b| a * b,
                                 &|a, scalar| a * scalar,
-                            )
+                            ))
                         })
                     }))
                     // Permutation constraints, if any.
-                    .chain(permutation_expressions.into_iter())
+                    .chain(permutation_expressions.into_iter().map(|x|(1 as usize, x)))
                     // Lookup constraints, if any.
-                    .chain(lookup_expressions.into_iter().flatten())
+                    .chain(lookup_expressions.into_iter())
             },
-        );
+        ).fold( poly::Ast::ConstantTerm(C::Scalar::zero()), |h_poly, (step, partial_combine) : (usize,poly::Ast<_,_,_>)| {
+            let power = if step == 1 {
+                *y
+            } else {
+                (*y).pow_vartime(&[step as u64])
+            };
+            &(&h_poly * power) + &partial_combine
+         });
+
+        
+     let h_poly = coset_evaluator.evaluate(&h_poly, domain); // Evaluate the h(X) polynomial
 
     // Construct the vanishing argument's h(X) commitments
     let vanishing =
-        vanishing.construct(params, domain, coset_evaluator, expressions, y, transcript)?;
+        vanishing.construct(params, domain, coset_evaluator, h_poly, transcript)?;
 
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
     let xn = x.pow(&[params.n as u64, 0, 0, 0]);

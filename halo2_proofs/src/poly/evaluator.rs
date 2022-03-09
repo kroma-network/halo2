@@ -5,7 +5,7 @@ use std::{
     hash::{Hash, Hasher},
     marker::PhantomData,
     ops::{Add, Mul, MulAssign, Neg, Sub},
-    sync::Arc,
+    sync::Arc, cell::RefCell,
 };
 
 use group::ff::Field;
@@ -82,6 +82,12 @@ impl<E, B: Basis> AstLeaf<E, B> {
     }
 }
 
+enum PolyLeaf<F: Field, B: Basis> {
+    None,
+    //Lazy(Box::<dyn Fn() -> Polynomial<F, B>>),
+    Normal(Polynomial<F, B>),
+}
+
 /// An evaluation context for polynomial operations.
 ///
 /// This context enables us to de-duplicate queries of circuit columns (and the rotations
@@ -94,7 +100,7 @@ impl<E, B: Basis> AstLeaf<E, B> {
 ///   operations to be applied to the polynomials.
 /// - Finally, we call [`Evaluator::evaluate`] passing in the [`Ast`].
 pub(crate) struct Evaluator<E, F: Field, B: Basis> {
-    polys: Vec<Polynomial<F, B>>,
+    polys: Vec<PolyLeaf<F, B>>,
     _context: E,
 }
 
@@ -118,13 +124,37 @@ impl<E, F: Field, B: Basis> Evaluator<E, F, B> {
     /// is added multiple times.
     pub(crate) fn register_poly(&mut self, poly: Polynomial<F, B>) -> AstLeaf<E, B> {
         let index = self.polys.len();
-        self.polys.push(poly);
+        self.polys.push(PolyLeaf::Normal(poly));
 
         AstLeaf {
             index,
             rotation: Rotation::cur(),
             _evaluator: PhantomData::default(),
         }
+    }
+    /* 
+    pub(crate) fn register_poly_lazy(&mut self, poly: Box::<dyn Fn() -> Polynomial<F, B>>) -> AstLeaf<E, B> {
+        let index = self.polys.len();
+        self.polys.push(RefCell::new(PolyLeaf::Lazy(poly)));
+
+        AstLeaf {
+            index,
+            rotation: Rotation::cur(),
+            _evaluator: PhantomData::default(),
+        }
+    }*/
+
+    /// Allow delibrate release a poly to save memory
+    pub(crate) fn release_poly(&mut self, leaf: AstLeaf<E, B>) {
+        debug_assert_eq!(leaf.rotation, Rotation::cur());
+        self.polys[leaf.index] = PolyLeaf::None;
+    }
+
+    fn get_ploy(&self, idx: usize) -> &Polynomial<F, B> {
+        if let PolyLeaf::Normal(p) = &self.polys[idx] {
+            return p;
+        }
+        unreachable!("ploy leaf released");
     }
 
     /// Evaluates the given polynomial operation against this context.
@@ -162,13 +192,13 @@ impl<E, F: Field, B: Basis> Evaluator<E, F, B> {
             .map(|leaf| {
                 (
                     leaf,
-                    B::rotate(domain, &self.polys[leaf.index], leaf.rotation),
+                    B::rotate(domain, self.get_ploy(leaf.index), leaf.rotation),
                 )
             })
             .collect();
 
         // We're working in a single basis, so all polynomials are the same length.
-        let poly_len = self.polys.first().unwrap().len();
+        let poly_len = self.get_ploy(0).len();
         let (chunk_size, num_chunks) = get_chunk_params(poly_len);
 
         // Split each rotated polynomial into chunks.
