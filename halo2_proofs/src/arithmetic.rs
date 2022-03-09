@@ -180,15 +180,15 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 }
 
 /// recursive fft
-pub fn recursive_fft<F: FieldExt>(input: &mut [F], omega: F::Scalar, k: u32) {
-    recursive_fft_inner(input, input.to_vec(), omega, k, 1u64 << k, 0, 1);
+pub fn recursive_fft<F: FieldExt>(input: &mut [F], twiddles: &Vec<F>, k: u32) {
+    recursive_fft_inner(input, input.to_vec(), twiddles, k, 1u64 << k, 0, 1);
 }
 
 /// recursive fft operation
 pub fn recursive_fft_inner<F: FieldExt>(
     input: &mut [F],
     stash: Vec<F>,
-    omega: F::Scalar,
+    twiddles: &Vec<F>,
     k: u32,
     n: u64,
     counter: usize,
@@ -206,26 +206,22 @@ pub fn recursive_fft_inner<F: FieldExt>(
             .map(|i| stash[i * 2 + 1])
             .collect::<Vec<F>>();
 
-        recursive_fft_inner(input, even_coeffs, omega, k, n / 2, counter, level * 2);
+        recursive_fft_inner(input, even_coeffs, twiddles, k, n / 2, counter, level * 2);
         recursive_fft_inner(
             input,
             odd_coeffs,
-            omega,
+            twiddles,
             k,
             n / 2,
             counter + (n / 2) as usize,
             level * 2,
         );
 
-        let w_m = omega.pow_vartime(&[(1u64 << k as u64) / (n as u64), 0, 0, 0]);
-        let mut w = F::one();
-
         for i in 0..(n / 2) as usize {
-            let t = input[counter + i + (n / 2) as usize] * w;
+            let t = input[counter + i + (n / 2) as usize] * twiddles[i * level];
             input[counter + i + (n / 2) as usize] = input[counter + i];
             input[counter + i + (n / 2) as usize] -= t;
             input[counter + i] += t;
-            w *= &w_m;
         }
     }
 }

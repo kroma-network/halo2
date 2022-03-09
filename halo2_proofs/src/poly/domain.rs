@@ -59,30 +59,20 @@ pub struct FFTData<F: FieldExt> {
     pub stages: Vec<FFTStage>,
 
     /// twiddles
-    pub f_twiddles: Vec<Vec<F>>,
+    pub f_twiddles: Vec<F>,
 }
 
 impl<F: FieldExt> FFTData<F> {
     /// Create FFT data
-    pub fn new(n: usize, omega: F, log_n: u32) -> Self {
+    pub fn new(mut n: u64, omega: F, k: u32) -> Self {
         let stages = get_stages(n as usize, vec![]);
-        let mut f_twiddles = vec![vec![]];
+        let mut f_twiddles = vec![];
 
-        let mut m = 1;
+        let mut w = F::one();
 
-        for l in 0..log_n {
-            f_twiddles.resize(stages[(log_n - l - 1) as usize].length, vec![]);
-            let w_m = omega.pow_vartime(&[(n / (2 * m)) as u64, 0, 0, 0]);
-            let mut k = 0;
-            while k < n {
-                let mut w = F::one();
-                for _ in 0..m {
-                    f_twiddles[l as usize].push(w);
-                    w *= &w_m;
-                }
-                k += 2 * m;
-            }
-            m *= 2;
+        for l in 0..n / 2 {
+            f_twiddles.push(w);
+            w *= omega;
         }
 
         Self { stages, f_twiddles }
@@ -216,7 +206,7 @@ impl<G: Group + std::fmt::Debug> EvaluationDomain<G> {
             extended_ifft_divisor,
             t_evaluations,
             barycentric_weight,
-            fft_data: FFTData::<G::Scalar>::new(n as usize, omega, k),
+            fft_data: FFTData::<G::Scalar>::new(n, omega, k),
         }
     }
 
@@ -562,7 +552,7 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let mut rng = OsRng;
-    let k = 19;
+    let k = 15;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
@@ -586,7 +576,7 @@ fn test_fft() {
 
         let message = format!("recursive_fft");
         let start = start_timer!(|| message);
-        recursive_fft(&mut recursive_fft_coeffs, domain.get_omega(), k);
+        recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data.f_twiddles, k);
         end_timer!(start);
 
         assert_eq!(best_fft_coeffs, recursive_fft_coeffs)
