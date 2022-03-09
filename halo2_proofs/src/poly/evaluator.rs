@@ -126,7 +126,15 @@ impl<E, F: Field, B: Basis> Evaluator<E, F, B> {
         let index = self.polys.len();
         self.polys.push(PolyLeaf::Normal(poly));
 
-        println!("coset poly {} {}", name, index);
+        let mut none = 0;
+        let mut some = 0;
+        for p in &self.polys {
+            match p {
+                PolyLeaf::Normal(_) => some += 1,
+                PolyLeaf::None => none += 1,
+            }
+        }
+        println!("coset poly {} {} some {} none {}", name, index, some, none);
         AstLeaf {
             index,
             rotation: Rotation::cur(),
