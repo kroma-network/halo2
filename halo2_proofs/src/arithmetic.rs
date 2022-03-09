@@ -181,40 +181,34 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 
 /// recursive fft
 pub fn recursive_fft<F: FieldExt>(input: &mut [F], twiddles: &Vec<F>, k: u32) {
-    recursive_fft_inner(input, input.to_vec(), twiddles, k, 1u64 << k, 0, 1);
+    let stash = input.to_vec();
+    recursive_fft_inner(input, &stash, twiddles, k, 1u64 << k, 0, 1, 0);
 }
 
 /// recursive fft operation
 pub fn recursive_fft_inner<F: FieldExt>(
     input: &mut [F],
-    stash: Vec<F>,
+    stash: &Vec<F>,
     twiddles: &Vec<F>,
     k: u32,
     n: u64,
     counter: usize,
     level: usize,
+    order: usize,
 ) {
     if n == 1 {
-        input[counter] = stash[0];
+        input[counter] = stash[order];
     } else {
-        let even_coeffs = (0..)
-            .take_while(|i| i * 2 < stash.len())
-            .map(|i| stash[i * 2])
-            .collect::<Vec<F>>();
-        let odd_coeffs = (0..)
-            .take_while(|i| i * 2 + 1 < stash.len())
-            .map(|i| stash[i * 2 + 1])
-            .collect::<Vec<F>>();
-
-        recursive_fft_inner(input, even_coeffs, twiddles, k, n / 2, counter, level * 2);
+        recursive_fft_inner(input, stash, twiddles, k, n / 2, counter, level * 2, order);
         recursive_fft_inner(
             input,
-            odd_coeffs,
+            stash,
             twiddles,
             k,
             n / 2,
             counter + (n / 2) as usize,
             level * 2,
+            order + level,
         );
 
         for i in 0..(n / 2) as usize {
