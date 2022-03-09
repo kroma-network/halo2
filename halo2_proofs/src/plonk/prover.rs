@@ -517,16 +517,34 @@ pub fn create_proof<
         })
         .unzip();
 
-    let (lookups, lookup_expressions): (Vec<Vec<_>>, Vec<Vec<(usize, poly::Ast<_, C::Scalar, ExtendedLagrangeCoeff>)>>) = lookups
-        .into_iter()
+        
+    let lookups_constructed:Vec<Vec<_>> = lookups
+        .iter()
         .map(|lookups| {
             // Evaluate the h(X) polynomial's constraint system expressions for the lookup constraints, if any.
             lookups
-                .into_iter()
+                .iter()
                 .map(|p| p.construct(theta, beta, gamma, l0, l_blind, l_last, &domain, &mut coset_evaluator, y))
-                .unzip()
-        })
-        .unzip();
+                .collect()
+        }).collect();
+
+    let lookup_exp_combine: Vec<(usize, _)> = lookups
+    .into_iter()
+    .map(|lookups| {
+        // Evaluate the h(X) polynomial's constraint system expressions for the lookup constraints, if any.
+        let (count, combined_poly) = lookups
+            .into_iter()
+            .map(|p| p.construct_combine(theta, beta, gamma, l0, l_blind, l_last, &domain, &mut coset_evaluator, y))
+            .fold((0 as usize, domain.empty_extended()), |(count, h_poly), (step, partial_combine)| {
+                let power = if step == 1 {
+                    *y
+                } else {
+                    (*y).pow_vartime(&[step as u64])
+                };
+                (count + step, h_poly * power + &partial_combine)
+             });
+             (count, poly::Ast::from(coset_evaluator.register_poly("HAHAHAH ", combined_poly)))
+    }).collect();
 
     // due to memory usage reasons, we calculate y-combined lookup_expressions first
    // let mut total_lookup_expression_num = 0;
@@ -538,7 +556,7 @@ pub fn create_proof<
         .iter()
         .zip(instance_cosets.iter())
         .zip(permutation_expressions.into_iter())
-        .zip(lookup_expressions.into_iter())
+        .zip(lookup_exp_combine.into_iter())
         .flat_map(
             |(((advice_cosets, instance_cosets), permutation_expressions), lookup_expressions)| {
                 let fixed_cosets = &fixed_cosets;
@@ -568,7 +586,7 @@ pub fn create_proof<
                     // Permutation constraints, if any.
                     .chain(permutation_expressions.into_iter().map(|x|(1 as usize, x)))
                     // Lookup constraints, if any.
-                    .chain(lookup_expressions.into_iter())
+                    .chain(Some(lookup_expressions))
             },
         ).fold( poly::Ast::ConstantTerm(C::Scalar::zero()), |h_poly, (step, partial_combine) : (usize,poly::Ast<_,_,_>)| {
             let power = if step == 1 {
@@ -655,7 +673,7 @@ pub fn create_proof<
         .collect::<Result<Vec<_>, _>>()?;
 
     // Evaluate the lookups, if any, at omega^i x.
-    let lookups: Vec<Vec<lookup::prover::Evaluated<C>>> = lookups
+    let lookups: Vec<Vec<lookup::prover::Evaluated<C>>> = lookups_constructed
         .into_iter()
         .map(|lookups| -> Result<Vec<_>, _> {
             lookups
