@@ -182,7 +182,7 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 /// recursive fft
 pub fn recursive_fft<F: FieldExt>(input: &mut [F], twiddles: &Vec<F>, k: u32) {
     let stash = input.to_vec();
-    recursive_fft_inner(input, &stash, twiddles, 1u64 << k, 0, 1, 0);
+    recursive_fft_inner(input, &stash, twiddles, 1usize << k, 0, 1, 0);
 }
 
 /// recursive fft operation
@@ -190,30 +190,56 @@ pub fn recursive_fft_inner<F: FieldExt>(
     input: &mut [F],
     stash: &Vec<F>,
     twiddles: &Vec<F>,
-    n: u64,
+    n: usize,
     counter: usize,
     level: usize,
-    order: usize,
+    reverse: usize,
 ) {
     if n == 2 {
-        input[counter + 1] = stash[order] - stash[order + level];
-        input[counter] = stash[order + level] + stash[order];
+        // bit reverse and 2 elements butterfly arithmetic
+        input[counter] = stash[reverse] + stash[reverse + level];
+        input[counter + 1] = stash[reverse] - stash[reverse + level];
     } else {
-        recursive_fft_inner(input, stash, twiddles, n / 2, counter, level * 2, order);
+        let next_n = n / 2;
+        let next_level = level * 2;
+
+        // even and odd recursive
         recursive_fft_inner(
             input,
             stash,
             twiddles,
-            n / 2,
-            counter + (n / 2) as usize,
-            level * 2,
-            order + level,
+            next_n,
+            counter,
+            next_level,
+            reverse,
+        );
+        recursive_fft_inner(
+            input,
+            stash,
+            twiddles,
+            next_n,
+            counter + next_n,
+            next_level,
+            reverse + level,
         );
 
-        for i in 0..(n / 2) as usize {
-            let t = input[counter + i + (n / 2) as usize] * twiddles[i * level];
-            input[counter + i + (n / 2) as usize] = input[counter + i];
-            input[counter + i + (n / 2) as usize] -= t;
+        butterfly_arithmetic(input, next_n, twiddles, counter, level, 2);
+    }
+}
+
+fn butterfly_arithmetic<F: FieldExt>(
+    input: &mut [F],
+    n: usize,
+    twiddles: &Vec<F>,
+    counter: usize,
+    level: usize,
+    radix: usize,
+) {
+    for r in 1..(radix / 2 + 1) {
+        for i in 0..(n / r) {
+            let t = input[counter + i + (n / r)] * twiddles[i * level];
+            input[counter + i + (n / r)] = input[counter + i];
+            input[counter + i + (n / r)] -= t;
             input[counter + i] += t;
         }
     }
