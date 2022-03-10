@@ -12,49 +12,51 @@ use group::ff::{BatchInvert, Field, PrimeField};
 
 use std::marker::PhantomData;
 
-/// This structure manages fft radix and length
+/// This structure manages fft radix and depth
 #[derive(Debug)]
 pub struct FFTStage {
     /// radix of fft
     pub radix: usize,
-    /// twiddles length
-    pub length: usize,
+    /// radix two counter
+    pub count: usize,
+    /// recursion tree depth
+    pub layer: usize,
 }
 
-/// Return fft stages. The size is 2^k and radixes should be an exponent of 2.
-/// Creat `FFTStage` for each radixes.
-pub fn get_stages(size: usize, radixes: Vec<usize>) -> Vec<FFTStage> {
-    let mut stages: Vec<FFTStage> = vec![];
-    let mut n = size;
+/// Create `FFTStage` for each radixes.
+pub fn get_stages(mut n: usize, k: usize) -> Vec<FFTStage> {
+    let mut stages = Vec::with_capacity(k / 2);
+    let mut layer = 0;
+    let mut count = 1;
+    let mut nc = n;
 
-    for i in 0..radixes.len() {
-        n /= radixes[i];
+    while n > 4 {
         stages.push(FFTStage {
-            radix: radixes[i],
-            length: n,
+            radix: 4,
+            layer: k / 2 - layer,
+            count: nc / 2,
+        });
+        layer += 1;
+        count *= 2;
+        n /= 4;
+        nc /= 2;
+    }
+    if n > 2 {
+        stages.push(FFTStage {
+            radix: 2,
+            layer: k / 2 - layer,
+            count: nc / 2,
         });
     }
-    // Fill in the rest of the tree if needed
-    let mut p = 2;
-    while n > 1 {
-        while n % p != 0 {
-            if p == 4 {
-                p = 2;
-            }
-        }
-        n /= p;
-        stages.push(FFTStage {
-            radix: p,
-            length: n,
-        });
-    }
-
+    println!("s: {:?}", stages);
     stages
 }
 
-/// This structure hold the twiddles and `FFTStage` in order not to recompute
+/// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
 pub struct FFTData<F: FieldExt> {
+    /// n half
+    pub half: usize,
     /// stages
     pub stages: Vec<FFTStage>,
 
@@ -63,19 +65,22 @@ pub struct FFTData<F: FieldExt> {
 }
 
 impl<F: FieldExt> FFTData<F> {
-    /// Create FFT data
-    pub fn new(mut n: u64, omega: F, k: u32) -> Self {
-        let stages = get_stages(n as usize, vec![]);
-        let mut f_twiddles = vec![];
-
+    /// Create twiddles and stages data
+    pub fn new(n: usize, omega: F, k: usize) -> Self {
         let mut w = F::one();
+        let half = n / 2 - 1;
+        let mut f_twiddles = Vec::with_capacity(half);
 
-        for l in 0..n / 2 {
+        for _ in 0..n / 2 {
             f_twiddles.push(w);
             w *= omega;
         }
 
-        Self { stages, f_twiddles }
+        Self {
+            half,
+            stages: get_stages(n, k),
+            f_twiddles,
+        }
     }
 }
 
@@ -206,7 +211,7 @@ impl<G: Group + std::fmt::Debug> EvaluationDomain<G> {
             extended_ifft_divisor,
             t_evaluations,
             barycentric_weight,
-            fft_data: FFTData::<G::Scalar>::new(n, omega, k),
+            fft_data: FFTData::<G::Scalar>::new(n as usize, omega, k as usize),
         }
     }
 
@@ -551,18 +556,17 @@ fn test_fft() {
     use pairing::bn256::Fr;
     use rand_core::OsRng;
 
-    let mut rng = OsRng;
-    let k = 19;
+    let rng = OsRng;
+    let k = 5;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
-    let coeffs: Vec<Fr> = (0..n).map(|_| Fr::random(rng)).collect();
+    let coeffs: Vec<Fr> = (0..n).map(|_| Fr::one()).collect();
     // evaluation domain
     let mut domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
 
     fn test_best_fft<G: Group + std::fmt::Debug>(
         k: u32,
-        n: u64,
         coeffs: Vec<Fr>,
         domain: &mut EvaluationDomain<Fr>,
     ) {
@@ -576,13 +580,13 @@ fn test_fft() {
 
         let message = format!("recursive_fft");
         let start = start_timer!(|| message);
-        recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data.f_twiddles, k);
+        recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data, k);
         end_timer!(start);
 
         assert_eq!(best_fft_coeffs, recursive_fft_coeffs)
     }
 
-    test_best_fft::<Fr>(k, n, coeffs, &mut domain);
+    test_best_fft::<Fr>(k, coeffs, &mut domain);
 }
 
 #[test]

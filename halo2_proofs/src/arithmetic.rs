@@ -180,50 +180,76 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 }
 
 /// recursive fft
-pub fn recursive_fft<F: FieldExt>(input: &mut [F], twiddles: &Vec<F>, k: u32) {
+pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, k: u32) {
     let stash = input.to_vec();
-    recursive_fft_inner(input, &stash, twiddles, 1usize << k, 0, 1, 0);
+    recursive_fft_inner(input, &stash, fft_data, 1usize << k, 0, 1, 0);
 }
 
 /// recursive fft operation
 pub fn recursive_fft_inner<F: FieldExt>(
     input: &mut [F],
     stash: &Vec<F>,
-    twiddles: &Vec<F>,
+    fft_data: &FFTData<F>,
     n: usize,
     counter: usize,
     level: usize,
-    reverse: usize,
+    depth: usize,
 ) {
+    let radix = 4;
     if n == 2 {
         // bit reverse and 2 elements butterfly arithmetic
-        input[counter] = stash[reverse] + stash[reverse + level];
-        input[counter + 1] = stash[reverse] - stash[reverse + level];
+        if counter < fft_data.half {
+            for i in 0..4 {
+                let slide = i * 2;
+                println!(
+                    "index {:?} after: {:?} before: {:?}",
+                    counter + slide,
+                    counter + 16 + slide,
+                    counter + slide
+                );
+                input[counter + slide] = stash[counter + 16 + slide] + stash[counter + slide];
+                input[counter + slide + 1] = stash[counter + 16 + slide] - stash[counter + slide];
+            }
+        } else {
+            for i in 0..4 {
+                let slide = i * 2;
+                println!(
+                    "index: {:?} after: {:?} + before: {:?}",
+                    counter + slide,
+                    counter - fft_data.half + 16 + slide,
+                    counter - fft_data.half + slide
+                );
+                input[counter + slide] = stash[counter - fft_data.half + 16 + slide]
+                    + stash[counter - fft_data.half + slide];
+                input[counter + slide + 1] = stash[counter - fft_data.half + 16 + slide]
+                    - stash[counter - fft_data.half + slide];
+            }
+        }
     } else {
-        let next_n = n / 2;
-        let next_level = level * 2;
+        let next_n = n / radix;
+        let next_level = level * radix;
 
-        // even and odd recursive
+        // even and odd recursive fft
         recursive_fft_inner(
             input,
             stash,
-            twiddles,
+            fft_data,
             next_n,
             counter,
             next_level,
-            reverse,
+            depth + 1,
         );
         recursive_fft_inner(
             input,
             stash,
-            twiddles,
+            fft_data,
             next_n,
-            counter + next_n,
+            counter + fft_data.stages[depth].count,
             next_level,
-            reverse + level,
+            depth + 1,
         );
 
-        butterfly_arithmetic(input, next_n, twiddles, counter, level, 2);
+        // butterfly_arithmetic(input, next_n, &fft_data.f_twiddles, counter, level, radix);
     }
 }
 
