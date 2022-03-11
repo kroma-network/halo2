@@ -204,8 +204,8 @@ pub fn recursive_fft_inner<F: FieldExt>(
                 let index = counter + slide;
                 let first = counter + slide;
                 let second = first + fft_data.half + 1;
-                input[index] = stash[second] + stash[first];
-                input[index + 1] = stash[second] - stash[first];
+                input[index] = stash[first] + stash[second];
+                input[index + 1] = stash[first] - stash[second];
             }
         } else {
             for i in 0..2 * depth {
@@ -213,8 +213,8 @@ pub fn recursive_fft_inner<F: FieldExt>(
                 let index = counter + slide;
                 let first = counter + slide - fft_data.half;
                 let second = first + fft_data.half + 1;
-                input[index] = stash[second] + stash[first];
-                input[index + 1] = stash[second] - stash[first];
+                input[index] = stash[first] + stash[second];
+                input[index + 1] = stash[first] - stash[second];
             }
         }
     } else {
@@ -262,9 +262,8 @@ fn butterfly_arithmetic<F: FieldExt>(
             for i in 0..diff {
                 let first = counter + i + offset;
                 let second = first + diff;
-
-                let t = input[first];
-                input[first] = input[second];
+                let t = input[second] * twiddles[i * level * (loop_number - r)];
+                input[second] = input[first];
                 input[first] += t;
                 input[second] -= t;
             }
@@ -272,8 +271,7 @@ fn butterfly_arithmetic<F: FieldExt>(
     }
 }
 
-fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: u32) {
-    // k times
+fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     fn bitreverse(mut n: u32, l: u32) -> u32 {
         let mut r = 0;
         for _ in 0..l {
@@ -286,7 +284,6 @@ fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: 
     let n = a.len() as u32;
     assert_eq!(n, 1 << log_n);
 
-    // n = 2^k times result is bitreversed coeffs
     for k in 0..n {
         let rk = bitreverse(k, log_n);
         if k < rk {
@@ -295,7 +292,6 @@ fn serial_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: 
     }
 
     let mut m = 1;
-    // k times exponent of 2
     for _ in 0..log_n {
         let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
 
