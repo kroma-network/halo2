@@ -199,30 +199,22 @@ pub fn recursive_fft_inner<F: FieldExt>(
     if n == 2 {
         // bit reverse and 2 elements butterfly arithmetic
         if counter < fft_data.half {
-            for i in 0..4 {
+            for i in 0..2 * depth {
                 let slide = i * 2;
-                println!(
-                    "index {:?} after: {:?} before: {:?}",
-                    counter + slide,
-                    counter + 16 + slide,
-                    counter + slide
-                );
-                input[counter + slide] = stash[counter + 16 + slide] + stash[counter + slide];
-                input[counter + slide + 1] = stash[counter + 16 + slide] - stash[counter + slide];
+                let index = counter + slide;
+                let first = counter + slide;
+                let second = first + fft_data.half + 1;
+                input[index] = stash[second] + stash[first];
+                input[index + 1] = stash[second] - stash[first];
             }
         } else {
-            for i in 0..4 {
+            for i in 0..2 * depth {
                 let slide = i * 2;
-                println!(
-                    "index: {:?} after: {:?} + before: {:?}",
-                    counter + slide,
-                    counter - fft_data.half + 16 + slide,
-                    counter - fft_data.half + slide
-                );
-                input[counter + slide] = stash[counter - fft_data.half + 16 + slide]
-                    + stash[counter - fft_data.half + slide];
-                input[counter + slide + 1] = stash[counter - fft_data.half + 16 + slide]
-                    - stash[counter - fft_data.half + slide];
+                let index = counter + slide;
+                let first = counter + slide - fft_data.half;
+                let second = first + fft_data.half + 1;
+                input[index] = stash[second] + stash[first];
+                input[index + 1] = stash[second] - stash[first];
             }
         }
     } else {
@@ -249,7 +241,7 @@ pub fn recursive_fft_inner<F: FieldExt>(
             depth + 1,
         );
 
-        // butterfly_arithmetic(input, next_n, &fft_data.f_twiddles, counter, level, radix);
+        butterfly_arithmetic(input, n, &fft_data.f_twiddles, counter, level, radix);
     }
 }
 
@@ -261,12 +253,21 @@ fn butterfly_arithmetic<F: FieldExt>(
     level: usize,
     radix: usize,
 ) {
-    for r in 1..(radix / 2 + 1) {
-        for i in 0..(n / r) {
-            let t = input[counter + i + (n / r)] * twiddles[i * level];
-            input[counter + i + (n / r)] = input[counter + i];
-            input[counter + i + (n / r)] -= t;
-            input[counter + i] += t;
+    // k + 1 where 2^k, radix = 2 => k = 2, radix = 4 => k = 3
+    let loop_number = radix / 2 + 1;
+    for r in 1..loop_number {
+        for b in 0..(loop_number - r) {
+            let diff = n / ((loop_number - r) * 2);
+            let offset = diff * 2 * b;
+            for i in 0..diff {
+                let first = counter + i + offset;
+                let second = first + diff;
+
+                let t = input[first];
+                input[first] = input[second];
+                input[first] += t;
+                input[second] -= t;
+            }
         }
     }
 }
