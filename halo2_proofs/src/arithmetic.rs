@@ -172,11 +172,11 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
     let threads = multicore::current_num_threads();
     let log_threads = log2_floor(threads);
 
-    if log_n <= log_threads {
-        serial_fft(a, omega, log_n);
-    } else {
-        parallel_fft(a, omega, log_n, log_threads);
-    }
+    // if log_n <= log_threads {
+    serial_fft(a, omega, log_n);
+    // } else {
+    //     parallel_fft(a, omega, log_n, log_threads);
+    // }
 }
 
 /// recursive fft
@@ -198,23 +198,31 @@ pub fn recursive_fft_inner<F: FieldExt>(
     let radix = 4;
     if n == 2 {
         // bit reverse and 2 elements butterfly arithmetic
-        if counter < fft_data.half {
-            for i in 0..2 * depth {
-                let slide = i * 2;
-                let index = counter + slide;
-                let first = counter + slide;
+        for i in 0..2 {
+            let slide = i * 2 * depth;
+            let chunk = if counter < fft_data.half {
+                counter / ((fft_data.half + 1) / 2)
+            } else {
+                (counter - fft_data.half + 1) / ((fft_data.half + 1) / 2)
+            };
+            let offset = ((fft_data.half + 1) / 4) * i;
+            for p in 0..depth {
+                let index = counter + slide + 2 * p;
+                let first = if counter < fft_data.half {
+                    ((fft_data.half + 1) / 2) * p + offset + (chunk * 2)
+                } else {
+                    ((fft_data.half + 1) / 2) * p + offset + (chunk * 2 + 1)
+                };
                 let second = first + fft_data.half + 1;
-                input[index] = stash[first] + stash[second];
-                input[index + 1] = stash[first] - stash[second];
-            }
-        } else {
-            for i in 0..2 * depth {
-                let slide = i * 2;
-                let index = counter + slide;
-                let first = counter + slide - fft_data.half;
-                let second = first + fft_data.half + 1;
-                input[index] = stash[first] + stash[second];
-                input[index + 1] = stash[first] - stash[second];
+                println!("index: {:?} first: {:?} second {:?}", index, first, second);
+                println!(
+                    "index: {:?} first: {:?} second {:?}",
+                    index + 1,
+                    first,
+                    second
+                );
+                input[index] = stash[first];
+                input[index + 1] = stash[second];
             }
         }
     } else {
@@ -241,7 +249,7 @@ pub fn recursive_fft_inner<F: FieldExt>(
             depth + 1,
         );
 
-        butterfly_arithmetic(input, n, &fft_data.f_twiddles, counter, level, radix);
+        // butterfly_arithmetic(input, n, &fft_data.f_twiddles, counter, level, radix);
     }
 }
 
@@ -292,20 +300,20 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     }
 
     let mut m = 1;
-    for _ in 0..log_n {
+    for _ in 0..1 {
         let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
 
         let mut k = 0;
         while k < n {
-            let mut w = G::Scalar::one();
-            for j in 0..m {
-                let mut t = a[(k + j + m) as usize];
-                t.group_scale(&w);
-                a[(k + j + m) as usize] = a[(k + j) as usize];
-                a[(k + j + m) as usize].group_sub(&t);
-                a[(k + j) as usize].group_add(&t);
-                w *= &w_m;
-            }
+            // let mut w = G::Scalar::one();
+            // for j in 0..m {
+            //     let mut t = a[(k + j + m) as usize];
+            //     t.group_scale(&w);
+            //     a[(k + j + m) as usize] = a[(k + j) as usize];
+            //     a[(k + j + m) as usize].group_sub(&t);
+            //     a[(k + j) as usize].group_add(&t);
+            //     w *= &w_m;
+            // }
 
             k += 2 * m;
         }
