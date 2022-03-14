@@ -199,20 +199,23 @@ pub fn recursive_fft_inner<F: FieldExt>(
     let radix = 4;
     if n == 2 {
         // bit reverse and 2 elements butterfly arithmetic
+        let chunk = counter % fft_data.half / (fft_data.half / leaf) + counter / fft_data.half;
         for i in 0..2 {
             let slide = i * 2 * depth;
-            let chunk = counter % fft_data.half / (fft_data.half / leaf) + counter / fft_data.half;
             let offset = fft_data.half / leaf * i;
-            for p in 0..depth {
+            println!(
+                "div: {:?} chunk: {:?} offset: {:?} leaf: {:?}",
+                n, chunk, offset, leaf
+            );
+            for p in 0..leaf / 2 {
                 let index = counter + slide + 2 * p;
-                let first = fft_data.half / 2 * p + chunk + offset;
+                let f_offset =
+                    (fft_data.half / 2 * (p % 2)) + (fft_data.half / (leaf / 2) * (p / 2));
+                let first = f_offset + chunk + offset;
                 let second = first + fft_data.half;
-                println!("index: {:?} first: {:?} second {:?}", index, first, second);
                 println!(
-                    "index: {:?} first: {:?} second {:?}",
-                    index + 1,
-                    first,
-                    second
+                    "index: {:?} first: {:?} second {:?} p: {:?}",
+                    index, first, second, p
                 );
                 input[index] = stash[first];
                 input[index + 1] = stash[second];

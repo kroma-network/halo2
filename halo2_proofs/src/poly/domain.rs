@@ -557,7 +557,7 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let rng = OsRng;
-    let k = 5;
+    let k = 3;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
