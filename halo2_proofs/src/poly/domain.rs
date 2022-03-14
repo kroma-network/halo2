@@ -27,7 +27,6 @@ pub struct FFTStage {
 pub fn get_stages(mut n: usize, k: usize) -> Vec<FFTStage> {
     let mut stages = Vec::with_capacity(k / 2);
     let mut layer = 0;
-    let mut count = 1;
     let mut nc = n;
 
     while n > 4 {
@@ -37,7 +36,6 @@ pub fn get_stages(mut n: usize, k: usize) -> Vec<FFTStage> {
             count: nc / 2,
         });
         layer += 1;
-        count *= 2;
         n /= 4;
         nc /= 2;
     }
@@ -48,7 +46,6 @@ pub fn get_stages(mut n: usize, k: usize) -> Vec<FFTStage> {
             count: nc / 2,
         });
     }
-    println!("s: {:?}", stages);
     stages
 }
 
@@ -59,7 +56,8 @@ pub struct FFTData<F: FieldExt> {
     pub half: usize,
     /// stages
     pub stages: Vec<FFTStage>,
-
+    /// indexes for bit reverse
+    pub indexes: Vec<usize>,
     /// twiddles
     pub f_twiddles: Vec<F>,
 }
@@ -69,17 +67,33 @@ impl<F: FieldExt> FFTData<F> {
     pub fn new(n: usize, omega: F, k: usize) -> Self {
         let mut w = F::one();
         let half = n / 2;
+        let quarter = half / 2;
         let mut f_twiddles = Vec::with_capacity(half - 1);
+        let mut indexes = vec![0; quarter];
 
-        for _ in 0..n / 2 {
+        for _ in 0..half {
             f_twiddles.push(w);
             w *= omega;
+        }
+        indexes[0] = 0;
+        indexes[1] = 1;
+
+        let mut counter = 2;
+        while counter != quarter {
+            for i in 0..counter {
+                indexes[i] *= 4;
+                indexes[i + counter] = indexes[i] + 2;
+                indexes[i + 2 * counter] = indexes[i] + 1;
+                indexes[i + 3 * counter] = indexes[i] + 3;
+            }
+            counter *= 4;
         }
 
         Self {
             half,
             stages: get_stages(n, k),
             f_twiddles,
+            indexes,
         }
     }
 }
@@ -557,7 +571,7 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let rng = OsRng;
-    let k = 7;
+    let k = 19;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
