@@ -201,7 +201,7 @@ pub fn recursive_fft_inner<F: FieldExt>(
         // bit reverse and 2 elements butterfly arithmetic
         let chunk = counter % fft_data.half / (fft_data.half / leaf) + counter / fft_data.half;
         for i in 0..2 {
-            let slide = i * 2 * depth;
+            let slide = i * 2 * (leaf / 2);
             let offset = fft_data.half / leaf * i;
             println!(
                 "div: {:?} chunk: {:?} offset: {:?} leaf: {:?}",
