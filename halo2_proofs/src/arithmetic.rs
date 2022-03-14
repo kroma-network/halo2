@@ -198,34 +198,131 @@ pub fn recursive_fft_inner<F: FieldExt>(
 ) {
     let div = fft_data.half / 2;
     // bit reverse and bottom butterfly arithmetic
-    for i in 0..div / 2 {
-        let mut offset = 2 * i;
+    for i in 0..div / 4 {
+        let mut offset = 4 * i;
+        let tw_offset = fft_data.half / 8;
+        let tw_1 = fft_data.f_twiddles[tw_offset];
+        let tw_2 = fft_data.f_twiddles[tw_offset * 2];
+        let tw_3 = fft_data.f_twiddles[tw_offset * 3];
+        let tw_4 = fft_data.f_twiddles[tw_offset * 4];
+        let tw_5 = fft_data.f_twiddles[tw_offset * 5];
+        let tw_6 = fft_data.f_twiddles[tw_offset * 6];
+        let tw_7 = fft_data.f_twiddles[tw_offset * 7];
         let first = fft_data.indexes[offset] * 4;
         let second = fft_data.indexes[offset + 1] * 4;
+        let third = fft_data.indexes[offset + 2] * 4;
+        let fourth = fft_data.indexes[offset + 3] * 4;
 
         let a_a = stash[first] + stash[second];
-        let a_s = stash[first] - stash[second];
+        let a_b = stash[first] - stash[second];
+        let a_c = stash[third] + stash[fourth];
+        let a_d = stash[third] - stash[fourth];
         let b_a = stash[first + 2] + stash[second + 2];
-        let b_s = stash[first + 2] - stash[second + 2];
+        let b_b = stash[first + 2] - stash[second + 2];
+        let b_c = stash[third + 2] + stash[fourth + 2];
+        let b_d = stash[third + 2] - stash[fourth + 2];
         let c_a = stash[first + 1] + stash[second + 1];
-        let c_s = stash[first + 1] - stash[second + 1];
+        let c_b = stash[first + 1] - stash[second + 1];
+        let c_c = stash[third + 1] + stash[fourth + 1];
+        let c_d = stash[third + 1] - stash[fourth + 1];
         let d_a = stash[first + 3] + stash[second + 3];
-        let d_s = stash[first + 3] - stash[second + 3];
+        let d_b = stash[first + 3] - stash[second + 3];
+        let d_c = stash[third + 3] + stash[fourth + 3];
+        let d_d = stash[third + 3] - stash[fourth + 3];
 
-        input[offset] = a_a;
-        input[offset + 1] = a_s;
+        let a_w_0 = a_d * tw_4;
+        let b_w_0 = b_d * tw_4;
+        let c_w_0 = c_d * tw_4;
+        let d_w_0 = d_d * tw_4;
+
+        let e_a = a_a + a_c;
+        let e_b = a_b + a_w_0;
+        let e_c = a_a - a_c;
+        let e_d = a_b - a_w_0;
+        let f_a = b_a + b_c;
+        let f_b = b_b + b_w_0;
+        let f_c = b_a - b_c;
+        let f_d = b_b - b_w_0;
+        let g_a = c_a + c_c;
+        let g_b = c_b + c_w_0;
+        let g_c = c_a - c_c;
+        let g_d = c_b - c_w_0;
+        let h_a = d_a + d_c;
+        let h_b = d_b + d_w_0;
+        let h_c = d_a - d_c;
+        let h_d = d_b - d_w_0;
+
+        let f_w_1 = f_b * tw_2;
+        let f_w_2 = f_c * tw_4;
+        let f_w_3 = f_d * tw_6;
+        let h_w_1 = h_b * tw_2;
+        let h_w_2 = h_c * tw_4;
+        let h_w_3 = h_d * tw_6;
+
+        let i_a = e_a + f_a;
+        let i_b = e_b + f_w_1;
+        let i_c = e_c + f_w_2;
+        let i_d = e_d + f_w_3;
+        let j_a = e_a - f_a;
+        let j_b = e_b - f_w_1;
+        let j_c = e_c - f_w_2;
+        let j_d = e_d - f_w_3;
+        let k_a = g_a + h_a;
+        let k_b = g_b + h_w_1;
+        let k_c = g_c + h_w_2;
+        let k_d = g_d + h_w_3;
+        let l_a = g_a - h_a;
+        let l_b = g_b - h_w_1;
+        let l_c = g_c - h_w_2;
+        let l_d = g_d - h_w_3;
+
+        let k_w_1 = k_b * tw_1;
+        let k_w_2 = k_c * tw_2;
+        let k_w_3 = k_d * tw_3;
+        let k_w_4 = l_a * tw_4;
+        let k_w_5 = l_b * tw_5;
+        let k_w_6 = l_c * tw_6;
+        let k_w_7 = l_d * tw_7;
+
+        let m_a = i_a + k_a;
+        let m_b = i_b + k_w_1;
+        let m_c = i_c + k_w_2;
+        let m_d = i_d + k_w_3;
+        let n_a = j_a + k_w_4;
+        let n_b = j_b + k_w_5;
+        let n_c = j_c + k_w_6;
+        let n_d = j_d + k_w_7;
+        let o_a = i_a - k_a;
+        let o_b = i_b - k_w_1;
+        let o_c = i_c - k_w_2;
+        let o_d = i_d - k_w_3;
+        let p_a = j_a - k_w_4;
+        let p_b = j_b - k_w_5;
+        let p_c = j_c - k_w_6;
+        let p_d = j_d - k_w_7;
+
+        input[offset] = m_a;
+        input[offset + 1] = m_b;
+        input[offset + 2] = m_c;
+        input[offset + 3] = m_d;
 
         offset += div;
-        input[offset] = b_a;
-        input[offset + 1] = b_s;
+        input[offset] = n_a;
+        input[offset + 1] = n_b;
+        input[offset + 2] = n_c;
+        input[offset + 3] = n_d;
 
         offset += div;
-        input[offset] = c_a;
-        input[offset + 1] = c_s;
+        input[offset] = o_a;
+        input[offset + 1] = o_b;
+        input[offset + 2] = o_c;
+        input[offset + 3] = o_d;
 
         offset += div;
-        input[offset] = d_a;
-        input[offset + 1] = d_s;
+        input[offset] = p_a;
+        input[offset + 1] = p_b;
+        input[offset + 2] = p_c;
+        input[offset + 3] = p_d;
     }
 }
 
@@ -250,23 +347,23 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     }
 
     let mut m = 1;
-    for _ in 0..1 {
+    for _ in 0..log_n {
         let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
 
-        // let mut k = 0;
-        // while k < n {
-        //     let mut w = G::Scalar::one();
-        //     for j in 0..m {
-        //         let mut t = a[(k + j + m) as usize];
-        //         t.group_scale(&w);
-        //         a[(k + j + m) as usize] = a[(k + j) as usize];
-        //         a[(k + j + m) as usize].group_sub(&t);
-        //         a[(k + j) as usize].group_add(&t);
-        //         w *= &w_m;
-        //     }
+        let mut k = 0;
+        while k < n {
+            let mut w = G::Scalar::one();
+            for j in 0..m {
+                let mut t = a[(k + j + m) as usize];
+                t.group_scale(&w);
+                a[(k + j + m) as usize] = a[(k + j) as usize];
+                a[(k + j + m) as usize].group_sub(&t);
+                a[(k + j) as usize].group_add(&t);
+                w *= &w_m;
+            }
 
-        //     k += 2 * m;
-        // }
+            k += 2 * m;
+        }
 
         m *= 2;
     }

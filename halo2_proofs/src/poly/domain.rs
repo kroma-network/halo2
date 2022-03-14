@@ -76,9 +76,11 @@ impl<F: FieldExt> FFTData<F> {
             w *= omega;
         }
         indexes[0] = 0;
-        indexes[1] = 1;
+        indexes[1] = 2;
+        indexes[2] = 1;
+        indexes[3] = 3;
 
-        let mut counter = 2;
+        let mut counter = 4;
         while counter != quarter {
             for i in 0..counter {
                 indexes[i] *= 4;
@@ -88,7 +90,6 @@ impl<F: FieldExt> FFTData<F> {
             }
             counter *= 4;
         }
-        println!("indexes: {:?}", indexes);
 
         Self {
             half,
@@ -572,27 +573,11 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let rng = OsRng;
-    let k = 5;
+    let k = 4;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
     let coeffs: Vec<Fr> = vec![
-        Fr::zero(),
-        Fr::one(),
-        Fr::one().double(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one().double(),
-        Fr::one().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one().double() + Fr::one().double(),
-        Fr::one().double() + Fr::one().double() + Fr::one().double() + Fr::one(),
-        Fr::zero(),
-        Fr::one(),
-        Fr::one().double(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one().double(),
-        Fr::one().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one().double() + Fr::one().double(),
-        Fr::one().double() + Fr::one().double() + Fr::one().double() + Fr::one(),
         Fr::zero(),
         Fr::one(),
         Fr::one().double(),
