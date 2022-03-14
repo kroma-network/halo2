@@ -5,7 +5,7 @@ use std::{
     hash::{Hash, Hasher},
     marker::PhantomData,
     ops::{Add, Mul, MulAssign, Neg, Sub},
-    sync::Arc, cell::RefCell,
+    sync::Arc,
 };
 
 use group::ff::Field;
@@ -82,12 +82,6 @@ impl<E, B: Basis> AstLeaf<E, B> {
     }
 }
 
-enum PolyLeaf<F: Field, B: Basis> {
-    None,
-    //Lazy(Box::<dyn Fn() -> Polynomial<F, B>>),
-    Normal(Polynomial<F, B>),
-}
-
 /// An evaluation context for polynomial operations.
 ///
 /// This context enables us to de-duplicate queries of circuit columns (and the rotations
@@ -100,7 +94,7 @@ enum PolyLeaf<F: Field, B: Basis> {
 ///   operations to be applied to the polynomials.
 /// - Finally, we call [`Evaluator::evaluate`] passing in the [`Ast`].
 pub(crate) struct Evaluator<E, F: Field, B: Basis> {
-    polys: Vec<PolyLeaf<F, B>>,
+    polys: Vec<Option<Polynomial<F, B>>>,
     _context: E,
 }
 
@@ -122,45 +116,25 @@ impl<E, F: Field, B: Basis> Evaluator<E, F, B> {
     ///
     /// This API treats each registered polynomial as unique, even if the same polynomial
     /// is added multiple times.
-    pub(crate) fn register_poly(&mut self, name: &str, poly: Polynomial<F, B>) -> AstLeaf<E, B> {
+    pub(crate) fn register_poly(&mut self, poly: Polynomial<F, B>) -> AstLeaf<E, B> {
         let index = self.polys.len();
-        self.polys.push(PolyLeaf::Normal(poly));
+        self.polys.push(Some(poly));
 
-        let mut none = 0;
-        let mut some = 0;
-        for p in &self.polys {
-            match p {
-                PolyLeaf::Normal(_) => some += 1,
-                PolyLeaf::None => none += 1,
-            }
-        }
-        println!("coset poly {} {} some {} none {}", name, index, some, none);
         AstLeaf {
             index,
             rotation: Rotation::cur(),
             _evaluator: PhantomData::default(),
         }
     }
-    /* 
-    pub(crate) fn register_poly_lazy(&mut self, poly: Box::<dyn Fn() -> Polynomial<F, B>>) -> AstLeaf<E, B> {
-        let index = self.polys.len();
-        self.polys.push(RefCell::new(PolyLeaf::Lazy(poly)));
 
-        AstLeaf {
-            index,
-            rotation: Rotation::cur(),
-            _evaluator: PhantomData::default(),
-        }
-    }*/
-
-    /// Allow delibrate release a poly to save memory
+    /// Release a poly leaf to save memory
     pub(crate) fn release_poly(&mut self, leaf: AstLeaf<E, B>) {
         debug_assert_eq!(leaf.rotation, Rotation::cur());
-        self.polys[leaf.index] = PolyLeaf::None;
+        self.polys[leaf.index] = None;
     }
 
     fn get_ploy(&self, idx: usize) -> &Polynomial<F, B> {
-        if let PolyLeaf::Normal(p) = &self.polys[idx] {
+        if let Some(p) = &self.polys[idx] {
             return p;
         }
         unreachable!("ploy leaf released");
@@ -478,7 +452,10 @@ impl<E, F: Field, B: Basis> Mul<F> for Ast<E, F, B> {
     type Output = Ast<E, F, B>;
 
     fn mul(self, other: F) -> Self::Output {
-        Ast::Scale(Arc::new(self), other)
+        match self {
+            Ast::Scale(old, mul) => Ast::Scale(old, mul * other),
+            _ => Ast::Scale(Arc::new(self), other),
+        }
     }
 }
 
@@ -694,7 +671,7 @@ mod tests {
         ) {
             // Instantiate the evaluator with a trivial polynomial.
             let domain = EvaluationDomain::new(1, k);
-            evaluator.register_poly("test", B::empty_poly(&domain));
+            evaluator.register_poly(B::empty_poly(&domain));
 
             // With the bug present, these will panic.
             let _ = evaluator.evaluate(&Ast::ConstantTerm(Fr::zero()), &domain);

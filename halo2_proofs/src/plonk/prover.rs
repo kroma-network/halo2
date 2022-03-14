@@ -1,8 +1,8 @@
 use ff::Field;
 use group::Curve;
 use rand_core::RngCore;
-use std::iter;
 use std::ops::RangeTo;
+use std::{iter, marker::PhantomData};
 
 use super::{
     circuit::{
@@ -16,7 +16,7 @@ use crate::poly::{
     self,
     commitment::{Blind, Params},
     multiopen::{self, ProverQuery},
-    Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial,
+    Coeff, Evaluator, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial,
 };
 use crate::{
     arithmetic::{eval_polynomial, BaseExt, CurveAffine, FieldExt},
@@ -330,7 +330,7 @@ pub fn create_proof<
     let fixed_values: Vec<_> = pk
         .fixed_values
         .iter()
-        .map(|poly| value_evaluator.register_poly("fixed small", poly.clone()))
+        .map(|poly| value_evaluator.register_poly(poly.clone()))
         .collect();
 
     // Register advice values with the polynomial evaluator.
@@ -340,7 +340,7 @@ pub fn create_proof<
             advice
                 .advice_values
                 .iter()
-                .map(|poly| value_evaluator.register_poly("advice small", poly.clone()))
+                .map(|poly| value_evaluator.register_poly(poly.clone()))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -352,7 +352,7 @@ pub fn create_proof<
             instance
                 .instance_values
                 .iter()
-                .map(|poly| value_evaluator.register_poly("instance small", poly.clone()))
+                .map(|poly| value_evaluator.register_poly(poly.clone()))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -364,7 +364,7 @@ pub fn create_proof<
     let fixed_cosets: Vec<_> = pk
         .fixed_cosets
         .iter()
-        .map(|poly| coset_evaluator.register_poly("fixed", poly.clone()))
+        .map(|poly| coset_evaluator.register_poly(poly.clone()))
         .collect();
 
     // Register advice cosets with the polynomial evaluator.
@@ -374,7 +374,7 @@ pub fn create_proof<
             advice
                 .advice_cosets
                 .iter()
-                .map(|poly| coset_evaluator.register_poly("advice", poly.clone()))
+                .map(|poly| coset_evaluator.register_poly(poly.clone()))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -386,7 +386,7 @@ pub fn create_proof<
             instance
                 .instance_cosets
                 .iter()
-                .map(|poly| coset_evaluator.register_poly("instance", poly.clone()))
+                .map(|poly| coset_evaluator.register_poly(poly.clone()))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -396,13 +396,13 @@ pub fn create_proof<
         .permutation
         .cosets
         .iter()
-        .map(|poly| coset_evaluator.register_poly("perm", poly.clone()))
+        .map(|poly| coset_evaluator.register_poly(poly.clone()))
         .collect();
 
     // Register boundary polynomials used in the lookup and permutation arguments.
-    let l0 = coset_evaluator.register_poly("real l0", pk.l0.clone());
-    let l_blind = coset_evaluator.register_poly("real l_blind",pk.l_blind.clone());
-    let l_last = coset_evaluator.register_poly("real l_last", pk.l_last.clone());
+    let l0 = coset_evaluator.register_poly(pk.l0.clone());
+    let l_blind = coset_evaluator.register_poly(pk.l_blind.clone());
+    let l_last = coset_evaluator.register_poly(pk.l_last.clone());
 
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
@@ -517,92 +517,135 @@ pub fn create_proof<
         })
         .unzip();
 
-        
-    let lookups_constructed:Vec<Vec<_>> = lookups
-        .iter()
-        .map(|lookups| {
-            // Evaluate the h(X) polynomial's constraint system expressions for the lookup constraints, if any.
-            lookups
-                .iter()
-                .map(|p| p.construct(theta, beta, gamma, l0, l_blind, l_last, &domain, &mut coset_evaluator, y))
-                .collect()
-        }).collect();
+    struct VanishingPolySqueezer<C: CurveAffine, E: Copy + Send + Sync> {
+        pub y: C::ScalarExt,
+        pub lazy_acc: poly::Ast<E, C::ScalarExt, ExtendedLagrangeCoeff>,
+        pub eager_acc: Option<poly::Polynomial<C::Scalar, ExtendedLagrangeCoeff>>,
+    }
+    impl<C: CurveAffine, E: Copy + Send + Sync> VanishingPolySqueezer<C, E> {
+        pub fn new(y: C::Scalar) -> Self {
+            Self {
+                y,
+                lazy_acc: poly::Ast::ConstantTerm(C::ScalarExt::zero()),
+                eager_acc: None,
+            }
+        }
+        pub fn evaluate(
+            self,
+            evaluator: &mut poly::Evaluator<E, C::ScalarExt, ExtendedLagrangeCoeff>,
+            domain: &poly::EvaluationDomain<C::ScalarExt>,
+        ) -> poly::Polynomial<C::Scalar, ExtendedLagrangeCoeff> {
+            evaluator.evaluate(&self.lazy_acc, domain)
+                + &self.eager_acc.unwrap_or_else(|| domain.empty_extended())
+        }
+        pub fn add_lazy(self, p: poly::Ast<E, C::ScalarExt, ExtendedLagrangeCoeff>) -> Self {
+            let eager_acc = match self.eager_acc {
+                None => None,
+                Some(p) => Some(p * self.y),
+            };
+            let lazy_acc = self.lazy_acc * self.y;
+            let lazy_acc = lazy_acc + p;
+            {
+                Self {
+                    y: self.y,
+                    lazy_acc,
+                    eager_acc,
+                }
+            }
+        }
+        pub fn add_eager_batch(
+            self,
+            polys: Vec<poly::Ast<E, C::ScalarExt, ExtendedLagrangeCoeff>>,
+            gc_ast_leafs: Vec<poly::AstLeaf<E, ExtendedLagrangeCoeff>>,
+            evaluator: &mut poly::Evaluator<E, C::ScalarExt, ExtendedLagrangeCoeff>,
+            domain: &poly::EvaluationDomain<C::ScalarExt>,
+        ) -> Self {
+            let mut sum = poly::Ast::ConstantTerm(C::Scalar::zero());
+            let mut ploy_count = 0;
+            for p in polys {
+                ploy_count += 1;
+                sum = &(&sum * self.y) + &p;
+            }
+            let mul = (self.y).pow_vartime(&[ploy_count as u64]);
+            let eager_acc = match self.eager_acc {
+                None => Some(evaluator.evaluate(&sum, domain)),
+                Some(e) => Some(e * mul + &evaluator.evaluate(&sum, domain)),
+            };
+            for leaf in gc_ast_leafs {
+                evaluator.release_poly(leaf)
+            }
+            let lazy_acc = self.lazy_acc * mul;
+            Self {
+                y: self.y,
+                lazy_acc,
+                eager_acc,
+            }
+        }
+    }
 
-    let lookup_exp_combine: Vec<(usize, _)> = lookups
-    .into_iter()
-    .map(|lookups| {
-        // Evaluate the h(X) polynomial's constraint system expressions for the lookup constraints, if any.
-        let (count, combined_poly) = lookups
-            .into_iter()
-            .map(|p| p.construct_combine(theta, beta, gamma, l0, l_blind, l_last, &domain, &mut coset_evaluator, y))
-            .fold((0 as usize, domain.empty_extended()), |(count, h_poly), (step, partial_combine)| {
-                let power = if step == 1 {
-                    *y
-                } else {
-                    (*y).pow_vartime(&[step as u64])
-                };
-                (count + step, h_poly * power + &partial_combine)
-             });
-             (count, poly::Ast::from(coset_evaluator.register_poly("HAHAHAH ", combined_poly)))
-    }).collect();
+    let mut squeezer = VanishingPolySqueezer::<C, _>::new(*y);
+    let mut lookups_constructed = Vec::new();
 
-    // due to memory usage reasons, we calculate y-combined lookup_expressions first
-   // let mut total_lookup_expression_num = 0;
-    //let vanishing_ploy: Polynomial<C::Scalar, ExtendedLagrangeCoeff> = domain.empty_extended();
-    //for lookup_expressions_of_one_lookup in lookup_expressions {
-
-    //}
-    let h_poly = advice_cosets
+    for (((advice_cosets, instance_cosets), permutation_expressions), lookups) in advice_cosets
         .iter()
         .zip(instance_cosets.iter())
         .zip(permutation_expressions.into_iter())
-        .zip(lookup_exp_combine.into_iter())
-        .flat_map(
-            |(((advice_cosets, instance_cosets), permutation_expressions), lookup_expressions)| {
-                let fixed_cosets = &fixed_cosets;
-                iter::empty()
-                    // Custom constraints
-                    .chain(meta.gates.iter().flat_map(move |gate| {
-                        gate.polynomials().iter().map(move |expr| {
-                            (1 as usize, expr.evaluate(
-                                &poly::Ast::ConstantTerm,
-                                &|_| panic!("virtual selectors are removed during optimization"),
-                                &|_, column_index, rotation| {
-                                    fixed_cosets[column_index].with_rotation(rotation).into()
-                                },
-                                &|_, column_index, rotation| {
-                                    advice_cosets[column_index].with_rotation(rotation).into()
-                                },
-                                &|_, column_index, rotation| {
-                                    instance_cosets[column_index].with_rotation(rotation).into()
-                                },
-                                &|a| -a,
-                                &|a, b| a + b,
-                                &|a, b| a * b,
-                                &|a, scalar| a * scalar,
-                            ))
-                        })
-                    }))
-                    // Permutation constraints, if any.
-                    .chain(permutation_expressions.into_iter().map(|x|(1 as usize, x)))
-                    // Lookup constraints, if any.
-                    .chain(Some(lookup_expressions))
-            },
-        ).fold( poly::Ast::ConstantTerm(C::Scalar::zero()), |h_poly, (step, partial_combine) : (usize,poly::Ast<_,_,_>)| {
-            let power = if step == 1 {
-                *y
-            } else {
-                (*y).pow_vartime(&[step as u64])
-            };
-            &(&h_poly * power) + &partial_combine
-         });
+        .zip(lookups.into_iter())
+    {
+        let fixed_cosets = &fixed_cosets;
 
-        
-     let h_poly = coset_evaluator.evaluate(&h_poly, domain); // Evaluate the h(X) polynomial
+        // Custom constraints
+        for gate in &meta.gates {
+            for poly in gate.polynomials() {
+                squeezer = squeezer.add_lazy(poly.evaluate(
+                    &poly::Ast::ConstantTerm,
+                    &|_| panic!("virtual selectors are removed during optimization"),
+                    &|_, column_index, rotation| {
+                        fixed_cosets[column_index].with_rotation(rotation).into()
+                    },
+                    &|_, column_index, rotation| {
+                        advice_cosets[column_index].with_rotation(rotation).into()
+                    },
+                    &|_, column_index, rotation| {
+                        instance_cosets[column_index].with_rotation(rotation).into()
+                    },
+                    &|a| -a,
+                    &|a, b| a + b,
+                    &|a, b| a * b,
+                    &|a, scalar| a * scalar,
+                ))
+            }
+        }
+
+        // Permutation constraints, if any.
+        for perm in permutation_expressions {
+            squeezer = squeezer.add_lazy(perm);
+        }
+
+        // Lookup constraints, if any.
+        let mut constructs = Vec::new();
+        for lookup in lookups {
+            let (construct, polys, leafs) = lookup.construct(
+                theta,
+                beta,
+                gamma,
+                l0,
+                l_blind,
+                l_last,
+                domain,
+                &mut coset_evaluator,
+            );
+            squeezer =
+                squeezer.add_eager_batch(polys.collect(), leafs, &mut coset_evaluator, domain);
+            constructs.push(construct);
+        }
+        lookups_constructed.push(constructs);
+    }
+
+    let h_poly = squeezer.evaluate(&mut coset_evaluator, domain);
 
     // Construct the vanishing argument's h(X) commitments
-    let vanishing =
-        vanishing.construct(params, domain, coset_evaluator, h_poly, transcript)?;
+    let vanishing = vanishing.construct(params, domain, coset_evaluator, h_poly, transcript)?;
 
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
     let xn = x.pow(&[params.n as u64, 0, 0, 0]);

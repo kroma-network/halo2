@@ -62,11 +62,10 @@ impl<C: CurveAffine> Committed<C> {
         self,
         params: &Params<C>,
         domain: &EvaluationDomain<C::Scalar>,
-        evaluator: poly::Evaluator<Ev, C::Scalar, ExtendedLagrangeCoeff>,
+        _evaluator: poly::Evaluator<Ev, C::Scalar, ExtendedLagrangeCoeff>,
         h_poly: Polynomial<C::Scalar, ExtendedLagrangeCoeff>,
         transcript: &mut T,
     ) -> Result<Constructed<C>, Error> {
-       
         // Divide by t(X) = X^{params.n} - 1.
         let h_poly = domain.divide_by_vanishing_poly(h_poly);
 

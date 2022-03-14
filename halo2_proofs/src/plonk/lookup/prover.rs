@@ -3,7 +3,6 @@ use super::super::{
     ProvingKey,
 };
 use super::Argument;
-use crate::plonk::ChallengeY;
 use crate::{
     arithmetic::{eval_polynomial, parallelize, CurveAffine, FieldExt},
     poly::{
@@ -31,19 +30,16 @@ pub(in crate::plonk) struct Permuted<C: CurveAffine, Ev> {
     unpermuted_input_cosets: Vec<poly::Ast<Ev, C::Scalar, ExtendedLagrangeCoeff>>,
     permuted_input_expression: Polynomial<C::Scalar, LagrangeCoeff>,
     permuted_input_poly: Polynomial<C::Scalar, Coeff>,
-    //permuted_input_coset: poly::AstLeaf<Ev, ExtendedLagrangeCoeff>,
     unpermuted_table_expressions: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
     unpermuted_table_cosets: Vec<poly::Ast<Ev, C::Scalar, ExtendedLagrangeCoeff>>,
     permuted_table_expression: Polynomial<C::Scalar, LagrangeCoeff>,
     permuted_table_poly: Polynomial<C::Scalar, Coeff>,
-    //permuted_table_coset: poly::AstLeaf<Ev, ExtendedLagrangeCoeff>,
 }
 
 #[derive(Debug)]
 pub(in crate::plonk) struct Committed<C: CurveAffine, Ev> {
     permuted: Permuted<C, Ev>,
     product_poly: Polynomial<C::Scalar, Coeff>,
-    //product_coset: poly::AstLeaf<Ev, ExtendedLagrangeCoeff>,
 }
 
 pub(in crate::plonk) struct Constructed<C: CurveAffine> {
@@ -80,7 +76,7 @@ impl<F: FieldExt> Argument<F> {
         params: &Params<C>,
         domain: &EvaluationDomain<C::Scalar>,
         value_evaluator: &poly::Evaluator<Ev, C::Scalar, LagrangeCoeff>,
-        coset_evaluator: &mut poly::Evaluator<Ec, C::Scalar, ExtendedLagrangeCoeff>,
+        _coset_evaluator: &mut poly::Evaluator<Ec, C::Scalar, ExtendedLagrangeCoeff>,
         theta: ChallengeTheta<C>,
         advice_values: &'a [poly::AstLeaf<Ev, LagrangeCoeff>],
         fixed_values: &'a [poly::AstLeaf<Ev, LagrangeCoeff>],
@@ -199,22 +195,15 @@ impl<F: FieldExt> Argument<F> {
         // Hash permuted table commitment
         transcript.write_point(permuted_table_commitment)?;
 
-        //let permuted_input_coset = coset_evaluator
-        //    .register_poly(pk.vk.domain.coeff_to_extended(permuted_input_poly.clone()));
-        //let permuted_table_coset = coset_evaluator
-        //    .register_poly(pk.vk.domain.coeff_to_extended(permuted_table_poly.clone()));
-
         Ok(Permuted {
             unpermuted_input_expressions,
             unpermuted_input_cosets,
             permuted_input_expression,
             permuted_input_poly,
-            ///permuted_input_coset,
             unpermuted_table_expressions,
             unpermuted_table_cosets,
             permuted_table_expression,
             permuted_table_poly,
-            //permuted_table_coset,
         })
     }
 }
@@ -236,7 +225,7 @@ impl<C: CurveAffine, Ev: Copy + Send + Sync> Permuted<C, Ev> {
         theta: ChallengeTheta<C>,
         beta: ChallengeBeta<C>,
         gamma: ChallengeGamma<C>,
-        evaluator: &mut poly::Evaluator<Ev, C::Scalar, ExtendedLagrangeCoeff>,
+        _evaluator: &mut poly::Evaluator<Ev, C::Scalar, ExtendedLagrangeCoeff>,
         mut rng: R,
         transcript: &mut T,
     ) -> Result<Committed<C, Ev>, Error> {
@@ -371,7 +360,6 @@ impl<C: CurveAffine, Ev: Copy + Send + Sync> Permuted<C, Ev> {
 
         let product_commitment = params.commit_lagrange(&z).to_affine();
         let z = pk.vk.domain.lagrange_to_coeff(z);
-        //let product_coset = evaluator.register_poly(pk.vk.domain.coeff_to_extended(z.clone()));
 
         // Hash product commitment
         transcript.write_point(product_commitment)?;
@@ -379,7 +367,6 @@ impl<C: CurveAffine, Ev: Copy + Send + Sync> Permuted<C, Ev> {
         Ok(Committed::<C, _> {
             permuted: self,
             product_poly: z,
-            //product_coset,
         })
     }
 }
@@ -390,29 +377,8 @@ impl<'a, C: CurveAffine, Ev: Copy + Send + Sync + 'a> Committed<C, Ev> {
     /// method constructs constraints that must hold between these values.
     /// This method returns the constraints as a vector of ASTs for polynomials in
     /// the extended evaluation domain.
-   
+
     pub(in crate::plonk) fn construct(
-        &self,
-        theta: ChallengeTheta<C>,
-        beta: ChallengeBeta<C>,
-        gamma: ChallengeGamma<C>,
-        l0: poly::AstLeaf<Ev, ExtendedLagrangeCoeff>,
-        l_blind: poly::AstLeaf<Ev, ExtendedLagrangeCoeff>,
-        l_last: poly::AstLeaf<Ev, ExtendedLagrangeCoeff>,
-        domain: &EvaluationDomain<C::Scalar>,
-        coset_evaluator: &mut poly::Evaluator<Ev, C::Scalar, ExtendedLagrangeCoeff>,
-        y: ChallengeY<C>,
-    ) -> 
-        Constructed<C>
-     {
-        Constructed {
-            permuted_input_poly: self.permuted.permuted_input_poly.clone(),
-            permuted_table_poly: self.permuted.permuted_table_poly.clone(),
-            product_poly: self.product_poly.clone(),
-        }
-    }
-   
-    pub(in crate::plonk) fn construct_combine(
         self,
         theta: ChallengeTheta<C>,
         beta: ChallengeBeta<C>,
@@ -422,28 +388,30 @@ impl<'a, C: CurveAffine, Ev: Copy + Send + Sync + 'a> Committed<C, Ev> {
         l_last: poly::AstLeaf<Ev, ExtendedLagrangeCoeff>,
         domain: &EvaluationDomain<C::Scalar>,
         coset_evaluator: &mut poly::Evaluator<Ev, C::Scalar, ExtendedLagrangeCoeff>,
-        y: ChallengeY<C>,
-    ) -> 
-        (usize, poly::Polynomial<C::Scalar, ExtendedLagrangeCoeff>)
-     {
+    ) -> (
+        Constructed<C>,
+        impl Iterator<Item = poly::Ast<Ev, C::Scalar, ExtendedLagrangeCoeff>> + 'a,
+        Vec<poly::AstLeaf<Ev, ExtendedLagrangeCoeff>>,
+    ) {
         let permuted = self.permuted;
-
 
         let active_rows = poly::Ast::one() - (poly::Ast::from(l_last) + l_blind);
         let beta = poly::Ast::ConstantTerm(*beta);
         let gamma = poly::Ast::ConstantTerm(*gamma);
 
-        let product_coset = coset_evaluator.register_poly("l1", domain.coeff_to_extended(self.product_poly.clone()));
-        let permuted_input_coset = coset_evaluator.register_poly("l2", domain.coeff_to_extended(permuted.permuted_input_poly.clone()));
-        let permuted_table_coset = coset_evaluator.register_poly("l3", domain.coeff_to_extended(permuted.permuted_table_poly.clone()));
+        let product_coset =
+            coset_evaluator.register_poly(domain.coeff_to_extended(self.product_poly.clone()));
+        let permuted_input_coset = coset_evaluator
+            .register_poly(domain.coeff_to_extended(permuted.permuted_input_poly.clone()));
+        let permuted_table_coset = coset_evaluator
+            .register_poly(domain.coeff_to_extended(permuted.permuted_table_poly.clone()));
 
         let expressions = iter::empty()
             // l_0(X) * (1 - z(X)) = 0
             .chain(Some((poly::Ast::one() - product_coset) * l0))
             // l_last(X) * (z(X)^2 - z(X)) = 0
             .chain(Some(
-                (poly::Ast::from(product_coset) * product_coset - product_coset)
-                    * l_last,
+                (poly::Ast::from(product_coset) * product_coset - product_coset) * l_last,
             ))
             // (1 - (l_last(X) + l_blind(X))) * (
             //   z(\omega X) (a'(X) + \beta) (s'(X) + \gamma)
@@ -474,37 +442,27 @@ impl<'a, C: CurveAffine, Ev: Copy + Send + Sync + 'a> Committed<C, Ev> {
             // fixed expression are the same.
             // l_0(X) * (a'(X) - s'(X)) = 0
             .chain(Some(
-                (poly::Ast::from(permuted_input_coset) - permuted_table_coset)
-                    * l0,
+                (poly::Ast::from(permuted_input_coset) - permuted_table_coset) * l0,
             ))
             // Check that each value in the permuted lookup input expression is either
             // equal to the value above it, or the value at the same index in the
             // permuted table expression.
             // (1 - (l_last + l_blind)) * (a′(X) − s′(X))⋅(a′(X) − a′(\omega^{-1} X)) = 0
             .chain(Some(
-                (poly::Ast::<_, C::Scalar, _>::from(permuted_input_coset)
-                    - permuted_table_coset)
+                (poly::Ast::<_, C::Scalar, _>::from(permuted_input_coset) - permuted_table_coset)
                     * (poly::Ast::from(permuted_input_coset)
-                        - permuted_input_coset
-                            .with_rotation(Rotation::prev()))
+                        - permuted_input_coset.with_rotation(Rotation::prev()))
                     * active_rows,
             ));
 
-        let mut ploy_count = 0;
-        //let mut partial_sum = domain.empty_extended();
-        let mut partial_combine_ast = poly::Ast::ConstantTerm(C::Scalar::zero());
-        for exp in expressions {
-            ploy_count += 1;
-            partial_combine_ast = &(&partial_combine_ast * *y) + &exp;
-        }
-        let partial_combine =  coset_evaluator.evaluate(&partial_combine_ast, &domain);
-        coset_evaluator.release_poly(product_coset);
-        coset_evaluator.release_poly(permuted_input_coset);
-        coset_evaluator.release_poly(permuted_table_coset);
-        
         (
-            (ploy_count, partial_combine)
-            //(ploy_count, poly::Ast::from(coset_evaluator.register_poly("l4", partial_combine)))
+            Constructed {
+                permuted_input_poly: permuted.permuted_input_poly,
+                permuted_table_poly: permuted.permuted_table_poly,
+                product_poly: self.product_poly,
+            },
+            expressions,
+            vec![product_coset, permuted_input_coset, permuted_table_coset],
         )
     }
 }
