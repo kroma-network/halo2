@@ -198,15 +198,25 @@ pub fn recursive_fft_inner<F: FieldExt>(
 ) {
     let radix = 4;
     let div = fft_data.half / 2;
-    for i in 0..div {
-        let index = fft_data.indexes[i] * 4;
-        input[i] = stash[index];
-        input[div + i] = stash[index + 2];
-        input[div * 2 + i] = stash[index + 1];
-        input[div * 3 + i] = stash[index + 3];
+    // bit reverse and bottom butterfly arithmetic
+    for i in 0..div / 2 {
+        let first = fft_data.indexes[2 * i] * 4;
+        let second = fft_data.indexes[2 * i + 1] * 4;
+
+        input[2 * i] = stash[first];
+        input[2 * i + 1] = stash[second];
+
+        input[div + 2 * i] = stash[first + 2];
+        input[div + 2 * i + 1] = stash[second + 2];
+
+        input[div * 2 + 2 * i] = stash[first + 1];
+        input[div * 2 + 2 * i + 1] = stash[second + 1];
+
+        input[div * 3 + 2 * i] = stash[first + 3];
+        input[div * 3 + 2 * i + 1] = stash[second + 3];
     }
+
     // if n == 2 {
-    //     // bit reverse and bottom butterfly arithmetic
     // } else {
     //     let next_n = n / radix;
     //     let next_level = level * radix;
