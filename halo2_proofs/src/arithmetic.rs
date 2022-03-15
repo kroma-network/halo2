@@ -2,7 +2,7 @@
 //! field and polynomial arithmetic.
 
 use super::multicore;
-use crate::poly::{FFTData, FFTStage};
+use crate::poly::FFTData;
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
@@ -197,26 +197,25 @@ fn bottom_layers_butterfly_arithmetic<F: FieldExt>(
     fft_data: &FFTData<F>,
     div: usize,
 ) {
+    // twiddles factor 16th root of unity
+    let mut tw_offset = fft_data.half / 8;
+    let tw_1 = fft_data.f_twiddles[tw_offset];
+    tw_offset += 1;
+    let tw_2 = fft_data.f_twiddles[tw_offset];
+    tw_offset += 1;
+    let tw_3 = fft_data.f_twiddles[tw_offset];
+    tw_offset += 1;
+    let tw_4 = fft_data.f_twiddles[tw_offset];
+    tw_offset += 1;
+    let tw_5 = fft_data.f_twiddles[tw_offset];
+    tw_offset += 1;
+    let tw_6 = fft_data.f_twiddles[tw_offset];
+    tw_offset += 1;
+    let tw_7 = fft_data.f_twiddles[tw_offset];
+
     for i in 0..div / 4 {
-        let mut offset = 4 * i;
-        let mut tw_offset = fft_data.half / 8;
-
-        // twiddles factor 16th root of unity
-        let tw_1 = fft_data.f_twiddles[tw_offset];
-        tw_offset += 1;
-        let tw_2 = fft_data.f_twiddles[tw_offset];
-        tw_offset += 1;
-        let tw_3 = fft_data.f_twiddles[tw_offset];
-        tw_offset += 1;
-        let tw_4 = fft_data.f_twiddles[tw_offset];
-        tw_offset += 1;
-        let tw_5 = fft_data.f_twiddles[tw_offset];
-        tw_offset += 1;
-        let tw_6 = fft_data.f_twiddles[tw_offset];
-        tw_offset += 1;
-        let tw_7 = fft_data.f_twiddles[tw_offset];
-
         // decompress bit reverse indexes
+        let mut offset = 4 * i;
         let mut first = fft_data.indexes[offset] * 4;
         let mut second = fft_data.indexes[offset + 1] * 4;
         let mut third = fft_data.indexes[offset + 2] * 4;

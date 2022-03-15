@@ -12,50 +12,13 @@ use group::ff::{BatchInvert, Field, PrimeField};
 
 use std::marker::PhantomData;
 
-/// This structure manages fft radix and depth
-#[derive(Debug)]
-pub struct FFTStage {
-    /// radix of fft
-    pub radix: usize,
-    /// radix two counter
-    pub count: usize,
-    /// recursion tree depth
-    pub layer: usize,
-}
-
-/// Create `FFTStage` for each radixes.
-pub fn get_stages(mut n: usize, k: usize) -> Vec<FFTStage> {
-    let mut stages = Vec::with_capacity(k / 2);
-    let mut layer = 0;
-    let mut nc = n;
-
-    while n > 4 {
-        stages.push(FFTStage {
-            radix: 4,
-            layer: k / 2 - layer,
-            count: nc / 2,
-        });
-        layer += 1;
-        n /= 4;
-        nc /= 2;
-    }
-    if n > 2 {
-        stages.push(FFTStage {
-            radix: 2,
-            layer: k / 2 - layer,
-            count: nc / 2,
-        });
-    }
-    stages
-}
-
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
 pub struct FFTData<F: FieldExt> {
     /// n half
     pub half: usize,
     /// stages
-    pub stages: Vec<FFTStage>,
+    pub stages: Vec<usize>,
     /// indexes for bit reverse
     pub indexes: Vec<usize>,
     /// twiddles
@@ -68,19 +31,31 @@ impl<F: FieldExt> FFTData<F> {
         let mut w = F::one();
         let half = n / 2;
         let quarter = half / 2;
-        let mut f_twiddles = Vec::with_capacity(half - 1);
+        let mut f_twiddles = Vec::with_capacity(half);
+        let offset = k - 4;
+        let mut stages = Vec::with_capacity(offset / 2 + offset % 2);
+        let mut counter = 2;
         let mut indexes = vec![0; quarter];
 
+        // calculate twiddles factor
         for _ in 0..half {
             f_twiddles.push(w);
             w *= omega;
         }
-        indexes[0] = 0;
-        indexes[1] = 2;
-        indexes[2] = 1;
-        indexes[3] = 3;
 
-        let mut counter = 4;
+        // init bit reverse indexes
+        if k % 2 != 0 {
+            indexes[0] = 0;
+            indexes[1] = 1;
+        } else {
+            indexes[0] = 0;
+            indexes[1] = 2;
+            indexes[2] = 1;
+            indexes[3] = 3;
+            counter *= 2;
+        }
+
+        // calculate 1 / 4 size bit reverse indexes
         while counter != quarter {
             for i in 0..counter {
                 indexes[i] *= 4;
@@ -91,9 +66,17 @@ impl<F: FieldExt> FFTData<F> {
             counter *= 4;
         }
 
+        // stages and radix
+        for _ in 0..offset / 2 {
+            stages.push(4);
+        }
+        if k % 2 == 1 {
+            stages.push(2)
+        }
+
         Self {
             half,
-            stages: get_stages(n, k),
+            stages,
             f_twiddles,
             indexes,
         }
