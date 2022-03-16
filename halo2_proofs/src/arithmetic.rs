@@ -182,7 +182,7 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 /// recursive fft
 pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, k: u32) {
     let stash = input.to_vec();
-    let mut elements = fft_data.half / 8;
+    let mut elements = 32;
     // bit reverse and bottom four layers butterfly arithmetic
     bottom_layers_butterfly_arithmetic(input, &stash, fft_data, fft_data.half / 2);
     for radix in fft_data.stages.iter() {
@@ -204,26 +204,33 @@ fn butterfly_arithmetic<F: FieldExt>(
     for i in 0..chunk / 2 {
         // slide
         let offset = elements / 2;
-        let mut tw_offset = fft_data.half / (elements / 2);
-        for p in 0..elements {
+        let tw_offset = fft_data.half / elements;
+        for p in 0..elements / 2 {
             // first index of this loop
-            let index = i * elements + p * elements;
+            let first = i * elements * 2 + p;
+            let second = first + offset;
+            let third = first + elements;
+            let fourth = third + offset;
+            // twiddle factor indexes for each
+            let a_tw_idx = tw_offset * 2 * p;
+            let b_tw1_idx = a_tw_idx / 2;
+            let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
             // twiddles multiplicative
-            let former = input[index + offset] * fft_data.f_twiddles[tw_offset * p];
-            let latter = input[index + offset * 3] * fft_data.f_twiddles[tw_offset * p];
+            let tw1 = input[second] * fft_data.f_twiddles[b_tw1_idx];
+            let tw2 = input[fourth] * fft_data.f_twiddles[b_tw2_idx];
             // upper side butterfly arithmetic
-            let temp1 = input[index] + former;
-            let temp2 = input[index] - former;
-            let temp3 = input[index + offset * 2] + latter;
-            let temp4 = input[index + offset * 2] - latter;
+            let temp1 = input[first] + tw1;
+            let temp2 = input[first] - tw1;
+            let temp3 = input[third] + tw2;
+            let temp4 = input[third] - tw2;
             // twiddles multiplicative
-            let tw1 = temp3 * fft_data.f_twiddles[tw_offset * p];
-            let tw2 = temp4 * fft_data.f_twiddles[tw_offset * p];
+            let tw3 = temp3 * fft_data.f_twiddles[tw_offset];
+            let tw4 = temp4 * fft_data.f_twiddles[tw_offset];
             // bottom side butterfly arithmetic
-            input[index] = temp1 + tw1;
-            input[index + offset] = temp1 - tw1;
-            input[index + offset * 2] = temp2 + tw2;
-            input[index + offset * 3] = temp2 - tw2;
+            input[first] = temp1 + tw3;
+            input[second] = temp1 - tw3;
+            input[third] = temp2 + tw4;
+            input[fourth] = temp2 - tw4;
         }
     }
 }
