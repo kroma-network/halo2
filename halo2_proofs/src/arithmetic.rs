@@ -181,14 +181,51 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 
 /// recursive fft
 pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, k: u32) {
-    recursive_fft_inner(input, fft_data);
-}
-
-/// recursive fft operation
-pub fn recursive_fft_inner<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
     let stash = input.to_vec();
+    let mut elements = fft_data.half / 8;
     // bit reverse and bottom four layers butterfly arithmetic
     bottom_layers_butterfly_arithmetic(input, &stash, fft_data, fft_data.half / 2);
+    for radix in fft_data.stages.iter() {
+        let chunk = fft_data.half * 2 / elements;
+        println!("elements: {:?} chunk: {:?}", elements, chunk);
+        butterfly_arithmetic(input, fft_data, *radix, elements, chunk);
+        elements *= radix;
+    }
+}
+
+fn butterfly_arithmetic<F: FieldExt>(
+    input: &mut [F],
+    fft_data: &FFTData<F>,
+    radix: usize,
+    elements: usize,
+    mut chunk: usize,
+) {
+    // parent times loop
+    for i in 0..chunk / 2 {
+        // slide
+        let offset = elements / 2;
+        let mut tw_offset = fft_data.half / (elements / 2);
+        for p in 0..elements {
+            // first index of this loop
+            let index = i * elements + p * elements;
+            // twiddles multiplicative
+            let former = input[index + offset] * fft_data.f_twiddles[tw_offset * p];
+            let latter = input[index + offset * 3] * fft_data.f_twiddles[tw_offset * p];
+            // upper side butterfly arithmetic
+            let temp1 = input[index] + former;
+            let temp2 = input[index] - former;
+            let temp3 = input[index + offset * 2] + latter;
+            let temp4 = input[index + offset * 2] - latter;
+            // twiddles multiplicative
+            let tw1 = temp3 * fft_data.f_twiddles[tw_offset * p];
+            let tw2 = temp4 * fft_data.f_twiddles[tw_offset * p];
+            // bottom side butterfly arithmetic
+            input[index] = temp1 + tw1;
+            input[index + offset] = temp1 - tw1;
+            input[index + offset * 2] = temp2 + tw2;
+            input[index + offset * 3] = temp2 - tw2;
+        }
+    }
 }
 
 fn bottom_layers_butterfly_arithmetic<F: FieldExt>(

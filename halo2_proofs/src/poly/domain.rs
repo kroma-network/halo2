@@ -73,6 +73,7 @@ impl<F: FieldExt> FFTData<F> {
         if k % 2 == 1 {
             stages.push(2)
         }
+        println!("{:?}", stages);
 
         Self {
             half,
@@ -556,7 +557,7 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let rng = OsRng;
-    let k = 4;
+    let k = 8;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
