@@ -172,64 +172,57 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
     let threads = multicore::current_num_threads();
     let log_threads = log2_floor(threads);
 
-    // if log_n <= log_threads {
-    serial_fft(a, omega, log_n);
-    // } else {
-    //     parallel_fft(a, omega, log_n, log_threads);
-    // }
+    if log_n <= log_threads {
+        serial_fft(a, omega, log_n);
+    } else {
+        parallel_fft(a, omega, log_n, log_threads);
+    }
 }
 
 /// recursive fft
-pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, k: u32) {
+pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
     let stash = input.to_vec();
     let mut elements = 32;
     // bit reverse and bottom four layers butterfly arithmetic
     bottom_layers_butterfly_arithmetic(input, &stash, fft_data, fft_data.half / 2);
     for radix in fft_data.stages.iter() {
         let chunk = fft_data.half * 2 / elements;
-        butterfly_arithmetic(input, fft_data, *radix, elements, chunk);
-        elements *= radix;
-    }
-}
+        for i in 0..chunk / 2 {
+            // element and twiddles offset
+            let offset = elements / 2;
+            let tw_offset = fft_data.half / elements;
+            for p in 0..elements / 2 {
+                // indexes of this loop
+                let first = i * elements * 2 + p;
+                let second = first + offset;
+                let third = second + offset;
+                let fourth = third + offset;
 
-fn butterfly_arithmetic<F: FieldExt>(
-    input: &mut [F],
-    fft_data: &FFTData<F>,
-    radix: usize,
-    elements: usize,
-    chunk: usize,
-) {
-    // parent times loop
-    for i in 0..chunk / 2 {
-        // slide
-        let offset = elements / 2;
-        let tw_offset = fft_data.half / elements;
-        for p in 0..elements / 2 {
-            // first index of this loop
-            let first = i * elements * 2 + p;
-            let second = first + offset;
-            let third = second + offset;
-            let fourth = third + offset;
-            // twiddle factor for upper side
-            let a_tw_idx = tw_offset * 2 * p;
-            let a_tw_a = input[second] * fft_data.f_twiddles[a_tw_idx];
-            let a_tw_b = input[fourth] * fft_data.f_twiddles[a_tw_idx];
-            // upper side butterfly arithmetic
-            let a = input[first] + a_tw_a;
-            let b = input[first] - a_tw_a;
-            let c = input[third] + a_tw_b;
-            let d = input[third] - a_tw_b;
-            // twiddle factor for bottom sidezq
-            let b_tw1_idx = a_tw_idx / 2;
-            let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
-            let b_tw_a = c * fft_data.f_twiddles[b_tw1_idx];
-            let b_tw_b = d * fft_data.f_twiddles[b_tw2_idx];
-            // bottom side butterfly arithmetic
-            input[first] = a + b_tw_a;
-            input[second] = b + b_tw_b;
-            input[third] = a - b_tw_a;
-            input[fourth] = b - b_tw_b;
+                // twiddle factor for upper side
+                let a_tw_idx = tw_offset * 2 * p;
+                let second_tw = input[second] * fft_data.f_twiddles[a_tw_idx];
+                let fourth_tw = input[fourth] * fft_data.f_twiddles[a_tw_idx];
+
+                // upper side butterfly arithmetic
+                let a = input[first] + second_tw;
+                let b = input[first] - second_tw;
+                let c = input[third] + fourth_tw;
+                let d = input[third] - fourth_tw;
+
+                // twiddle factor for bottom side
+                let b_tw1_idx = a_tw_idx / 2;
+                let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
+                let c_tw = c * fft_data.f_twiddles[b_tw1_idx];
+                let d_tw = d * fft_data.f_twiddles[b_tw2_idx];
+
+                // bottom side butterfly arithmetic
+                input[first] = a + c_tw;
+                input[second] = b + d_tw;
+                input[third] = a - c_tw;
+                input[fourth] = b - d_tw;
+            }
         }
+        elements *= radix;
     }
 }
 

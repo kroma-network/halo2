@@ -555,7 +555,7 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let rng = OsRng;
-    let k = 18;
+    let k = 20;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
@@ -578,7 +578,7 @@ fn test_fft() {
 
         let message = format!("recursive_fft");
         let start = start_timer!(|| message);
-        recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data, k);
+        recursive_fft(&mut recursive_fft_coeffs, &domain.fft_data);
         end_timer!(start);
 
         assert_eq!(best_fft_coeffs, recursive_fft_coeffs)
