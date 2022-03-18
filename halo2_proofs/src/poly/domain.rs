@@ -30,12 +30,11 @@ impl<F: FieldExt> FFTData<F> {
     pub fn new(n: usize, omega: F, k: usize) -> Self {
         let mut w = F::one();
         let half = n / 2;
-        let quarter = half / 2;
         let mut f_twiddles = Vec::with_capacity(half);
         let offset = k - 4;
         let mut stages = Vec::with_capacity(offset / 2 + offset % 2);
         let mut counter = 2;
-        let mut indexes = vec![0; quarter];
+        let mut indexes = vec![0; n];
 
         // calculate twiddles factor
         for _ in 0..half {
@@ -56,7 +55,7 @@ impl<F: FieldExt> FFTData<F> {
         }
 
         // calculate 1 / 4 size bit reverse indexes
-        while counter != quarter {
+        while counter != n {
             for i in 0..counter {
                 indexes[i] *= 4;
                 indexes[i + counter] = indexes[i] + 2;
@@ -557,11 +556,76 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let rng = OsRng;
-    let k = 8;
+    let k = 6;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
-    let coeffs: Vec<_> = (0..n).map(|_| Fr::random(rng)).collect();
+    let coeffs: Vec<Fr> = vec![
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+        Fr::one(),
+        Fr::one().double(),
+    ];
     // evaluation domain
     let mut domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
 

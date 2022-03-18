@@ -187,7 +187,6 @@ pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, k: u32
     bottom_layers_butterfly_arithmetic(input, &stash, fft_data, fft_data.half / 2);
     for radix in fft_data.stages.iter() {
         let chunk = fft_data.half * 2 / elements;
-        println!("elements: {:?} chunk: {:?}", elements, chunk);
         butterfly_arithmetic(input, fft_data, *radix, elements, chunk);
         elements *= radix;
     }
@@ -198,7 +197,7 @@ fn butterfly_arithmetic<F: FieldExt>(
     fft_data: &FFTData<F>,
     radix: usize,
     elements: usize,
-    mut chunk: usize,
+    chunk: usize,
 ) {
     // parent times loop
     for i in 0..chunk / 2 {
@@ -209,28 +208,22 @@ fn butterfly_arithmetic<F: FieldExt>(
             // first index of this loop
             let first = i * elements * 2 + p;
             let second = first + offset;
-            let third = first + elements;
+            let third = second + offset;
             let fourth = third + offset;
             // twiddle factor indexes for each
             let a_tw_idx = tw_offset * 2 * p;
             let b_tw1_idx = a_tw_idx / 2;
             let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
-            // twiddles multiplicative
-            let tw1 = input[second] * fft_data.f_twiddles[b_tw1_idx];
-            let tw2 = input[fourth] * fft_data.f_twiddles[b_tw2_idx];
             // upper side butterfly arithmetic
-            let temp1 = input[first] + tw1;
-            let temp2 = input[first] - tw1;
-            let temp3 = input[third] + tw2;
-            let temp4 = input[third] - tw2;
-            // twiddles multiplicative
-            let tw3 = temp3 * fft_data.f_twiddles[tw_offset];
-            let tw4 = temp4 * fft_data.f_twiddles[tw_offset];
+            let temp1 = input[first] + input[second] * fft_data.f_twiddles[a_tw_idx];
+            let temp2 = input[first] - input[second] * fft_data.f_twiddles[a_tw_idx];
+            let temp3 = input[third] + input[fourth] * fft_data.f_twiddles[a_tw_idx];
+            let temp4 = input[third] - input[fourth] * fft_data.f_twiddles[a_tw_idx];
             // bottom side butterfly arithmetic
-            input[first] = temp1 + tw3;
-            input[second] = temp1 - tw3;
-            input[third] = temp2 + tw4;
-            input[fourth] = temp2 - tw4;
+            input[first] = temp1 + temp3 * fft_data.f_twiddles[b_tw1_idx];
+            input[second] = temp2 + temp4 * fft_data.f_twiddles[b_tw2_idx];
+            input[third] = temp1 - temp3 * fft_data.f_twiddles[b_tw1_idx];
+            input[fourth] = temp2 - temp4 * fft_data.f_twiddles[b_tw2_idx];
         }
     }
 }
@@ -259,44 +252,41 @@ fn bottom_layers_butterfly_arithmetic<F: FieldExt>(
 
     for i in 0..div / 4 {
         // decompress bit reverse indexes
-        let mut offset = 4 * i;
-        let mut first = fft_data.indexes[offset] * 4;
-        let mut second = fft_data.indexes[offset + 1] * 4;
-        let mut third = fft_data.indexes[offset + 2] * 4;
-        let mut fourth = fft_data.indexes[offset + 3] * 4;
+        let offset = 16 * i;
+        let el_0 = fft_data.indexes[offset];
+        let el_1 = fft_data.indexes[offset + 1];
+        let el_2 = fft_data.indexes[offset + 2];
+        let el_3 = fft_data.indexes[offset + 3];
+        let el_4 = fft_data.indexes[offset + 4];
+        let el_5 = fft_data.indexes[offset + 5];
+        let el_6 = fft_data.indexes[offset + 6];
+        let el_7 = fft_data.indexes[offset + 7];
+        let el_8 = fft_data.indexes[offset + 8];
+        let el_9 = fft_data.indexes[offset + 9];
+        let el_10 = fft_data.indexes[offset + 10];
+        let el_11 = fft_data.indexes[offset + 11];
+        let el_12 = fft_data.indexes[offset + 12];
+        let el_13 = fft_data.indexes[offset + 13];
+        let el_14 = fft_data.indexes[offset + 14];
+        let el_15 = fft_data.indexes[offset + 15];
 
         // first layer butterfly arithmetic
-        let a_a = stash[first] + stash[second];
-        let a_b = stash[first] - stash[second];
-        let a_c = stash[third] + stash[fourth];
-        let a_d = stash[third] - stash[fourth];
-
-        first += 1;
-        second += 1;
-        third += 1;
-        fourth += 1;
-        let c_a = stash[first] + stash[second];
-        let c_b = stash[first] - stash[second];
-        let c_c = stash[third] + stash[fourth];
-        let c_d = stash[third] - stash[fourth];
-
-        first += 1;
-        second += 1;
-        third += 1;
-        fourth += 1;
-        let b_a = stash[first] + stash[second];
-        let b_b = stash[first] - stash[second];
-        let b_c = stash[third] + stash[fourth];
-        let b_d = stash[third] - stash[fourth];
-
-        first += 1;
-        second += 1;
-        third += 1;
-        fourth += 1;
-        let d_a = stash[first] + stash[second];
-        let d_b = stash[first] - stash[second];
-        let d_c = stash[third] + stash[fourth];
-        let d_d = stash[third] - stash[fourth];
+        let a_a = stash[el_0] + stash[el_1];
+        let a_b = stash[el_0] - stash[el_1];
+        let a_c = stash[el_2] + stash[el_3];
+        let a_d = stash[el_2] - stash[el_3];
+        let b_a = stash[el_4] + stash[el_5];
+        let b_b = stash[el_4] - stash[el_5];
+        let b_c = stash[el_6] + stash[el_7];
+        let b_d = stash[el_6] - stash[el_7];
+        let c_a = stash[el_8] + stash[el_9];
+        let c_b = stash[el_8] - stash[el_9];
+        let c_c = stash[el_10] + stash[el_11];
+        let c_d = stash[el_10] - stash[el_11];
+        let d_a = stash[el_12] + stash[el_13];
+        let d_b = stash[el_12] - stash[el_13];
+        let d_c = stash[el_14] + stash[el_15];
+        let d_d = stash[el_14] - stash[el_15];
 
         // second layer butterfly airthmetic
         let a_w_0 = a_d * tw_4;
@@ -359,24 +349,18 @@ fn bottom_layers_butterfly_arithmetic<F: FieldExt>(
         input[offset + 1] = i_b + k_w_1;
         input[offset + 2] = i_c + k_w_2;
         input[offset + 3] = i_d + k_w_3;
-
-        offset += div;
-        input[offset] = j_a + k_w_4;
-        input[offset + 1] = j_b + k_w_5;
-        input[offset + 2] = j_c + k_w_6;
-        input[offset + 3] = j_d + k_w_7;
-
-        offset += div;
-        input[offset] = i_a - k_a;
-        input[offset + 1] = i_b - k_w_1;
-        input[offset + 2] = i_c - k_w_2;
-        input[offset + 3] = i_d - k_w_3;
-
-        offset += div;
-        input[offset] = j_a - k_w_4;
-        input[offset + 1] = j_b - k_w_5;
-        input[offset + 2] = j_c - k_w_6;
-        input[offset + 3] = j_d - k_w_7;
+        input[offset + 4] = j_a + k_w_4;
+        input[offset + 5] = j_b + k_w_5;
+        input[offset + 6] = j_c + k_w_6;
+        input[offset + 7] = j_d + k_w_7;
+        input[offset + 8] = i_a - k_a;
+        input[offset + 9] = i_b - k_w_1;
+        input[offset + 10] = i_c - k_w_2;
+        input[offset + 11] = i_d - k_w_3;
+        input[offset + 12] = j_a - k_w_4;
+        input[offset + 13] = j_b - k_w_5;
+        input[offset + 14] = j_c - k_w_6;
+        input[offset + 15] = j_d - k_w_7;
     }
 }
 
