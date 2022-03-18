@@ -12,6 +12,76 @@ use group::ff::{BatchInvert, Field, PrimeField};
 
 use std::marker::PhantomData;
 
+/// This structure holds the twiddles, bit reversed index and radix for each layer
+#[derive(Debug)]
+pub struct FFTData<F: FieldExt> {
+    /// n half
+    pub half: usize,
+    /// stages
+    pub stages: Vec<usize>,
+    /// indexes for bit reverse
+    pub indexes: Vec<usize>,
+    /// twiddles
+    pub f_twiddles: Vec<F>,
+}
+
+impl<F: FieldExt> FFTData<F> {
+    /// Create twiddles and stages data
+    pub fn new(n: usize, omega: F, k: usize) -> Self {
+        let mut w = F::one();
+        let half = n / 2;
+        let mut f_twiddles = Vec::with_capacity(half);
+        let offset = k - 4;
+        let mut stages = Vec::with_capacity(offset / 2 + offset % 2);
+        let mut counter = 2;
+        let mut indexes = vec![0; n];
+
+        // calculate twiddles factor
+        for _ in 0..half {
+            f_twiddles.push(w);
+            w *= omega;
+        }
+
+        // init bit reverse indexes
+        if k % 2 != 0 {
+            indexes[0] = 0;
+            indexes[1] = 1;
+        } else {
+            indexes[0] = 0;
+            indexes[1] = 2;
+            indexes[2] = 1;
+            indexes[3] = 3;
+            counter *= 2;
+        }
+
+        // calculate 1 / 4 size bit reverse indexes
+        while counter != n {
+            for i in 0..counter {
+                indexes[i] *= 4;
+                indexes[i + counter] = indexes[i] + 2;
+                indexes[i + 2 * counter] = indexes[i] + 1;
+                indexes[i + 3 * counter] = indexes[i] + 3;
+            }
+            counter *= 4;
+        }
+
+        // stages and radix
+        for _ in 0..offset / 2 {
+            stages.push(4);
+        }
+        if k % 2 == 1 {
+            stages.push(2)
+        }
+
+        Self {
+            half,
+            stages,
+            f_twiddles,
+            indexes,
+        }
+    }
+}
+
 /// This structure contains precomputed constants and other details needed for
 /// performing operations on an evaluation domain of size $2^k$ and an extended
 /// domain of size $2^{k} * j$ with $j \neq 0$.
@@ -31,6 +101,7 @@ pub struct EvaluationDomain<G: Group> {
     extended_ifft_divisor: G::Scalar,
     t_evaluations: Vec<G::Scalar>,
     barycentric_weight: G::Scalar,
+    fft_data: FFTData<G::Scalar>,
 }
 
 impl<G: Group> EvaluationDomain<G> {
@@ -138,6 +209,7 @@ impl<G: Group> EvaluationDomain<G> {
             extended_ifft_divisor,
             t_evaluations,
             barycentric_weight,
+            fft_data: FFTData::<G::Scalar>::new(n as usize, omega, k as usize),
         }
     }
 

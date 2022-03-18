@@ -2,6 +2,7 @@
 //! field and polynomial arithmetic.
 
 use super::multicore;
+use crate::poly::FFTData;
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
@@ -262,6 +263,184 @@ fn parallel_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32, log_threads
     let mask = (1 << log_threads) - 1;
     for (idx, a) in a.iter_mut().enumerate() {
         *a = tmp[idx & mask][idx >> log_threads];
+    }
+}
+
+/// optimized best fft
+pub fn very_best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
+    let stash = input.to_vec();
+    let mut elements = 32;
+
+    // bit reverse and bottom four layers butterfly arithmetic
+    bottom_layers_butterfly_arithmetic(input, &stash, fft_data, fft_data.half / 2);
+    for radix in fft_data.stages.iter() {
+        let chunk = fft_data.half * 2 / elements;
+        for i in 0..chunk / 2 {
+            // element and twiddles offset
+            let offset = elements / 2;
+            let tw_offset = fft_data.half / elements;
+            for p in 0..elements / 2 {
+                // indexes of this loop
+                let first = i * elements * 2 + p;
+                let second = first + offset;
+                let third = second + offset;
+                let fourth = third + offset;
+
+                // twiddle factor for upper side
+                let a_tw_idx = tw_offset * 2 * p;
+                let second_tw = input[second] * fft_data.f_twiddles[a_tw_idx];
+                let fourth_tw = input[fourth] * fft_data.f_twiddles[a_tw_idx];
+
+                // upper side butterfly arithmetic
+                let a = input[first] + second_tw;
+                let b = input[first] - second_tw;
+                let c = input[third] + fourth_tw;
+                let d = input[third] - fourth_tw;
+
+                // twiddle factor for bottom side
+                let b_tw1_idx = a_tw_idx / 2;
+                let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
+                let c_tw = c * fft_data.f_twiddles[b_tw1_idx];
+                let d_tw = d * fft_data.f_twiddles[b_tw2_idx];
+
+                // bottom side butterfly arithmetic
+                input[first] = a + c_tw;
+                input[second] = b + d_tw;
+                input[third] = a - c_tw;
+                input[fourth] = b - d_tw;
+            }
+        }
+        elements *= radix;
+    }
+}
+
+fn bottom_layers_butterfly_arithmetic<F: FieldExt>(
+    input: &mut [F],
+    stash: &Vec<F>,
+    fft_data: &FFTData<F>,
+    div: usize,
+) {
+    // twiddles factor 16th root of unity
+    let tw_offset = fft_data.half / 8;
+    let tw_1 = fft_data.f_twiddles[tw_offset];
+    let tw_2 = fft_data.f_twiddles[tw_offset * 2];
+    let tw_3 = fft_data.f_twiddles[tw_offset * 3];
+    let tw_4 = fft_data.f_twiddles[tw_offset * 4];
+    let tw_5 = fft_data.f_twiddles[tw_offset * 5];
+    let tw_6 = fft_data.f_twiddles[tw_offset * 6];
+    let tw_7 = fft_data.f_twiddles[tw_offset * 7];
+
+    for i in 0..div / 4 {
+        // decompress bit reverse indexes
+        let offset = 16 * i;
+        let el_0 = fft_data.indexes[offset];
+        let el_1 = fft_data.indexes[offset + 1];
+        let el_2 = fft_data.indexes[offset + 2];
+        let el_3 = fft_data.indexes[offset + 3];
+        let el_4 = fft_data.indexes[offset + 4];
+        let el_5 = fft_data.indexes[offset + 5];
+        let el_6 = fft_data.indexes[offset + 6];
+        let el_7 = fft_data.indexes[offset + 7];
+        let el_8 = fft_data.indexes[offset + 8];
+        let el_9 = fft_data.indexes[offset + 9];
+        let el_10 = fft_data.indexes[offset + 10];
+        let el_11 = fft_data.indexes[offset + 11];
+        let el_12 = fft_data.indexes[offset + 12];
+        let el_13 = fft_data.indexes[offset + 13];
+        let el_14 = fft_data.indexes[offset + 14];
+        let el_15 = fft_data.indexes[offset + 15];
+
+        // first layer butterfly arithmetic
+        let a_a = stash[el_0] + stash[el_1];
+        let a_b = stash[el_0] - stash[el_1];
+        let a_c = stash[el_2] + stash[el_3];
+        let a_d = stash[el_2] - stash[el_3];
+        let b_a = stash[el_4] + stash[el_5];
+        let b_b = stash[el_4] - stash[el_5];
+        let b_c = stash[el_6] + stash[el_7];
+        let b_d = stash[el_6] - stash[el_7];
+        let c_a = stash[el_8] + stash[el_9];
+        let c_b = stash[el_8] - stash[el_9];
+        let c_c = stash[el_10] + stash[el_11];
+        let c_d = stash[el_10] - stash[el_11];
+        let d_a = stash[el_12] + stash[el_13];
+        let d_b = stash[el_12] - stash[el_13];
+        let d_c = stash[el_14] + stash[el_15];
+        let d_d = stash[el_14] - stash[el_15];
+
+        // second layer butterfly airthmetic
+        let a_w_0 = a_d * tw_4;
+        let b_w_0 = b_d * tw_4;
+        let c_w_0 = c_d * tw_4;
+        let d_w_0 = d_d * tw_4;
+
+        let e_a = a_a + a_c;
+        let e_b = a_b + a_w_0;
+        let e_c = a_a - a_c;
+        let e_d = a_b - a_w_0;
+        let f_a = b_a + b_c;
+        let f_b = b_b + b_w_0;
+        let f_c = b_a - b_c;
+        let f_d = b_b - b_w_0;
+        let g_a = c_a + c_c;
+        let g_b = c_b + c_w_0;
+        let g_c = c_a - c_c;
+        let g_d = c_b - c_w_0;
+        let h_a = d_a + d_c;
+        let h_b = d_b + d_w_0;
+        let h_c = d_a - d_c;
+        let h_d = d_b - d_w_0;
+
+        // third layer butterfly airthmetic
+        let f_w_1 = f_b * tw_2;
+        let f_w_2 = f_c * tw_4;
+        let f_w_3 = f_d * tw_6;
+        let h_w_1 = h_b * tw_2;
+        let h_w_2 = h_c * tw_4;
+        let h_w_3 = h_d * tw_6;
+
+        let i_a = e_a + f_a;
+        let i_b = e_b + f_w_1;
+        let i_c = e_c + f_w_2;
+        let i_d = e_d + f_w_3;
+        let j_a = e_a - f_a;
+        let j_b = e_b - f_w_1;
+        let j_c = e_c - f_w_2;
+        let j_d = e_d - f_w_3;
+        let k_a = g_a + h_a;
+        let k_b = g_b + h_w_1;
+        let k_c = g_c + h_w_2;
+        let k_d = g_d + h_w_3;
+        let l_a = g_a - h_a;
+        let l_b = g_b - h_w_1;
+        let l_c = g_c - h_w_2;
+        let l_d = g_d - h_w_3;
+
+        // forth layer butterfly airthmetic
+        let k_w_1 = k_b * tw_1;
+        let k_w_2 = k_c * tw_2;
+        let k_w_3 = k_d * tw_3;
+        let k_w_4 = l_a * tw_4;
+        let k_w_5 = l_b * tw_5;
+        let k_w_6 = l_c * tw_6;
+        let k_w_7 = l_d * tw_7;
+
+        input[offset] = i_a + k_a;
+        input[offset + 1] = i_b + k_w_1;
+        input[offset + 2] = i_c + k_w_2;
+        input[offset + 3] = i_d + k_w_3;
+        input[offset + 4] = j_a + k_w_4;
+        input[offset + 5] = j_b + k_w_5;
+        input[offset + 6] = j_c + k_w_6;
+        input[offset + 7] = j_d + k_w_7;
+        input[offset + 8] = i_a - k_a;
+        input[offset + 9] = i_b - k_w_1;
+        input[offset + 10] = i_c - k_w_2;
+        input[offset + 11] = i_d - k_w_3;
+        input[offset + 12] = j_a - k_w_4;
+        input[offset + 13] = j_b - k_w_5;
+        input[offset + 14] = j_c - k_w_6;
+        input[offset + 15] = j_d - k_w_7;
     }
 }
 
