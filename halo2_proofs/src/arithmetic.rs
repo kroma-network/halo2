@@ -210,20 +210,25 @@ fn butterfly_arithmetic<F: FieldExt>(
             let second = first + offset;
             let third = second + offset;
             let fourth = third + offset;
-            // twiddle factor indexes for each
+            // twiddle factor for upper side
             let a_tw_idx = tw_offset * 2 * p;
+            let a_tw_a = input[second] * fft_data.f_twiddles[a_tw_idx];
+            let a_tw_b = input[fourth] * fft_data.f_twiddles[a_tw_idx];
+            // upper side butterfly arithmetic
+            let temp1 = input[first] + a_tw_a;
+            let temp2 = input[first] - a_tw_a;
+            let temp3 = input[third] + a_tw_b;
+            let temp4 = input[third] - a_tw_b;
+            // twiddle factor for bottom side
             let b_tw1_idx = a_tw_idx / 2;
             let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
-            // upper side butterfly arithmetic
-            let temp1 = input[first] + input[second] * fft_data.f_twiddles[a_tw_idx];
-            let temp2 = input[first] - input[second] * fft_data.f_twiddles[a_tw_idx];
-            let temp3 = input[third] + input[fourth] * fft_data.f_twiddles[a_tw_idx];
-            let temp4 = input[third] - input[fourth] * fft_data.f_twiddles[a_tw_idx];
+            let b_tw_a = temp3 * fft_data.f_twiddles[b_tw1_idx];
+            let b_tw_b = temp4 * fft_data.f_twiddles[b_tw2_idx];
             // bottom side butterfly arithmetic
-            input[first] = temp1 + temp3 * fft_data.f_twiddles[b_tw1_idx];
-            input[second] = temp2 + temp4 * fft_data.f_twiddles[b_tw2_idx];
-            input[third] = temp1 - temp3 * fft_data.f_twiddles[b_tw1_idx];
-            input[fourth] = temp2 - temp4 * fft_data.f_twiddles[b_tw2_idx];
+            input[first] = temp1 + b_tw_a;
+            input[second] = temp2 + b_tw_b;
+            input[third] = temp1 - b_tw_a;
+            input[fourth] = temp2 - b_tw_b;
         }
     }
 }
