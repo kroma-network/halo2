@@ -215,20 +215,20 @@ fn butterfly_arithmetic<F: FieldExt>(
             let a_tw_a = input[second] * fft_data.f_twiddles[a_tw_idx];
             let a_tw_b = input[fourth] * fft_data.f_twiddles[a_tw_idx];
             // upper side butterfly arithmetic
-            let temp1 = input[first] + a_tw_a;
-            let temp2 = input[first] - a_tw_a;
-            let temp3 = input[third] + a_tw_b;
-            let temp4 = input[third] - a_tw_b;
-            // twiddle factor for bottom side
+            let a = input[first] + a_tw_a;
+            let b = input[first] - a_tw_a;
+            let c = input[third] + a_tw_b;
+            let d = input[third] - a_tw_b;
+            // twiddle factor for bottom sidezq
             let b_tw1_idx = a_tw_idx / 2;
             let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
-            let b_tw_a = temp3 * fft_data.f_twiddles[b_tw1_idx];
-            let b_tw_b = temp4 * fft_data.f_twiddles[b_tw2_idx];
+            let b_tw_a = c * fft_data.f_twiddles[b_tw1_idx];
+            let b_tw_b = d * fft_data.f_twiddles[b_tw2_idx];
             // bottom side butterfly arithmetic
-            input[first] = temp1 + b_tw_a;
-            input[second] = temp2 + b_tw_b;
-            input[third] = temp1 - b_tw_a;
-            input[fourth] = temp2 - b_tw_b;
+            input[first] = a + b_tw_a;
+            input[second] = b + b_tw_b;
+            input[third] = a - b_tw_a;
+            input[fourth] = b - b_tw_b;
         }
     }
 }
@@ -240,20 +240,14 @@ fn bottom_layers_butterfly_arithmetic<F: FieldExt>(
     div: usize,
 ) {
     // twiddles factor 16th root of unity
-    let mut tw_offset = fft_data.half / 8;
+    let tw_offset = fft_data.half / 8;
     let tw_1 = fft_data.f_twiddles[tw_offset];
-    tw_offset += 1;
-    let tw_2 = fft_data.f_twiddles[tw_offset];
-    tw_offset += 1;
-    let tw_3 = fft_data.f_twiddles[tw_offset];
-    tw_offset += 1;
-    let tw_4 = fft_data.f_twiddles[tw_offset];
-    tw_offset += 1;
-    let tw_5 = fft_data.f_twiddles[tw_offset];
-    tw_offset += 1;
-    let tw_6 = fft_data.f_twiddles[tw_offset];
-    tw_offset += 1;
-    let tw_7 = fft_data.f_twiddles[tw_offset];
+    let tw_2 = fft_data.f_twiddles[tw_offset * 2];
+    let tw_3 = fft_data.f_twiddles[tw_offset * 3];
+    let tw_4 = fft_data.f_twiddles[tw_offset * 4];
+    let tw_5 = fft_data.f_twiddles[tw_offset * 5];
+    let tw_6 = fft_data.f_twiddles[tw_offset * 6];
+    let tw_7 = fft_data.f_twiddles[tw_offset * 7];
 
     for i in 0..div / 4 {
         // decompress bit reverse indexes
