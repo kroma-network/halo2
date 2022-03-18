@@ -72,7 +72,6 @@ impl<F: FieldExt> FFTData<F> {
         if k % 2 == 1 {
             stages.push(2)
         }
-        println!("{:?}", stages);
 
         Self {
             half,
@@ -556,76 +555,11 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let rng = OsRng;
-    let k = 6;
+    let k = 18;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
-    let coeffs: Vec<Fr> = vec![
-        Fr::one().double().double().double(),
-        Fr::one().double().double().double(),
-        Fr::one().double().double().double(),
-        Fr::one().double().double().double(),
-        Fr::one().double().double().double(),
-        Fr::one().double().double().double(),
-        Fr::one().double().double().double(),
-        Fr::one().double().double().double(),
-        Fr::one().double().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one().double(),
-        Fr::one().double().double() + Fr::one().double(),
-        Fr::one().double().double() + Fr::one().double(),
-        Fr::one().double().double() + Fr::one().double(),
-        Fr::one().double().double() + Fr::one().double(),
-        Fr::one().double().double() + Fr::one().double(),
-        Fr::one().double().double() + Fr::one().double(),
-        Fr::one().double().double() + Fr::one().double(),
-        Fr::one().double().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one(),
-        Fr::one().double().double() + Fr::one(),
-        Fr::one().double().double(),
-        Fr::one().double().double(),
-        Fr::one().double().double(),
-        Fr::one().double().double(),
-        Fr::one().double().double(),
-        Fr::one().double().double(),
-        Fr::one().double().double(),
-        Fr::one().double().double(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double() + Fr::one(),
-        Fr::one().double(),
-        Fr::one().double(),
-        Fr::one().double(),
-        Fr::one().double(),
-        Fr::one().double(),
-        Fr::one().double(),
-        Fr::one().double(),
-        Fr::one().double(),
-        Fr::one(),
-        Fr::one(),
-        Fr::one(),
-        Fr::one(),
-        Fr::one(),
-        Fr::one(),
-        Fr::one(),
-        Fr::one(),
-    ];
+    let mut coeffs: Vec<_> = (0..n).map(|_| Fr::random(rng)).collect();
     // evaluation domain
     let mut domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
 
