@@ -23,6 +23,8 @@ pub struct FFTData<F: FieldExt> {
     pub indexes: Vec<usize>,
     /// twiddles
     pub f_twiddles: Vec<F>,
+    /// odd k flag
+    pub is_odd: bool,
 }
 
 impl<F: FieldExt> FFTData<F> {
@@ -54,7 +56,7 @@ impl<F: FieldExt> FFTData<F> {
             counter *= 2;
         }
 
-        // calculate 1 / 4 size bit reverse indexes
+        // calculate bit reverse indexes
         while counter != n {
             for i in 0..counter {
                 indexes[i] *= 4;
@@ -69,15 +71,13 @@ impl<F: FieldExt> FFTData<F> {
         for _ in 0..offset / 2 {
             stages.push(4);
         }
-        if k % 2 == 1 {
-            stages.push(2)
-        }
 
         Self {
             half,
             stages,
             f_twiddles,
             indexes,
+            is_odd: k % 2 == 1,
         }
     }
 }
@@ -555,7 +555,7 @@ fn test_fft() {
     use rand_core::OsRng;
 
     let rng = OsRng;
-    let k = 20;
+    let k = 19;
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs

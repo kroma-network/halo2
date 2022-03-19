@@ -185,6 +185,23 @@ pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
     let mut elements = 32;
     // bit reverse and bottom four layers butterfly arithmetic
     bottom_layers_butterfly_arithmetic(input, &stash, fft_data, fft_data.half / 2);
+    if fft_data.is_odd {
+        let chunk = fft_data.half * 2 / elements;
+        for i in 0..chunk {
+            let offset = elements / 2;
+            let tw_offset = chunk;
+            for p in 0..elements / 2 {
+                let first = i * elements + p;
+                let second = first + offset;
+                let tw_idx = tw_offset * p;
+                let tw_mul = input[second] * fft_data.f_twiddles[tw_idx];
+                input[second] = input[first];
+                input[first] += tw_mul;
+                input[second] -= tw_mul;
+            }
+        }
+        elements *= 2;
+    }
     for radix in fft_data.stages.iter() {
         let chunk = fft_data.half * 2 / elements;
         for i in 0..chunk / 2 {
