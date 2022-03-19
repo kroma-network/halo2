@@ -181,41 +181,43 @@ pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n
 
 /// recursive fft
 pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
-    let stash = input.to_vec();
     let mut elements = 32;
+
     // bit reverse and bottom four layers butterfly arithmetic
-    bottom_layers_butterfly_arithmetic(input, &stash, fft_data, fft_data.half / 2);
+    bottom_layers_butterfly_arithmetic(input, fft_data, fft_data.half / 2);
+
+    // two radix butterfly arithmetic
     if fft_data.is_odd {
         let chunk = fft_data.half * 2 / elements;
         for i in 0..chunk {
             let offset = elements / 2;
-            let tw_offset = chunk;
-            for p in 0..elements / 2 {
+            for p in 0..offset {
                 let first = i * elements + p;
                 let second = first + offset;
-                let tw_idx = tw_offset * p;
-                let tw_mul = input[second] * fft_data.f_twiddles[tw_idx];
+                let second_tw = input[second] * fft_data.f_twiddles[chunk * p];
                 input[second] = input[first];
-                input[first] += tw_mul;
-                input[second] -= tw_mul;
+                input[first] += second_tw;
+                input[second] -= second_tw;
             }
         }
         elements *= 2;
     }
-    for radix in fft_data.stages.iter() {
+
+    // four radix butterfly arithmetic
+    for _ in 0..fft_data.layer {
         let chunk = fft_data.half * 2 / elements;
         for i in 0..chunk / 2 {
             // element and twiddles offset
             let offset = elements / 2;
             let tw_offset = fft_data.half / elements;
-            for p in 0..elements / 2 {
-                // indexes of this loop
+            for p in 0..offset {
+                // indexes of this layer
                 let first = i * elements * 2 + p;
                 let second = first + offset;
                 let third = second + offset;
                 let fourth = third + offset;
 
-                // twiddle factor for upper side
+                // twiddle factor arithmetic for upper side
                 let a_tw_idx = tw_offset * 2 * p;
                 let second_tw = input[second] * fft_data.f_twiddles[a_tw_idx];
                 let fourth_tw = input[fourth] * fft_data.f_twiddles[a_tw_idx];
@@ -226,7 +228,7 @@ pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
                 let c = input[third] + fourth_tw;
                 let d = input[third] - fourth_tw;
 
-                // twiddle factor for bottom side
+                // twiddle factor arithmetic for bottom side
                 let b_tw1_idx = a_tw_idx / 2;
                 let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
                 let c_tw = c * fft_data.f_twiddles[b_tw1_idx];
@@ -239,16 +241,16 @@ pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
                 input[fourth] = b - d_tw;
             }
         }
-        elements *= radix;
+        elements *= 4;
     }
 }
 
 fn bottom_layers_butterfly_arithmetic<F: FieldExt>(
     input: &mut [F],
-    stash: &Vec<F>,
     fft_data: &FFTData<F>,
     div: usize,
 ) {
+    let stash = input.to_vec();
     // twiddles factor 16th root of unity
     let tw_offset = fft_data.half / 8;
     let tw_1 = fft_data.f_twiddles[tw_offset];

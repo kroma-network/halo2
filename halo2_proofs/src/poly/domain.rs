@@ -18,7 +18,7 @@ pub struct FFTData<F: FieldExt> {
     /// n half
     pub half: usize,
     /// stages
-    pub stages: Vec<usize>,
+    pub layer: usize,
     /// indexes for bit reverse
     pub indexes: Vec<usize>,
     /// twiddles
@@ -30,21 +30,20 @@ pub struct FFTData<F: FieldExt> {
 impl<F: FieldExt> FFTData<F> {
     /// Create twiddles and stages data
     pub fn new(n: usize, omega: F, k: usize) -> Self {
-        let mut w = F::one();
         let half = n / 2;
-        let mut f_twiddles = Vec::with_capacity(half);
         let offset = k - 4;
-        let mut stages = Vec::with_capacity(offset / 2 + offset % 2);
         let mut counter = 2;
-        let mut indexes = vec![0; n];
 
         // calculate twiddles factor
+        let mut w = F::one();
+        let mut f_twiddles = Vec::with_capacity(half);
         for _ in 0..half {
             f_twiddles.push(w);
             w *= omega;
         }
 
         // init bit reverse indexes
+        let mut indexes = vec![0; n];
         if k % 2 != 0 {
             indexes[0] = 0;
             indexes[1] = 1;
@@ -67,14 +66,9 @@ impl<F: FieldExt> FFTData<F> {
             counter *= 4;
         }
 
-        // stages and radix
-        for _ in 0..offset / 2 {
-            stages.push(4);
-        }
-
         Self {
             half,
-            stages,
+            layer: offset / 2,
             f_twiddles,
             indexes,
             is_odd: k % 2 == 1,
@@ -559,7 +553,7 @@ fn test_fft() {
     // polynomial degree n = 2^k
     let n = 1u64 << k;
     // polynomial coeffs
-    let mut coeffs: Vec<_> = (0..n).map(|_| Fr::random(rng)).collect();
+    let coeffs: Vec<_> = (0..n).map(|_| Fr::random(rng)).collect();
     // evaluation domain
     let mut domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
 
