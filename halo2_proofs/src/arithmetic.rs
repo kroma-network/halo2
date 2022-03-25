@@ -209,42 +209,45 @@ pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
 
     // four radix butterfly arithmetic
     for _ in 0..fft_data.layer {
-        let chunk = fft_data.half * 2 / elements;
-        for i in 0..chunk / 2 {
-            // element and twiddles offset
-            let offset = elements / 2;
-            let tw_offset = fft_data.half / elements;
-            for p in 0..offset {
-                // indexes of this layer
-                let first = i * elements * 2 + p;
-                let second = first + offset;
-                let third = second + offset;
-                let fourth = third + offset;
+        // element and twiddles offset
+        let offset = elements / 2;
+        let tw_offset = fft_data.half / elements;
+        multicore::scope(|scope| {
+            for input in input.chunks_mut(elements * 2) {
+                scope.spawn(move |_| {
+                    for p in 0..offset {
+                        // indexes of this layer
+                        let first = p;
+                        let second = first + offset;
+                        let third = second + offset;
+                        let fourth = third + offset;
 
-                // twiddle factor arithmetic for upper side
-                let a_tw_idx = tw_offset * 2 * p;
-                let second_tw = input[second] * fft_data.f_twiddles[a_tw_idx];
-                let fourth_tw = input[fourth] * fft_data.f_twiddles[a_tw_idx];
+                        // twiddle factor arithmetic for upper side
+                        let a_tw_idx = tw_offset * 2 * p;
+                        let second_tw = input[second] * fft_data.f_twiddles[a_tw_idx];
+                        let fourth_tw = input[fourth] * fft_data.f_twiddles[a_tw_idx];
 
-                // upper side butterfly arithmetic
-                let a = input[first] + second_tw;
-                let b = input[first] - second_tw;
-                let c = input[third] + fourth_tw;
-                let d = input[third] - fourth_tw;
+                        // upper side butterfly arithmetic
+                        let a = input[first] + second_tw;
+                        let b = input[first] - second_tw;
+                        let c = input[third] + fourth_tw;
+                        let d = input[third] - fourth_tw;
 
-                // twiddle factor arithmetic for bottom side
-                let b_tw1_idx = a_tw_idx / 2;
-                let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
-                let c_tw = c * fft_data.f_twiddles[b_tw1_idx];
-                let d_tw = d * fft_data.f_twiddles[b_tw2_idx];
+                        // twiddle factor arithmetic for bottom side
+                        let b_tw1_idx = a_tw_idx / 2;
+                        let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
+                        let c_tw = c * fft_data.f_twiddles[b_tw1_idx];
+                        let d_tw = d * fft_data.f_twiddles[b_tw2_idx];
 
-                // bottom side butterfly arithmetic
-                input[first] = a + c_tw;
-                input[second] = b + d_tw;
-                input[third] = a - c_tw;
-                input[fourth] = b - d_tw;
+                        // bottom side butterfly arithmetic
+                        input[first] = a + c_tw;
+                        input[second] = b + d_tw;
+                        input[third] = a - c_tw;
+                        input[fourth] = b - d_tw;
+                    }
+                });
             }
-        }
+        });
         elements *= 4;
     }
 }
