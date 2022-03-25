@@ -189,17 +189,21 @@ pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
     // two radix butterfly arithmetic
     if fft_data.is_odd {
         let chunk = fft_data.half * 2 / elements;
-        for i in 0..chunk {
-            let offset = elements / 2;
-            for p in 0..offset {
-                let first = i * elements + p;
-                let second = first + offset;
-                let second_tw = input[second] * fft_data.f_twiddles[chunk * p];
-                input[second] = input[first];
-                input[first] += second_tw;
-                input[second] -= second_tw;
+        let offset = elements / 2;
+        multicore::scope(|scope| {
+            for input in input.chunks_mut(elements) {
+                scope.spawn(move |_| {
+                    for p in 0..offset {
+                        let first = p;
+                        let second = first + offset;
+                        let second_tw = input[second] * fft_data.f_twiddles[chunk * p];
+                        input[second] = input[first];
+                        input[first] += second_tw;
+                        input[second] -= second_tw;
+                    }
+                });
             }
-        }
+        });
         elements *= 2;
     }
 
