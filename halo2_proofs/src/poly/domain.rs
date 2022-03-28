@@ -28,13 +28,15 @@ pub struct FFTData<F: FieldExt> {
     pub inv_twiddles: Vec<F>,
     /// odd k flag
     pub is_odd: bool,
+    /// low degree flag
+    pub is_low: bool,
 }
 
 impl<F: FieldExt> FFTData<F> {
     /// Create twiddles and stages data
     pub fn new(n: usize, omega: F, omega_inv: F, k: usize) -> Self {
         let half = n / 2;
-        let offset = k - 4;
+        let (offset, is_low) = if k < 4 { (0, true) } else { (k - 4, false) };
         let mut counter = 2;
 
         // calculate twiddles factor
@@ -93,6 +95,7 @@ impl<F: FieldExt> FFTData<F> {
             inv_twiddles,
             indexes,
             is_odd: k % 2 == 1,
+            is_low,
         }
     }
 }
