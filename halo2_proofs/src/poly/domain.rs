@@ -3,6 +3,7 @@
 
 use crate::{
     arithmetic::{best_fft, parallelize, recursive_fft, FieldExt, Group},
+    multicore,
     plonk::Assigned,
 };
 
@@ -23,27 +24,46 @@ pub struct FFTData<F: FieldExt> {
     pub indexes: Vec<usize>,
     /// twiddles
     pub f_twiddles: Vec<F>,
+    /// inv twiddles
+    pub inv_twiddles: Vec<F>,
     /// odd k flag
     pub is_odd: bool,
 }
 
 impl<F: FieldExt> FFTData<F> {
     /// Create twiddles and stages data
-    pub fn new(n: usize, omega: F, k: usize) -> Self {
+    pub fn new(n: usize, omega: F, omega_inv: F, k: usize) -> Self {
         let half = n / 2;
         let offset = k - 4;
         let mut counter = 2;
 
         // calculate twiddles factor
         let mut w = F::one();
-        let mut f_twiddles = Vec::with_capacity(half);
-        for _ in 0..half {
-            f_twiddles.push(w);
-            w *= omega;
-        }
+        let mut i = F::one();
+        let mut f_twiddles = vec![F::one(); half];
+        let mut inv_twiddles = vec![F::one(); half];
 
         // init bit reverse indexes
         let mut indexes = vec![0; n];
+
+        let f_stash = &mut f_twiddles;
+        let i_stash = &mut inv_twiddles;
+
+        multicore::scope(|scope| {
+            scope.spawn(move |_| {
+                for tw in f_stash.iter_mut() {
+                    *tw = w;
+                    w *= omega;
+                }
+            });
+            scope.spawn(move |_| {
+                for tw in i_stash.iter_mut() {
+                    *tw = w;
+                    i *= omega_inv;
+                }
+            });
+        });
+
         if k % 2 != 0 {
             indexes[0] = 0;
             indexes[1] = 1;
@@ -70,6 +90,7 @@ impl<F: FieldExt> FFTData<F> {
             half,
             layer: offset / 2,
             f_twiddles,
+            inv_twiddles,
             indexes,
             is_odd: k % 2 == 1,
         }
@@ -203,7 +224,7 @@ impl<G: Group + std::fmt::Debug> EvaluationDomain<G> {
             extended_ifft_divisor,
             t_evaluations,
             barycentric_weight,
-            fft_data: FFTData::<G::Scalar>::new(n as usize, omega, k as usize),
+            fft_data: FFTData::<G::Scalar>::new(n as usize, omega, omega_inv, k as usize),
         }
     }
 
@@ -555,7 +576,11 @@ fn test_fft() {
     // polynomial coeffs
     let coeffs: Vec<_> = (0..n).map(|_| Fr::random(rng)).collect();
     // evaluation domain
+
+    let message = format!("evl");
+    let start = start_timer!(|| message);
     let mut domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
+    end_timer!(start);
 
     fn test_best_fft<G: Group + std::fmt::Debug>(
         k: u32,
