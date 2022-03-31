@@ -39,7 +39,7 @@ blake2b_simd = "1"
 pairing = { git = 'https://github.com/appliedzkp/pairing', package = "pairing_bn256" }
 subtle = "2.3"
 cfg-if = "0.1"
-poseidon = { git = 'https://github.com/kilic/poseidon', branch = "padding" }
+poseidon = { git = "https://github.com/appliedzkp/poseidon.git", rev = "a21422a307e43c9de1dd32c1024618e30d805667" }
 num-bigint = { version = "0.4" }
 num-traits = "0.2"
 
