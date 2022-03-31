@@ -168,19 +168,7 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
 /// by $n$.
 ///
 /// This will use multithreading if beneficial.
-pub fn best_fft<G: Group + std::fmt::Debug>(a: &mut [G], omega: G::Scalar, log_n: u32) {
-    let threads = multicore::current_num_threads();
-    let log_threads = log2_floor(threads);
-
-    if log_n <= log_threads {
-        serial_fft(a, omega, log_n);
-    } else {
-        parallel_fft(a, omega, log_n, log_threads);
-    }
-}
-
-/// recursive fft
-pub fn recursive_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
+pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
     let mut elements = 32;
 
     // bit reverse and bottom four layers butterfly arithmetic
