@@ -7,7 +7,7 @@ use crate::arithmetic::{BaseExt, Coordinates, CurveAffine, FieldExt};
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;
 
-use super::{EncodedChallenge, TranscriptRead, Challenge255, Transcript, TranscriptWrite};
+use super::{Challenge255, EncodedChallenge, Transcript, TranscriptRead, TranscriptWrite};
 
 /// Prefix to a prover's message soliciting a challenge
 const BLAKE2B_PREFIX_CHALLENGE: u8 = 0;
