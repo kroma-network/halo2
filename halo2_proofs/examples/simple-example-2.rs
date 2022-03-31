@@ -3,7 +3,10 @@ use halo2_proofs::{
     circuit::{Cell, Layouter, SimpleFloorPlanner},
     plonk::*,
     poly::{commitment::Params, commitment::ParamsVerifier, Rotation},
-    transcript::{Blake2bRead, Blake2bWrite, Challenge255},
+    transcript::{
+        poseidon::{LimbRepresentation, PoseidonRead, PoseidonWrite},
+        Challenge,
+    },
 };
 use pairing::bn256::{Bn256, Fr as Fp, G1Affine};
 use rand_core::OsRng;
@@ -258,7 +261,12 @@ fn main() {
     };
 
     // Create a proof
-    let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
+    let mut transcript =
+        PoseidonWrite::<_, G1Affine, Challenge<_>, LimbRepresentation<_, 4, 68>, 3, 2>::init(
+            vec![],
+            8,
+            57,
+        );
 
     use std::time::Instant;
     let _dur = Instant::now();
@@ -271,7 +279,13 @@ fn main() {
     let proof = transcript.finalize();
 
     let strategy = SingleVerifier::new(&params_verifier);
-    let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
+
+    let mut transcript =
+        PoseidonRead::<_, G1Affine, Challenge<_>, LimbRepresentation<_, 4, 68>, 3, 2>::init(
+            &proof[..],
+            8,
+            57,
+        );
 
     verify_proof(
         &params_verifier,

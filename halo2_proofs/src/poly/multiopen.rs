@@ -148,9 +148,11 @@ mod tests {
         multiopen::{create_proof, verify_proof, Decider, ProverQuery, Query, VerifierQuery},
         Coeff, Polynomial, Rotation,
     };
+    use crate::transcript::poseidon::{LimbRepresentation, PoseidonRead, PoseidonWrite};
+    use crate::transcript::Challenge;
     use crate::transcript::{
-        Blake2bRead, Blake2bWrite, Challenge255, ChallengeScalar, Transcript, TranscriptRead,
-        TranscriptWrite,
+        blake2b::Blake2bRead, blake2b::Blake2bWrite, Challenge255, ChallengeScalar, Transcript,
+        TranscriptRead, TranscriptWrite,
     };
 
     use ff::Field;
@@ -214,7 +216,7 @@ mod tests {
         let bvx = eval_polynomial(&bx, x);
         let cvy = eval_polynomial(&cx, y);
 
-        let mut transcript = crate::transcript::Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
+        let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
         create_proof(
             &params,
             &mut transcript,
@@ -240,8 +242,7 @@ mod tests {
 
         {
             let mut proof = &proof[..];
-            let mut transcript =
-                crate::transcript::Blake2bRead::<_, _, Challenge255<_>>::init(&mut proof);
+            let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&mut proof);
 
             let pair = verify_proof(
                 &params_verifier,
@@ -260,8 +261,7 @@ mod tests {
         {
             let mut proof = &proof[..];
 
-            let mut transcript =
-                crate::transcript::Blake2bRead::<_, _, Challenge255<_>>::init(&mut proof);
+            let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&mut proof);
 
             let guard = verify_proof(
                 &params_verifier,
@@ -358,13 +358,44 @@ mod tests {
         // prover
         let proof = {
             let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
-            create_proof(&params, &mut transcript, prover_queries).unwrap();
+            create_proof(&params, &mut transcript, prover_queries.clone()).unwrap();
             transcript.finalize()
         };
 
         // verifier
         {
             let mut transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&proof[..]);
+            let pair =
+                verify_proof(&params_verifier, &mut transcript, verifier_queries.clone()).unwrap();
+            assert!(Decider::verify(&params_verifier, pair));
+        }
+
+        // prover
+        let proof = {
+            let mut transcript = PoseidonWrite::<
+                _,
+                G1Affine,
+                Challenge<_>,
+                LimbRepresentation<_, 4, 68>,
+                3,
+                2,
+            >::init(vec![], 8, 57);
+
+            create_proof(&params, &mut transcript, prover_queries).unwrap();
+            transcript.finalize()
+        };
+
+        // verifier
+        {
+            let mut transcript = PoseidonRead::<
+                _,
+                G1Affine,
+                Challenge<_>,
+                LimbRepresentation<_, 4, 68>,
+                3,
+                2,
+            >::init(&proof[..], 8, 57);
+
             let pair = verify_proof(&params_verifier, &mut transcript, verifier_queries).unwrap();
             assert!(Decider::verify(&params_verifier, pair));
         }

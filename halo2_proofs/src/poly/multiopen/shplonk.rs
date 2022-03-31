@@ -168,10 +168,6 @@ mod tests {
         multiopen::{ProverQuery, Query, VerifierQuery},
         Coeff, Polynomial, Rotation,
     };
-    use crate::transcript::{
-        Blake2bRead, Blake2bWrite, Challenge255, ChallengeScalar, Transcript, TranscriptRead,
-        TranscriptWrite,
-    };
 
     use ff::Field;
     use rand::RngCore;

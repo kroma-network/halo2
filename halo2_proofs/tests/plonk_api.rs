@@ -14,7 +14,7 @@ use halo2_proofs::poly::{
     commitment::{Params, ParamsVerifier},
     Rotation,
 };
-use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
+use halo2_proofs::transcript::{blake2b::Blake2bRead, blake2b::Blake2bWrite, Challenge255};
 use rand_core::OsRng;
 use std::marker::PhantomData;
 
