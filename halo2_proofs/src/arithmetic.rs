@@ -2,7 +2,7 @@
 //! field and polynomial arithmetic.
 
 use super::multicore;
-use crate::poly::FFTData;
+use crate::poly::{FFTData, FFTType};
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
@@ -168,11 +168,17 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
 /// by $n$.
 ///
 /// This will use multithreading if beneficial.
-pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
+pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, fft_type: FFTType) {
     let mut elements = 32;
+    let twiddles = match fft_type {
+        FFTType::Normal => &fft_data.f_twiddles,
+        FFTType::Inv => &fft_data.inv_twiddles,
+        FFTType::Ext => &fft_data.ext_f_twiddles,
+        FFTType::ExtInv => &fft_data.ext_inv_twiddles,
+    };
 
     // bit reverse and bottom four layers butterfly arithmetic
-    bottom_layers_butterfly_arithmetic(input, fft_data);
+    bottom_layers_butterfly_arithmetic(input, fft_data, twiddles);
 
     // two radix butterfly arithmetic
     if fft_data.is_odd {
@@ -184,7 +190,7 @@ pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
                     for p in 0..offset {
                         let first = p;
                         let second = first + offset;
-                        let second_tw = input[second] * fft_data.f_twiddles[chunk * p];
+                        let second_tw = input[second] * twiddles[chunk * p];
                         input[second] = input[first];
                         input[first] += second_tw;
                         input[second] -= second_tw;
@@ -212,8 +218,8 @@ pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
 
                         // twiddle factor arithmetic for upper side
                         let a_tw_idx = tw_offset * 2 * p;
-                        let second_tw = input[second] * fft_data.f_twiddles[a_tw_idx];
-                        let fourth_tw = input[fourth] * fft_data.f_twiddles[a_tw_idx];
+                        let second_tw = input[second] * twiddles[a_tw_idx];
+                        let fourth_tw = input[fourth] * twiddles[a_tw_idx];
 
                         // upper side butterfly arithmetic
                         let a = input[first] + second_tw;
@@ -224,8 +230,8 @@ pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
                         // twiddle factor arithmetic for bottom side
                         let b_tw1_idx = a_tw_idx / 2;
                         let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
-                        let c_tw = c * fft_data.f_twiddles[b_tw1_idx];
-                        let d_tw = d * fft_data.f_twiddles[b_tw2_idx];
+                        let c_tw = c * twiddles[b_tw1_idx];
+                        let d_tw = d * twiddles[b_tw2_idx];
 
                         // bottom side butterfly arithmetic
                         input[first] = a + c_tw;
@@ -240,17 +246,21 @@ pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
     }
 }
 
-fn bottom_layers_butterfly_arithmetic<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>) {
+fn bottom_layers_butterfly_arithmetic<F: FieldExt>(
+    input: &mut [F],
+    fft_data: &FFTData<F>,
+    twiddles: &Vec<F>,
+) {
     let stash = input.to_vec();
     // twiddles factor 16th root of unity
     let tw_offset = fft_data.half / 8;
-    let tw_1 = fft_data.f_twiddles[tw_offset];
-    let tw_2 = fft_data.f_twiddles[tw_offset * 2];
-    let tw_3 = fft_data.f_twiddles[tw_offset * 3];
-    let tw_4 = fft_data.f_twiddles[tw_offset * 4];
-    let tw_5 = fft_data.f_twiddles[tw_offset * 5];
-    let tw_6 = fft_data.f_twiddles[tw_offset * 6];
-    let tw_7 = fft_data.f_twiddles[tw_offset * 7];
+    let tw_1 = twiddles[tw_offset];
+    let tw_2 = twiddles[tw_offset * 2];
+    let tw_3 = twiddles[tw_offset * 3];
+    let tw_4 = twiddles[tw_offset * 4];
+    let tw_5 = twiddles[tw_offset * 5];
+    let tw_6 = twiddles[tw_offset * 6];
+    let tw_7 = twiddles[tw_offset * 7];
 
     multicore::scope(|scope| {
         scope.spawn(move |_| {
@@ -370,97 +380,6 @@ fn bottom_layers_butterfly_arithmetic<F: FieldExt>(input: &mut [F], fft_data: &F
     });
 }
 
-fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
-    fn bitreverse(mut n: u32, l: u32) -> u32 {
-        let mut r = 0;
-        for _ in 0..l {
-            r = (r << 1) | (n & 1);
-            n >>= 1;
-        }
-        r
-    }
-
-    let n = a.len() as u32;
-    assert_eq!(n, 1 << log_n);
-
-    for k in 0..n {
-        let rk = bitreverse(k, log_n);
-        if k < rk {
-            a.swap(rk as usize, k as usize);
-        }
-    }
-
-    let mut m = 1;
-    for _ in 0..log_n {
-        let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
-
-        let mut k = 0;
-        while k < n {
-            let mut w = G::Scalar::one();
-            for j in 0..m {
-                let mut t = a[(k + j + m) as usize];
-                t.group_scale(&w);
-                a[(k + j + m) as usize] = a[(k + j) as usize];
-                a[(k + j + m) as usize].group_sub(&t);
-                a[(k + j) as usize].group_add(&t);
-                w *= &w_m;
-            }
-
-            k += 2 * m;
-        }
-
-        m *= 2;
-    }
-}
-
-fn parallel_fft<G: Group + std::fmt::Debug>(
-    a: &mut [G],
-    omega: G::Scalar,
-    log_n: u32,
-    log_threads: u32,
-) {
-    assert!(log_n >= log_threads);
-
-    let num_threads = 1 << log_threads;
-    let log_new_n = log_n - log_threads;
-    let mut tmp = vec![vec![G::group_zero(); 1 << log_new_n]; num_threads];
-    let new_omega = omega.pow_vartime(&[num_threads as u64, 0, 0, 0]);
-
-    multicore::scope(|scope| {
-        let a = &*a;
-
-        for (j, tmp) in tmp.iter_mut().enumerate() {
-            scope.spawn(move |_| {
-                // Shuffle into a sub-FFT
-                let omega_j = omega.pow_vartime(&[j as u64, 0, 0, 0]);
-                let omega_step = omega.pow_vartime(&[(j as u64) << log_new_n, 0, 0, 0]);
-
-                let mut elt = G::Scalar::one();
-
-                for (i, tmp) in tmp.iter_mut().enumerate() {
-                    for s in 0..num_threads {
-                        let idx = (i + (s << log_new_n)) % (1 << log_n);
-                        let mut t = a[idx];
-                        t.group_scale(&elt);
-                        tmp.group_add(&t);
-                        elt *= &omega_step;
-                    }
-                    elt *= &omega_j;
-                }
-
-                // Perform sub-FFT
-                serial_fft(tmp, new_omega, log_new_n);
-            });
-        }
-    });
-
-    // Unshuffle
-    let mask = (1 << log_threads) - 1;
-    for (idx, a) in a.iter_mut().enumerate() {
-        *a = tmp[idx & mask][idx >> log_threads];
-    }
-}
-
 /// This evaluates a provided polynomial (in coefficient form) at `point`.
 pub fn eval_polynomial<F: Field>(poly: &[F], point: F) -> F {
     // TODO: parallelize?
@@ -526,18 +445,6 @@ pub fn parallelize<T: Send, F: Fn(&mut [T], usize) + Send + Sync + Clone>(v: &mu
             });
         }
     });
-}
-
-fn log2_floor(num: usize) -> u32 {
-    assert!(num > 0);
-
-    let mut pow = 0;
-
-    while (1 << (pow + 1)) <= num {
-        pow += 1;
-    }
-
-    pow
 }
 
 /// Returns coefficients of an n - 1 degree polynomial given a set of n points

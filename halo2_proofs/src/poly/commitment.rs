@@ -3,19 +3,20 @@
 //!
 //! [halo]: https://eprint.iacr.org/2019/1021
 
-use super::{Coeff, LagrangeCoeff, Polynomial, MSM};
+use super::{Coeff, FFTData, LagrangeCoeff, Polynomial, MSM};
 use crate::arithmetic::{
     best_fft, best_multiexp, parallelize, CurveAffine, CurveExt, Engine, FieldExt, Group,
 };
 use crate::helpers::CurveRead;
+use crate::poly::FFTType;
 
 use ff::{Field, PrimeField};
 use group::{prime::PrimeCurveAffine, Curve, Group as _, GroupEncoding};
 use rand_core::OsRng;
+use rayon::{current_num_threads, scope};
+use std::io;
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
-
-use std::io;
 
 /// These are the prover parameters for the polynomial commitment scheme.
 #[derive(Debug)]
@@ -84,7 +85,7 @@ impl<C: CurveAffine> Params<C> {
             alpha_inv = alpha_inv.square();
         }
         let mut g_lagrange_projective = g_projective;
-        best_fft(&mut g_lagrange_projective, alpha_inv, k);
+        prev_fft(&mut g_lagrange_projective, alpha_inv, k);
         let minv = E::Scalar::TWO_INV.pow_vartime(&[k as u64, 0, 0, 0]);
         parallelize(&mut g_lagrange_projective, |g, _| {
             for g in g.iter_mut() {
@@ -334,6 +335,116 @@ impl<E: Engine> ParamsVerifier<E> {
             g_lagrange,
         })
     }
+}
+
+/// This will use multithreading if beneficial.
+pub fn prev_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
+    let threads = current_num_threads();
+    let log_threads = log2_floor(threads);
+
+    if log_n <= log_threads {
+        serial_fft(a, omega, log_n);
+    } else {
+        parallel_fft(a, omega, log_n, log_threads);
+    }
+}
+
+fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
+    fn bitreverse(mut n: u32, l: u32) -> u32 {
+        let mut r = 0;
+        for _ in 0..l {
+            r = (r << 1) | (n & 1);
+            n >>= 1;
+        }
+        r
+    }
+
+    let n = a.len() as u32;
+    assert_eq!(n, 1 << log_n);
+
+    for k in 0..n {
+        let rk = bitreverse(k, log_n);
+        if k < rk {
+            a.swap(rk as usize, k as usize);
+        }
+    }
+
+    let mut m = 1;
+    for _ in 0..log_n {
+        let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
+
+        let mut k = 0;
+        while k < n {
+            let mut w = G::Scalar::one();
+            for j in 0..m {
+                let mut t = a[(k + j + m) as usize];
+                t.group_scale(&w);
+                a[(k + j + m) as usize] = a[(k + j) as usize];
+                a[(k + j + m) as usize].group_sub(&t);
+                a[(k + j) as usize].group_add(&t);
+                w *= &w_m;
+            }
+
+            k += 2 * m;
+        }
+
+        m *= 2;
+    }
+}
+
+fn parallel_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32, log_threads: u32) {
+    assert!(log_n >= log_threads);
+
+    let num_threads = 1 << log_threads;
+    let log_new_n = log_n - log_threads;
+    let mut tmp = vec![vec![G::group_zero(); 1 << log_new_n]; num_threads];
+    let new_omega = omega.pow_vartime(&[num_threads as u64, 0, 0, 0]);
+
+    scope(|scope| {
+        let a = &*a;
+
+        for (j, tmp) in tmp.iter_mut().enumerate() {
+            scope.spawn(move |_| {
+                // Shuffle into a sub-FFT
+                let omega_j = omega.pow_vartime(&[j as u64, 0, 0, 0]);
+                let omega_step = omega.pow_vartime(&[(j as u64) << log_new_n, 0, 0, 0]);
+
+                let mut elt = G::Scalar::one();
+
+                for (i, tmp) in tmp.iter_mut().enumerate() {
+                    for s in 0..num_threads {
+                        let idx = (i + (s << log_new_n)) % (1 << log_n);
+                        let mut t = a[idx];
+                        t.group_scale(&elt);
+                        tmp.group_add(&t);
+                        elt *= &omega_step;
+                    }
+                    elt *= &omega_j;
+                }
+
+                // Perform sub-FFT
+                serial_fft(tmp, new_omega, log_new_n);
+            });
+        }
+    });
+
+    // Unshuffle
+    let mask = (1 << log_threads) - 1;
+    for (idx, a) in a.iter_mut().enumerate() {
+        *a = tmp[idx & mask][idx >> log_threads];
+    }
+}
+
+fn log2_floor(num: usize) -> u32 {
+    assert!(num > 0);
+
+    let mut pow = 0;
+
+    while (1 << (pow + 1)) <= num {
+        pow += 1;
+    }
+
+    pow
 }
 
 #[cfg(test)]
