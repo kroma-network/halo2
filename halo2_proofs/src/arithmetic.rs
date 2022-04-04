@@ -173,9 +173,9 @@ pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, is_inv: boo
 
     let mut elements = 32;
     let twiddles = if is_inv {
-        &fft_data.twiddles
-    } else {
         &fft_data.inv_twiddles
+    } else {
+        &fft_data.twiddles
     };
 
     if fft_data.is_low {
@@ -271,24 +271,57 @@ fn low_degree_butterly_arithmetic<F: FieldExt>(input: &mut [F], twiddles: &Vec<F
     }
 
     for i in 0..n / 2 {
-        let t = input[i + 1];
-        input[i + 1] = input[i];
-        input[i] += t;
-        input[i + 1] -= t;
+        let t = input[2 * i + 1];
+        input[2 * i + 1] = input[2 * i];
+        input[2 * i] += t;
+        input[2 * i + 1] -= t;
     }
 
     match n {
         4 => {
-            let t = input[2];
-            input[0] = input[2];
-            input[0] += t;
-            input[2] -= t;
-            let t = input[1];
-            input[3] *= twiddles[1];
-            println!("tw: {:?}", twiddles[1]);
-            input[1] = input[3];
-            input[1] += t;
-            input[3] -= t;
+            let tw = input[2];
+            input[2] = input[0];
+            input[0] += tw;
+            input[2] -= tw;
+            let tw = input[3] * twiddles[1];
+            input[3] = input[1];
+            input[1] += tw;
+            input[3] -= tw;
+        }
+        8 => {
+            let tw = input[2];
+            input[2] = input[0];
+            input[0] += tw;
+            input[2] -= tw;
+            let tw = input[3] * twiddles[2];
+            input[3] = input[1];
+            input[1] += tw;
+            input[3] -= tw;
+            let tw = input[6];
+            input[6] = input[4];
+            input[4] += tw;
+            input[6] -= tw;
+            let tw = input[7] * twiddles[2];
+            input[7] = input[5];
+            input[5] += tw;
+            input[7] -= tw;
+
+            let tw = input[4];
+            input[4] = input[0];
+            input[0] += tw;
+            input[4] -= tw;
+            let tw = input[5] * twiddles[1];
+            input[5] = input[1];
+            input[1] += tw;
+            input[5] -= tw;
+            let tw = input[6] * twiddles[2];
+            input[6] = input[2];
+            input[2] += tw;
+            input[6] -= tw;
+            let tw = input[7] * twiddles[3];
+            input[7] = input[3];
+            input[3] += tw;
+            input[7] -= tw;
         }
         _ => {}
     }

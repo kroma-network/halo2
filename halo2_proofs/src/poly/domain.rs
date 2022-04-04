@@ -51,7 +51,6 @@ impl<F: FieldExt> FFTData<F> {
         // mutable reference for multicore
         let stash = &mut twiddles;
         let i_stash = &mut inv_twiddles;
-        println!("{:?}", omega);
 
         multicore::scope(|scope| {
             scope.spawn(move |_| {
@@ -620,7 +619,7 @@ fn test_fft() {
     use pairing::bn256::Fr;
     use rand_core::OsRng;
 
-    for k in 1..12 {
+    for k in 1..13 {
         let rng = OsRng;
         // polynomial degree n = 2^k
         let n = 1u64 << k;
