@@ -253,44 +253,42 @@ pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, is_inv: boo
 
 fn low_degree_butterly_arithmetic<F: FieldExt>(input: &mut [F], twiddles: &Vec<F>) {
     let n = input.len();
-    fn normal_butterfly<F: FieldExt>(input: &mut [F], n: usize, slide: usize, base_point: usize) {
-        let offset = n / 2;
-        for i in 0..offset {
-            let t = input[i + base_point];
-            input[i + base_point] = input[i + base_point + slide];
-            input[i + base_point] += t;
-            input[i + base_point + slide] -= t;
+    let stash = input.to_vec();
+    let indexes = match n {
+        2 => {
+            vec![0, 1]
         }
+        4 => {
+            vec![0, 2, 1, 3]
+        }
+        _ => {
+            vec![0, 4, 2, 6, 1, 5, 3, 7]
+        }
+    };
+
+    for (i, elm) in input.iter_mut().enumerate() {
+        *elm = stash[indexes[i]]
     }
 
-    fn reverse_butterfly<F: FieldExt>(input: &mut [F], n: usize, indexes: Vec<usize>) {
-        let offset = n / 2;
-        for i in 0..offset {
-            let t = input[indexes[i]];
-            input[indexes[i]] += input[indexes[i] + offset];
-            input[indexes[i] + 1] = input[indexes[i] + offset] - t;
-        }
+    for i in 0..n / 2 {
+        let t = input[i + 1];
+        input[i + 1] = input[i];
+        input[i] += t;
+        input[i + 1] -= t;
     }
 
     match n {
-        2 => {
-            reverse_butterfly(input, n, vec![0]);
-        }
         4 => {
-            reverse_butterfly(input, n, vec![0, 1]);
+            let t = input[2];
+            input[0] = input[2];
+            input[0] += t;
+            input[2] -= t;
+            let t = input[1];
             input[3] *= twiddles[1];
-            normal_butterfly(input, n, 2, 0);
-        }
-        8 => {
-            reverse_butterfly(input, n, vec![0, 2, 1, 3]);
-            input[3] *= twiddles[1];
-            normal_butterfly(input, n / 2, 2, 0);
-            input[7] *= twiddles[1];
-            normal_butterfly(input, n / 2, 2, 4);
-            input[5] *= twiddles[1];
-            input[6] *= twiddles[2];
-            input[7] *= twiddles[3];
-            normal_butterfly(input, n, 4, 0);
+            println!("tw: {:?}", twiddles[1]);
+            input[1] = input[3];
+            input[1] += t;
+            input[3] -= t;
         }
         _ => {}
     }
@@ -577,6 +575,7 @@ pub fn vanishing_polynomial<F: FieldExt>(roots: &[F]) -> Vec<F> {
     coeffs
 }
 
+use rand::seq::index;
 #[cfg(test)]
 use rand_core::OsRng;
 

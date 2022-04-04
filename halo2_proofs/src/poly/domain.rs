@@ -51,6 +51,7 @@ impl<F: FieldExt> FFTData<F> {
         // mutable reference for multicore
         let stash = &mut twiddles;
         let i_stash = &mut inv_twiddles;
+        println!("{:?}", omega);
 
         multicore::scope(|scope| {
             scope.spawn(move |_| {
@@ -61,7 +62,7 @@ impl<F: FieldExt> FFTData<F> {
             });
             scope.spawn(move |_| {
                 for tw in i_stash.iter_mut() {
-                    *tw = w;
+                    *tw = i;
                     i *= omega_inv;
                 }
             });
@@ -610,6 +611,43 @@ pub struct PinnedEvaluationDomain<'a, F: Field> {
     k: &'a u32,
     extended_k: &'a u32,
     omega: &'a F,
+}
+
+#[test]
+fn test_fft() {
+    use crate::poly::{commitment::prev_fft, EvaluationDomain};
+    use ark_std::{end_timer, start_timer};
+    use pairing::bn256::Fr;
+    use rand_core::OsRng;
+
+    for k in 1..12 {
+        let rng = OsRng;
+        // polynomial degree n = 2^k
+        let n = 1u64 << k;
+        // polynomial coeffs
+        let coeffs: Vec<_> = (0..n).map(|_| Fr::random(rng)).collect();
+        // evaluation domain
+        let domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
+
+        let mut prev_fft_coeffs = coeffs.clone();
+        let mut best_fft_coeffs = coeffs.clone();
+
+        let message = format!("prev_fft degree {}", k);
+        let start = start_timer!(|| message);
+        prev_fft(&mut prev_fft_coeffs, domain.get_omega(), k);
+        end_timer!(start);
+
+        let message = format!("best_fft degree {}", k);
+        let start = start_timer!(|| message);
+        best_fft(
+            &mut best_fft_coeffs,
+            &domain.evaluation_helper.fft_data,
+            false,
+        );
+        end_timer!(start);
+
+        assert_eq!(prev_fft_coeffs, best_fft_coeffs)
+    }
 }
 
 #[test]

@@ -367,10 +367,12 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
             a.swap(rk as usize, k as usize);
         }
     }
+    println!("o {:?}", omega);
 
     let mut m = 1;
     for _ in 0..log_n {
         let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
+        println!("w {:?}", w_m);
 
         let mut k = 0;
         while k < n {
@@ -378,6 +380,7 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
             for j in 0..m {
                 let mut t = a[(k + j + m) as usize];
                 t.group_scale(&w);
+                println!("tw: {:?}", w);
                 a[(k + j + m) as usize] = a[(k + j) as usize];
                 a[(k + j + m) as usize].group_sub(&t);
                 a[(k + j) as usize].group_add(&t);
