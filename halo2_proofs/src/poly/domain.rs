@@ -11,7 +11,7 @@ use super::{Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation};
 
 use group::ff::{BatchInvert, Field, PrimeField};
 
-use std::{marker::PhantomData, os::unix::prelude::FileExt};
+use std::marker::PhantomData;
 
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
@@ -488,7 +488,7 @@ impl<F: FieldExt> EvaluationDomain<F> {
     }
 
     fn ifft(a: &mut [F], fft_data: &FFTData<F>, is_inv: bool, divisor: F) {
-        best_fft(a, &fft_data, is_inv);
+        best_fft(a, fft_data, is_inv);
         parallelize(a, |a, _| {
             for a in a {
                 // Finish iFFT

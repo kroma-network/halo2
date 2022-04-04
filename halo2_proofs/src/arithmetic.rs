@@ -252,7 +252,7 @@ pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, is_inv: boo
     }
 }
 
-fn low_degree_butterly_arithmetic<F: FieldExt>(input: &mut [F], twiddles: &Vec<F>) {
+fn low_degree_butterly_arithmetic<F: FieldExt>(input: &mut [F], twiddles: &[F]) {
     let n = input.len();
     let stash = input.to_vec();
     let indexes = match n {
@@ -331,7 +331,7 @@ fn low_degree_butterly_arithmetic<F: FieldExt>(input: &mut [F], twiddles: &Vec<F
 fn bottom_layers_butterfly_arithmetic<F: FieldExt>(
     input: &mut [F],
     fft_data: &FFTData<F>,
-    twiddles: &Vec<F>,
+    twiddles: &[F],
 ) {
     let stash = input.to_vec();
     // twiddles factor 16th root of unity
