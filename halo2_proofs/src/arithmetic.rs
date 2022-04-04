@@ -2,7 +2,7 @@
 //! field and polynomial arithmetic.
 
 use super::multicore;
-use crate::poly::{FFTData, FFTType};
+use crate::poly::FFTData;
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
@@ -168,81 +168,131 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
 /// by $n$.
 ///
 /// This will use multithreading if beneficial.
-pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, fft_type: FFTType) {
+pub fn best_fft<F: FieldExt>(input: &mut [F], fft_data: &FFTData<F>, is_inv: bool) {
+    assert_eq!(fft_data.half * 2, input.len());
+
     let mut elements = 32;
-    let twiddles = match fft_type {
-        FFTType::Normal => &fft_data.f_twiddles,
-        FFTType::Inv => &fft_data.inv_twiddles,
-        FFTType::Ext => &fft_data.ext_f_twiddles,
-        FFTType::ExtInv => &fft_data.ext_inv_twiddles,
+    let twiddles = if is_inv {
+        &fft_data.twiddles
+    } else {
+        &fft_data.inv_twiddles
     };
 
-    // bit reverse and bottom four layers butterfly arithmetic
-    bottom_layers_butterfly_arithmetic(input, fft_data, twiddles);
+    if fft_data.is_low {
+        low_degree_butterly_arithmetic(input, twiddles);
+    } else {
+        // bit reverse and bottom four layers butterfly arithmetic
+        bottom_layers_butterfly_arithmetic(input, fft_data, twiddles);
 
-    // two radix butterfly arithmetic
-    if fft_data.is_odd {
-        let chunk = fft_data.half * 2 / elements;
-        let offset = elements / 2;
-        multicore::scope(|scope| {
-            for input in input.chunks_mut(elements) {
-                scope.spawn(move |_| {
-                    for p in 0..offset {
-                        let first = p;
-                        let second = first + offset;
-                        let second_tw = input[second] * twiddles[chunk * p];
-                        input[second] = input[first];
-                        input[first] += second_tw;
-                        input[second] -= second_tw;
-                    }
-                });
-            }
-        });
-        elements *= 2;
+        // two radix butterfly arithmetic
+        if fft_data.is_odd {
+            let chunk = fft_data.half * 2 / elements;
+            let offset = elements / 2;
+            multicore::scope(|scope| {
+                for input in input.chunks_mut(elements) {
+                    scope.spawn(move |_| {
+                        for p in 0..offset {
+                            let first = p;
+                            let second = first + offset;
+                            let second_tw = input[second] * twiddles[chunk * p];
+                            input[second] = input[first];
+                            input[first] += second_tw;
+                            input[second] -= second_tw;
+                        }
+                    });
+                }
+            });
+            elements *= 2;
+        }
+
+        // four radix butterfly arithmetic
+        for _ in 0..fft_data.layer {
+            // element and twiddles offset
+            let offset = elements / 2;
+            let tw_offset = fft_data.half / elements;
+            multicore::scope(|scope| {
+                for input in input.chunks_mut(elements * 2) {
+                    scope.spawn(move |_| {
+                        for p in 0..offset {
+                            // indexes of this layer
+                            let first = p;
+                            let second = first + offset;
+                            let third = second + offset;
+                            let fourth = third + offset;
+
+                            // twiddle factor arithmetic for upper side
+                            let a_tw_idx = tw_offset * 2 * p;
+                            let second_tw = input[second] * twiddles[a_tw_idx];
+                            let fourth_tw = input[fourth] * twiddles[a_tw_idx];
+
+                            // upper side butterfly arithmetic
+                            let a = input[first] + second_tw;
+                            let b = input[first] - second_tw;
+                            let c = input[third] + fourth_tw;
+                            let d = input[third] - fourth_tw;
+
+                            // twiddle factor arithmetic for bottom side
+                            let b_tw1_idx = a_tw_idx / 2;
+                            let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
+                            let c_tw = c * twiddles[b_tw1_idx];
+                            let d_tw = d * twiddles[b_tw2_idx];
+
+                            // bottom side butterfly arithmetic
+                            input[first] = a + c_tw;
+                            input[second] = b + d_tw;
+                            input[third] = a - c_tw;
+                            input[fourth] = b - d_tw;
+                        }
+                    });
+                }
+            });
+            elements *= 4;
+        }
+    }
+}
+
+fn low_degree_butterly_arithmetic<F: FieldExt>(input: &mut [F], twiddles: &Vec<F>) {
+    let n = input.len();
+    fn normal_butterfly<F: FieldExt>(input: &mut [F], n: usize, slide: usize, base_point: usize) {
+        let offset = n / 2;
+        for i in 0..offset {
+            let t = input[i + base_point];
+            input[i + base_point] = input[i + base_point + slide];
+            input[i + base_point] += t;
+            input[i + base_point + slide] -= t;
+        }
     }
 
-    // four radix butterfly arithmetic
-    for _ in 0..fft_data.layer {
-        // element and twiddles offset
-        let offset = elements / 2;
-        let tw_offset = fft_data.half / elements;
-        multicore::scope(|scope| {
-            for input in input.chunks_mut(elements * 2) {
-                scope.spawn(move |_| {
-                    for p in 0..offset {
-                        // indexes of this layer
-                        let first = p;
-                        let second = first + offset;
-                        let third = second + offset;
-                        let fourth = third + offset;
+    fn reverse_butterfly<F: FieldExt>(input: &mut [F], n: usize, indexes: Vec<usize>) {
+        let offset = n / 2;
+        for i in 0..offset {
+            let t = input[indexes[i]];
+            input[indexes[i]] += input[indexes[i] + offset];
+            input[indexes[i] + 1] = input[indexes[i] + offset] - t;
+        }
+    }
 
-                        // twiddle factor arithmetic for upper side
-                        let a_tw_idx = tw_offset * 2 * p;
-                        let second_tw = input[second] * twiddles[a_tw_idx];
-                        let fourth_tw = input[fourth] * twiddles[a_tw_idx];
-
-                        // upper side butterfly arithmetic
-                        let a = input[first] + second_tw;
-                        let b = input[first] - second_tw;
-                        let c = input[third] + fourth_tw;
-                        let d = input[third] - fourth_tw;
-
-                        // twiddle factor arithmetic for bottom side
-                        let b_tw1_idx = a_tw_idx / 2;
-                        let b_tw2_idx = b_tw1_idx + fft_data.half / 2;
-                        let c_tw = c * twiddles[b_tw1_idx];
-                        let d_tw = d * twiddles[b_tw2_idx];
-
-                        // bottom side butterfly arithmetic
-                        input[first] = a + c_tw;
-                        input[second] = b + d_tw;
-                        input[third] = a - c_tw;
-                        input[fourth] = b - d_tw;
-                    }
-                });
-            }
-        });
-        elements *= 4;
+    match n {
+        2 => {
+            reverse_butterfly(input, n, vec![0]);
+        }
+        4 => {
+            reverse_butterfly(input, n, vec![0, 1]);
+            input[3] *= twiddles[1];
+            normal_butterfly(input, n, 2, 0);
+        }
+        8 => {
+            reverse_butterfly(input, n, vec![0, 2, 1, 3]);
+            input[3] *= twiddles[1];
+            normal_butterfly(input, n / 2, 2, 0);
+            input[7] *= twiddles[1];
+            normal_butterfly(input, n / 2, 2, 4);
+            input[5] *= twiddles[1];
+            input[6] *= twiddles[2];
+            input[7] *= twiddles[3];
+            normal_butterfly(input, n, 4, 0);
+        }
+        _ => {}
     }
 }
 

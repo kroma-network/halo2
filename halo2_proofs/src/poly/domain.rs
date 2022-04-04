@@ -13,19 +13,6 @@ use group::ff::{BatchInvert, Field, PrimeField};
 
 use std::{marker::PhantomData, os::unix::prelude::FileExt};
 
-/// Fft type
-#[derive(Debug)]
-pub enum FFTType {
-    /// normal
-    Normal,
-    /// inv
-    Inv,
-    /// extended
-    Ext,
-    /// extended inv
-    ExtInv,
-}
-
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
 pub struct FFTData<F: FieldExt> {
@@ -36,13 +23,9 @@ pub struct FFTData<F: FieldExt> {
     /// indexes for bit reverse
     pub indexes: Vec<usize>,
     /// twiddles
-    pub f_twiddles: Vec<F>,
+    pub twiddles: Vec<F>,
     /// inv twiddles
     pub inv_twiddles: Vec<F>,
-    /// extended twiddles
-    pub ext_f_twiddles: Vec<F>,
-    /// extended omega inv twiddles
-    pub ext_inv_twiddles: Vec<F>,
     /// odd k flag
     pub is_odd: bool,
     /// low degree flag
@@ -51,14 +34,7 @@ pub struct FFTData<F: FieldExt> {
 
 impl<F: FieldExt> FFTData<F> {
     /// Create twiddles and stages data
-    pub fn new(
-        n: usize,
-        omega: F,
-        omega_inv: F,
-        extended_omega: F,
-        extended_omega_inv: F,
-        k: usize,
-    ) -> Self {
+    pub fn new(n: usize, omega: F, omega_inv: F, k: usize) -> Self {
         let half = n / 2;
         let (offset, is_low) = if k < 4 { (0, true) } else { (k - 4, false) };
         let mut counter = 2;
@@ -66,22 +42,19 @@ impl<F: FieldExt> FFTData<F> {
         // calculate twiddles factor
         let mut w = F::one();
         let mut i = F::one();
-        let mut f_twiddles = vec![F::one(); half];
+        let mut twiddles = vec![F::one(); half];
         let mut inv_twiddles = vec![F::one(); half];
-        let mut ext_f_twiddles = vec![F::one(); half];
-        let mut ext_inv_twiddles = vec![F::one(); half];
 
         // init bit reverse indexes
         let mut indexes = vec![0; n];
 
-        let f_stash = &mut f_twiddles;
+        // mutable reference for multicore
+        let stash = &mut twiddles;
         let i_stash = &mut inv_twiddles;
-        let ef_stash = &mut ext_f_twiddles;
-        let ei_stash = &mut ext_inv_twiddles;
 
         multicore::scope(|scope| {
             scope.spawn(move |_| {
-                for tw in f_stash.iter_mut() {
+                for tw in stash.iter_mut() {
                     *tw = w;
                     w *= omega;
                 }
@@ -90,18 +63,6 @@ impl<F: FieldExt> FFTData<F> {
                 for tw in i_stash.iter_mut() {
                     *tw = w;
                     i *= omega_inv;
-                }
-            });
-            scope.spawn(move |_| {
-                for tw in ef_stash.iter_mut() {
-                    *tw = w;
-                    w *= extended_omega;
-                }
-            });
-            scope.spawn(move |_| {
-                for tw in ei_stash.iter_mut() {
-                    *tw = w;
-                    i *= extended_omega_inv;
                 }
             });
         });
@@ -131,13 +92,45 @@ impl<F: FieldExt> FFTData<F> {
         Self {
             half,
             layer: offset / 2,
-            f_twiddles,
-            inv_twiddles,
-            ext_f_twiddles,
-            ext_inv_twiddles,
             indexes,
+            twiddles,
+            inv_twiddles,
             is_odd: k % 2 == 1,
             is_low,
+        }
+    }
+}
+
+/// This structure hold the twiddles and radix for each layer
+#[derive(Debug)]
+pub struct EvaluationHelper<F: FieldExt> {
+    /// fft data
+    pub fft_data: FFTData<F>,
+    /// extended fft data
+    pub ext_fft_data: FFTData<F>,
+}
+
+impl<F: FieldExt> EvaluationHelper<F> {
+    /// Create twiddles and stages data
+    pub fn new(
+        n: usize,
+        extended_n: usize,
+        omega: F,
+        omega_inv: F,
+        extended_omega: F,
+        extended_omega_inv: F,
+        k: usize,
+        extended_k: usize,
+    ) -> Self {
+        assert_eq!(n, 1 << k);
+        assert_eq!(extended_n, 1 << extended_k);
+
+        let fft_data = FFTData::new(n, omega, omega_inv, k);
+        let ext_fft_data = FFTData::new(extended_n, extended_omega, extended_omega_inv, extended_k);
+
+        Self {
+            fft_data,
+            ext_fft_data,
         }
     }
 }
@@ -160,7 +153,7 @@ pub struct EvaluationDomain<F: FieldExt> {
     extended_ifft_divisor: F,
     t_evaluations: Vec<F>,
     barycentric_weight: F,
-    fft_data: FFTData<F>,
+    evaluation_helper: EvaluationHelper<F>,
 }
 
 impl<F: FieldExt> EvaluationDomain<F> {
@@ -267,13 +260,15 @@ impl<F: FieldExt> EvaluationDomain<F> {
             extended_ifft_divisor,
             t_evaluations,
             barycentric_weight,
-            fft_data: FFTData::<F::Scalar>::new(
+            evaluation_helper: EvaluationHelper::<F::Scalar>::new(
                 n as usize,
+                (1 << extended_k) as usize,
                 omega,
                 omega_inv,
                 extended_omega,
                 extended_omega_inv,
                 k as usize,
+                extended_k as usize,
             ),
         }
     }
@@ -366,8 +361,8 @@ impl<F: FieldExt> EvaluationDomain<F> {
         // Perform inverse FFT to obtain the polynomial in coefficient form
         Self::ifft(
             &mut a.values,
-            &self.fft_data,
-            FFTType::Inv,
+            &self.evaluation_helper.fft_data,
+            true,
             self.ifft_divisor,
         );
 
@@ -387,7 +382,7 @@ impl<F: FieldExt> EvaluationDomain<F> {
 
         self.distribute_powers_zeta(&mut a.values, true);
         a.values.resize(self.extended_len(), F::group_zero());
-        best_fft(&mut a.values, &self.fft_data, FFTType::Ext);
+        best_fft(&mut a.values, &self.evaluation_helper.ext_fft_data, false);
 
         Polynomial {
             values: a.values,
@@ -426,8 +421,8 @@ impl<F: FieldExt> EvaluationDomain<F> {
         // Inverse FFT
         Self::ifft(
             &mut a.values,
-            &self.fft_data,
-            FFTType::ExtInv,
+            &self.evaluation_helper.ext_fft_data,
+            true,
             self.extended_ifft_divisor,
         );
 
@@ -492,8 +487,8 @@ impl<F: FieldExt> EvaluationDomain<F> {
         });
     }
 
-    fn ifft(a: &mut [F], fft_data: &FFTData<F>, fft_type: FFTType, divisor: F) {
-        best_fft(a, &fft_data, fft_type);
+    fn ifft(a: &mut [F], fft_data: &FFTData<F>, is_inv: bool, divisor: F) {
+        best_fft(a, &fft_data, is_inv);
         parallelize(a, |a, _| {
             for a in a {
                 // Finish iFFT
@@ -615,45 +610,6 @@ pub struct PinnedEvaluationDomain<'a, F: Field> {
     k: &'a u32,
     extended_k: &'a u32,
     omega: &'a F,
-}
-
-#[test]
-fn test_fft() {
-    use crate::poly::EvaluationDomain;
-    use ark_std::{end_timer, start_timer};
-    use pairing::bn256::Fr;
-    use rand_core::OsRng;
-
-    let rng = OsRng;
-    let k = 19;
-    // polynomial degree n = 2^k
-    let n = 1u64 << k;
-    // polynomial coeffs
-    let coeffs: Vec<_> = (0..n).map(|_| Fr::random(rng)).collect();
-    // evaluation domain
-
-    let message = format!("evl");
-    let start = start_timer!(|| message);
-    let mut domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
-    end_timer!(start);
-
-    fn test_best_fft<G: Group + std::fmt::Debug>(
-        k: u32,
-        coeffs: Vec<Fr>,
-        domain: &mut EvaluationDomain<Fr>,
-    ) {
-        let mut best_fft_coeffs = coeffs.clone();
-        let mut recursive_fft_coeffs = coeffs.clone();
-
-        let message = format!("best_fft");
-        let start = start_timer!(|| message);
-        best_fft(&mut best_fft_coeffs, &domain.fft_data, FFTType::Normal);
-        end_timer!(start);
-
-        assert_eq!(best_fft_coeffs, recursive_fft_coeffs)
-    }
-
-    test_best_fft::<Fr>(k, coeffs, &mut domain);
 }
 
 #[test]

@@ -8,7 +8,6 @@ use crate::arithmetic::{
     best_fft, best_multiexp, parallelize, CurveAffine, CurveExt, Engine, FieldExt, Group,
 };
 use crate::helpers::CurveRead;
-use crate::poly::FFTType;
 
 use ff::{Field, PrimeField};
 use group::{prime::PrimeCurveAffine, Curve, Group as _, GroupEncoding};
