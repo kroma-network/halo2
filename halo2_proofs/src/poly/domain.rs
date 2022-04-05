@@ -242,40 +242,46 @@ impl<F: FieldExt> FFTButterlyCache<F> {
                 // element and twiddles offset
                 let offset = elements / 2;
                 let tw_offset = self.half / elements;
-                multicore::scope(|scope| {
-                    for input in a.chunks_mut(elements * 2) {
-                        scope.spawn(move |_| {
-                            for p in 0..offset {
-                                // indexes of this layer
-                                let first = p;
-                                let second = first + offset;
-                                let third = second + offset;
-                                let fourth = third + offset;
+                a.par_chunks_mut(elements * 2).for_each(|input| {
+                    for p in 0..offset {
+                        // indexes of this layer
+                        let first = p;
+                        let second = first + offset;
+                        let third = second + offset;
+                        let fourth = third + offset;
 
-                                // twiddle factor arithmetic for upper side
-                                let a_tw_idx = tw_offset * 2 * p;
-                                let second_tw = input[second] * self.twiddles[a_tw_idx];
-                                let fourth_tw = input[fourth] * self.twiddles[a_tw_idx];
+                        // twiddle factor arithmetic for upper side
+                        let a_tw_idx = tw_offset * 2 * p;
+                        let (second_tw, fourth_tw) = if a_tw_idx == 0 {
+                            (input[second], input[fourth])
+                        } else {
+                            (
+                                input[second] * self.twiddles[a_tw_idx],
+                                input[fourth] * self.twiddles[a_tw_idx],
+                            )
+                        };
 
-                                // upper side butterfly arithmetic
-                                let a = input[first] + second_tw;
-                                let b = input[first] - second_tw;
-                                let c = input[third] + fourth_tw;
-                                let d = input[third] - fourth_tw;
+                        // upper side butterfly arithmetic
+                        let a = input[first] + second_tw;
+                        let b = input[first] - second_tw;
+                        let c = input[third] + fourth_tw;
+                        let d = input[third] - fourth_tw;
 
-                                // twiddle factor arithmetic for bottom side
-                                let b_tw1_idx = a_tw_idx / 2;
-                                let b_tw2_idx = b_tw1_idx + self.half / 2;
-                                let c_tw = c * self.twiddles[b_tw1_idx];
-                                let d_tw = d * self.twiddles[b_tw2_idx];
+                        // twiddle factor arithmetic for bottom side
+                        let b_tw1_idx = a_tw_idx / 2;
+                        let b_tw2_idx = b_tw1_idx + self.half / 2;
+                        let c_tw = if b_tw1_idx == 0 {
+                            c
+                        } else {
+                            c * self.twiddles[b_tw1_idx]
+                        };
+                        let d_tw = d * self.twiddles[b_tw2_idx];
 
-                                // bottom side butterfly arithmetic
-                                input[first] = a + c_tw;
-                                input[second] = b + d_tw;
-                                input[third] = a - c_tw;
-                                input[fourth] = b - d_tw;
-                            }
-                        });
+                        // bottom side butterfly arithmetic
+                        input[first] = a + c_tw;
+                        input[second] = b + d_tw;
+                        input[third] = a - c_tw;
+                        input[fourth] = b - d_tw;
                     }
                 });
                 elements *= 4;
