@@ -50,9 +50,239 @@ pub struct FFTButterlyCache<F: FieldExt> {
     pub is_low: bool,
 }
 
-// impl<F: FieldExt> FFTButterlyCache<F> {
-//     pub fn fft(a: &mut [F]) {}
-// }
+impl<F: FieldExt> FFTButterlyCache<F> {
+    /// fft
+    pub fn butterfly_arithmetic(&self, a: &mut [F], n: usize) {
+        if self.is_low {
+            for i in 0..n / 2 {
+                let t = a[2 * i + 1];
+                a[2 * i + 1] = a[2 * i];
+                a[2 * i] += t;
+                a[2 * i + 1] -= t;
+            }
+
+            match n {
+                4 => {
+                    let tw = a[2];
+                    a[2] = a[0];
+                    a[0] += tw;
+                    a[2] -= tw;
+                    let tw = a[3] * self.twiddles[1];
+                    a[3] = a[1];
+                    a[1] += tw;
+                    a[3] -= tw;
+                }
+                8 => {
+                    let tw = a[2];
+                    a[2] = a[0];
+                    a[0] += tw;
+                    a[2] -= tw;
+                    let tw = a[3] * self.twiddles[2];
+                    a[3] = a[1];
+                    a[1] += tw;
+                    a[3] -= tw;
+                    let tw = a[6];
+                    a[6] = a[4];
+                    a[4] += tw;
+                    a[6] -= tw;
+                    let tw = a[7] * self.twiddles[2];
+                    a[7] = a[5];
+                    a[5] += tw;
+                    a[7] -= tw;
+
+                    let tw = a[4];
+                    a[4] = a[0];
+                    a[0] += tw;
+                    a[4] -= tw;
+                    let tw = a[5] * self.twiddles[1];
+                    a[5] = a[1];
+                    a[1] += tw;
+                    a[5] -= tw;
+                    let tw = a[6] * self.twiddles[2];
+                    a[6] = a[2];
+                    a[2] += tw;
+                    a[6] -= tw;
+                    let tw = a[7] * self.twiddles[3];
+                    a[7] = a[3];
+                    a[3] += tw;
+                    a[7] -= tw;
+                }
+                _ => {}
+            }
+        } else {
+            let mut elements = 32;
+
+            // twiddles factor 16th root of unity
+            let tw_offset = self.half / 8;
+            let tw_1 = self.twiddles[tw_offset];
+            let tw_2 = self.twiddles[tw_offset * 2];
+            let tw_3 = self.twiddles[tw_offset * 3];
+            let tw_4 = self.twiddles[tw_offset * 4];
+            let tw_5 = self.twiddles[tw_offset * 5];
+            let tw_6 = self.twiddles[tw_offset * 6];
+            let tw_7 = self.twiddles[tw_offset * 7];
+
+            for a in a.chunks_mut(16) {
+                // first layer butterfly arithmetic
+                let a_a = a[0] + a[1];
+                let a_b = a[0] - a[1];
+                let a_c = a[2] + a[3];
+                let a_d = a[2] - a[3];
+                let b_a = a[4] + a[5];
+                let b_b = a[4] - a[5];
+                let b_c = a[6] + a[7];
+                let b_d = a[6] - a[7];
+                let c_a = a[8] + a[9];
+                let c_b = a[8] - a[9];
+                let c_c = a[10] + a[11];
+                let c_d = a[10] - a[11];
+                let d_a = a[12] + a[13];
+                let d_b = a[12] - a[13];
+                let d_c = a[14] + a[15];
+                let d_d = a[14] - a[15];
+
+                // second layer butterfly airthmetic
+                let a_w_0 = a_d * tw_4;
+                let b_w_0 = b_d * tw_4;
+                let c_w_0 = c_d * tw_4;
+                let d_w_0 = d_d * tw_4;
+
+                let e_a = a_a + a_c;
+                let e_b = a_b + a_w_0;
+                let e_c = a_a - a_c;
+                let e_d = a_b - a_w_0;
+                let f_a = b_a + b_c;
+                let f_b = b_b + b_w_0;
+                let f_c = b_a - b_c;
+                let f_d = b_b - b_w_0;
+                let g_a = c_a + c_c;
+                let g_b = c_b + c_w_0;
+                let g_c = c_a - c_c;
+                let g_d = c_b - c_w_0;
+                let h_a = d_a + d_c;
+                let h_b = d_b + d_w_0;
+                let h_c = d_a - d_c;
+                let h_d = d_b - d_w_0;
+
+                // third layer butterfly airthmetic
+                let f_w_1 = f_b * tw_2;
+                let f_w_2 = f_c * tw_4;
+                let f_w_3 = f_d * tw_6;
+                let h_w_1 = h_b * tw_2;
+                let h_w_2 = h_c * tw_4;
+                let h_w_3 = h_d * tw_6;
+
+                let i_a = e_a + f_a;
+                let i_b = e_b + f_w_1;
+                let i_c = e_c + f_w_2;
+                let i_d = e_d + f_w_3;
+                let j_a = e_a - f_a;
+                let j_b = e_b - f_w_1;
+                let j_c = e_c - f_w_2;
+                let j_d = e_d - f_w_3;
+                let k_a = g_a + h_a;
+                let k_b = g_b + h_w_1;
+                let k_c = g_c + h_w_2;
+                let k_d = g_d + h_w_3;
+                let l_a = g_a - h_a;
+                let l_b = g_b - h_w_1;
+                let l_c = g_c - h_w_2;
+                let l_d = g_d - h_w_3;
+
+                // forth layer butterfly airthmetic
+                let k_w_1 = k_b * tw_1;
+                let k_w_2 = k_c * tw_2;
+                let k_w_3 = k_d * tw_3;
+                let k_w_4 = l_a * tw_4;
+                let k_w_5 = l_b * tw_5;
+                let k_w_6 = l_c * tw_6;
+                let k_w_7 = l_d * tw_7;
+
+                a[0] = i_a + k_a;
+                a[1] = i_b + k_w_1;
+                a[2] = i_c + k_w_2;
+                a[3] = i_d + k_w_3;
+                a[4] = j_a + k_w_4;
+                a[5] = j_b + k_w_5;
+                a[6] = j_c + k_w_6;
+                a[7] = j_d + k_w_7;
+                a[8] = i_a - k_a;
+                a[9] = i_b - k_w_1;
+                a[10] = i_c - k_w_2;
+                a[11] = i_d - k_w_3;
+                a[12] = j_a - k_w_4;
+                a[13] = j_b - k_w_5;
+                a[14] = j_c - k_w_6;
+                a[15] = j_d - k_w_7;
+            }
+
+            // two radix butterfly arithmetic
+            if self.is_odd {
+                let chunk = self.half * 2 / elements;
+                let offset = elements / 2;
+                multicore::scope(|scope| {
+                    for input in a.chunks_mut(elements) {
+                        scope.spawn(move |_| {
+                            for p in 0..offset {
+                                let first = p;
+                                let second = first + offset;
+                                let second_tw = input[second] * self.twiddles[chunk * p];
+                                input[second] = input[first];
+                                input[first] += second_tw;
+                                input[second] -= second_tw;
+                            }
+                        });
+                    }
+                });
+                elements *= 2;
+            }
+
+            // four radix butterfly arithmetic
+            for _ in 0..self.layer {
+                // element and twiddles offset
+                let offset = elements / 2;
+                let tw_offset = self.half / elements;
+                multicore::scope(|scope| {
+                    for input in a.chunks_mut(elements * 2) {
+                        scope.spawn(move |_| {
+                            for p in 0..offset {
+                                // indexes of this layer
+                                let first = p;
+                                let second = first + offset;
+                                let third = second + offset;
+                                let fourth = third + offset;
+
+                                // twiddle factor arithmetic for upper side
+                                let a_tw_idx = tw_offset * 2 * p;
+                                let second_tw = input[second] * self.twiddles[a_tw_idx];
+                                let fourth_tw = input[fourth] * self.twiddles[a_tw_idx];
+
+                                // upper side butterfly arithmetic
+                                let a = input[first] + second_tw;
+                                let b = input[first] - second_tw;
+                                let c = input[third] + fourth_tw;
+                                let d = input[third] - fourth_tw;
+
+                                // twiddle factor arithmetic for bottom side
+                                let b_tw1_idx = a_tw_idx / 2;
+                                let b_tw2_idx = b_tw1_idx + self.half / 2;
+                                let c_tw = c * self.twiddles[b_tw1_idx];
+                                let d_tw = d * self.twiddles[b_tw2_idx];
+
+                                // bottom side butterfly arithmetic
+                                input[first] = a + c_tw;
+                                input[second] = b + d_tw;
+                                input[third] = a - c_tw;
+                                input[fourth] = b - d_tw;
+                            }
+                        });
+                    }
+                });
+                elements *= 4;
+            }
+        }
+    }
+}
 
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
@@ -65,15 +295,15 @@ pub struct FFTCache<F: FieldExt> {
 
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
-pub struct FFTChunk<F: FieldExt> {
+pub struct FFTHelper<F: FieldExt> {
     /// fft data
     pub fft_data: FFTCache<F>,
     /// extended fft data
     pub ext_fft_data: FFTCache<F>,
 }
 
-impl<F: FieldExt> FFTChunk<F> {
-    /// `FFTChunk` init
+impl<F: FieldExt> FFTHelper<F> {
+    /// `FFTHelper` init
     pub fn new(k: usize, ext_k: usize, omega: F, ext_omega: F) -> Self {
         fn bitreverse(mut n: usize, l: usize) -> usize {
             let mut r = 0;
@@ -796,16 +1026,7 @@ fn test_fft() {
     use pairing::bn256::Fr;
     use rand_core::OsRng;
 
-    fn bitreverse(mut n: u32, l: u32) -> u32 {
-        let mut r = 0;
-        for _ in 0..l {
-            r = (r << 1) | (n & 1);
-            n >>= 1;
-        }
-        r
-    }
-
-    for k in 1..14 {
+    for k in 1..20 {
         let rng = OsRng;
         // polynomial degree n = 2^k
         let n = 1u64 << k;
@@ -815,7 +1036,7 @@ fn test_fft() {
         let domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
         // fft cache
         let (k, ext_k) = domain.get_degree();
-        let fft_cash = FFTChunk::new(
+        let fft_cash = FFTHelper::new(
             k as usize,
             ext_k as usize,
             domain.get_omega(),
@@ -825,7 +1046,6 @@ fn test_fft() {
         let mut prev_fft_coeffs = coeffs.clone();
         let mut best_fft_coeffs = coeffs.clone();
         let mut optimized_fft_coeffs = coeffs.clone();
-        let mut test_fft_coeffs = coeffs.clone();
 
         let message = format!("prev_fft degree {}", k);
         let start = start_timer!(|| message);
@@ -847,20 +1067,14 @@ fn test_fft() {
             .fft_data
             .bit_reverse
             .sort_bit_reverse(&mut optimized_fft_coeffs);
-        end_timer!(start);
-
-        let message = format!("test_fft_coeffs degree {}", k);
-        let start = start_timer!(|| message);
-        for i in 0..n as u32 {
-            let ri = bitreverse(i as u32, k);
-            if i < ri {
-                test_fft_coeffs.swap(ri as usize, i as usize);
-            }
-        }
+        fft_cash
+            .fft_data
+            .butterfly
+            .butterfly_arithmetic(&mut optimized_fft_coeffs, n as usize);
         end_timer!(start);
 
         assert_eq!(prev_fft_coeffs, best_fft_coeffs);
-        assert_eq!(optimized_fft_coeffs, test_fft_coeffs);
+        assert_eq!(optimized_fft_coeffs, best_fft_coeffs);
     }
 }
 

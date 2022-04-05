@@ -17,7 +17,7 @@ use crate::poly::{
     self,
     commitment::{Blind, Params},
     multiopen::{self, ProverQuery},
-    Coeff, ExtendedLagrangeCoeff, FFTChunk, LagrangeCoeff, Polynomial,
+    Coeff, ExtendedLagrangeCoeff, FFTHelper, LagrangeCoeff, Polynomial,
 };
 use crate::{
     arithmetic::{eval_polynomial, BaseExt, CurveAffine, FieldExt},
@@ -70,7 +70,7 @@ pub fn create_proof<
 
     // fft cache data init
     let (k, extended_k) = domain.get_degree();
-    let fft_cache = FFTChunk::new(
+    let fft_cache = FFTHelper::new(
         k as usize,
         extended_k as usize,
         domain.get_omega(),
