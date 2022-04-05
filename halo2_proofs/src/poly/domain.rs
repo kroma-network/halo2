@@ -110,7 +110,7 @@ impl<F: FieldExt> FFTButterlyCache<F> {
                 _ => {}
             }
         } else {
-            let mut elements = 32;
+            let mut elements = if self.is_odd { 16 } else { 32 };
 
             // twiddles factor 16th root of unity
             let tw_offset = self.half / 8;
@@ -189,52 +189,50 @@ impl<F: FieldExt> FFTButterlyCache<F> {
                 let l_c = g_c - h_w_2;
                 let l_d = g_d - h_w_3;
 
-                // forth layer butterfly airthmetic
-                let k_w_1 = k_b * tw_1;
-                let k_w_2 = k_c * tw_2;
-                let k_w_3 = k_d * tw_3;
-                let k_w_4 = l_a * tw_4;
-                let k_w_5 = l_b * tw_5;
-                let k_w_6 = l_c * tw_6;
-                let k_w_7 = l_d * tw_7;
+                if self.is_odd {
+                    a[0] = i_a;
+                    a[1] = i_b;
+                    a[2] = i_c;
+                    a[3] = i_d;
+                    a[4] = j_a;
+                    a[5] = j_b;
+                    a[6] = j_c;
+                    a[7] = j_d;
+                    a[8] = k_a;
+                    a[9] = k_b;
+                    a[10] = k_c;
+                    a[11] = k_d;
+                    a[12] = l_a;
+                    a[13] = l_b;
+                    a[14] = l_c;
+                    a[15] = l_d;
+                } else {
+                    // forth layer butterfly airthmetic
+                    let k_w_1 = k_b * tw_1;
+                    let k_w_2 = k_c * tw_2;
+                    let k_w_3 = k_d * tw_3;
+                    let k_w_4 = l_a * tw_4;
+                    let k_w_5 = l_b * tw_5;
+                    let k_w_6 = l_c * tw_6;
+                    let k_w_7 = l_d * tw_7;
 
-                a[0] = i_a + k_a;
-                a[1] = i_b + k_w_1;
-                a[2] = i_c + k_w_2;
-                a[3] = i_d + k_w_3;
-                a[4] = j_a + k_w_4;
-                a[5] = j_b + k_w_5;
-                a[6] = j_c + k_w_6;
-                a[7] = j_d + k_w_7;
-                a[8] = i_a - k_a;
-                a[9] = i_b - k_w_1;
-                a[10] = i_c - k_w_2;
-                a[11] = i_d - k_w_3;
-                a[12] = j_a - k_w_4;
-                a[13] = j_b - k_w_5;
-                a[14] = j_c - k_w_6;
-                a[15] = j_d - k_w_7;
-            }
-
-            // two radix butterfly arithmetic
-            if self.is_odd {
-                let chunk = self.half * 2 / elements;
-                let offset = elements / 2;
-                multicore::scope(|scope| {
-                    for input in a.chunks_mut(elements) {
-                        scope.spawn(move |_| {
-                            for p in 0..offset {
-                                let first = p;
-                                let second = first + offset;
-                                let second_tw = input[second] * self.twiddles[chunk * p];
-                                input[second] = input[first];
-                                input[first] += second_tw;
-                                input[second] -= second_tw;
-                            }
-                        });
-                    }
-                });
-                elements *= 2;
+                    a[0] = i_a + k_a;
+                    a[1] = i_b + k_w_1;
+                    a[2] = i_c + k_w_2;
+                    a[3] = i_d + k_w_3;
+                    a[4] = j_a + k_w_4;
+                    a[5] = j_b + k_w_5;
+                    a[6] = j_c + k_w_6;
+                    a[7] = j_d + k_w_7;
+                    a[8] = i_a - k_a;
+                    a[9] = i_b - k_w_1;
+                    a[10] = i_c - k_w_2;
+                    a[11] = i_d - k_w_3;
+                    a[12] = j_a - k_w_4;
+                    a[13] = j_b - k_w_5;
+                    a[14] = j_c - k_w_6;
+                    a[15] = j_d - k_w_7;
+                }
             }
 
             // four radix butterfly arithmetic
@@ -314,15 +312,21 @@ impl<F: FieldExt> FFTHelper<F> {
             r
         }
 
-        fn get_fft_helper(k: usize) -> (usize, usize, usize, bool) {
+        fn get_fft_helper(k: usize) -> (usize, usize, bool, usize, bool) {
             let n = 1 << k;
             let half = n / 2;
             let (offset, is_low) = if k < 4 { (0, true) } else { (k - 4, false) };
-            (n, half, offset, is_low)
+            let is_odd = k % 2 == 1;
+            let layer = if offset == 0 {
+                0
+            } else {
+                offset / 2 + if is_odd { 1 } else { 0 }
+            };
+            (n, half, is_low, layer, is_odd)
         }
 
-        let (n, half, offset, is_low) = get_fft_helper(k);
-        let (ext_n, ext_half, ext_offset, ext_is_low) = get_fft_helper(ext_k);
+        let (n, half, is_low, layer, is_odd) = get_fft_helper(k);
+        let (ext_n, ext_half, ext_is_low, ext_layer, ext_is_odd) = get_fft_helper(ext_k);
 
         // calculate twiddles factor
         let mut w = F::one();
@@ -385,9 +389,9 @@ impl<F: FieldExt> FFTHelper<F> {
                 },
                 butterfly: FFTButterlyCache {
                     half,
-                    layer: offset / 2,
+                    layer,
                     twiddles,
-                    is_odd: k % 2 == 1,
+                    is_odd,
                     is_low,
                 },
             },
@@ -398,9 +402,9 @@ impl<F: FieldExt> FFTHelper<F> {
                 },
                 butterfly: FFTButterlyCache {
                     half: ext_half,
-                    layer: ext_offset / 2,
+                    layer: ext_layer,
                     twiddles: ext_twiddles,
-                    is_odd: ext_k % 2 == 1,
+                    is_odd: ext_is_odd,
                     is_low: ext_is_low,
                 },
             },
