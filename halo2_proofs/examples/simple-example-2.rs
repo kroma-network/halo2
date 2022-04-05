@@ -1,3 +1,4 @@
+use ark_std::{end_timer, start_timer};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Cell, Layouter, SimpleFloorPlanner},
@@ -7,7 +8,6 @@ use halo2_proofs::{
 };
 use pairing::bn256::{Bn256, Fr as Fp, G1Affine};
 use rand_core::OsRng;
-
 use std::marker::PhantomData;
 
 #[derive(Clone)]
@@ -239,13 +239,16 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
 }
 
 fn main() {
-    let k = 8;
+    let k = 14;
     let public_inputs_size = 0;
 
     let empty_circuit: MyCircuit<Fp> = MyCircuit { a: None, k };
 
+    let message = format!("trusted_setup");
+    let start = start_timer!(|| message);
     // Initialize the polynomial commitment parameters
     let params: Params<G1Affine> = Params::<G1Affine>::unsafe_setup::<Bn256>(k);
+    end_timer!(start);
     let params_verifier: ParamsVerifier<Bn256> = params.verifier(public_inputs_size).unwrap();
 
     // Initialize the proving key
@@ -260,25 +263,26 @@ fn main() {
     // Create a proof
     let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
 
-    use std::time::Instant;
-    let _dur = Instant::now();
-
+    let message = format!("create_proof");
+    let start = start_timer!(|| message);
     create_proof(&params, &pk, &[circuit], &[&[]], OsRng, &mut transcript)
         .expect("proof generation should not fail");
-
-    println!("proving period: {:?}", _dur.elapsed());
+    end_timer!(start);
 
     let proof = transcript.finalize();
 
     let strategy = SingleVerifier::new(&params_verifier);
     let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
 
-    verify_proof(
+    let message = format!("verify_proof");
+    let start = start_timer!(|| message);
+    assert!(verify_proof(
         &params_verifier,
         pk.get_vk(),
         strategy,
         &[&[]],
         &mut transcript,
     )
-    .unwrap();
+    .is_ok());
+    end_timer!(start);
 }

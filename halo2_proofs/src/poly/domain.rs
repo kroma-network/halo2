@@ -15,6 +15,170 @@ use std::{marker::PhantomData, os::unix::prelude::FileExt};
 
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
+pub struct FFTBitReverseCache {
+    /// indexes for bit reverse
+    pub a_indexes: Vec<usize>,
+    /// indexes for bit reverse
+    pub b_indexes: Vec<usize>,
+}
+
+impl FFTBitReverseCache {
+    /// bit reverse method
+    pub fn sort_bit_reverse<F: FieldExt>(&self, a: &mut [F]) {
+        for (f, s) in self.a_indexes.iter().zip(self.b_indexes.iter()) {
+            a.swap(*f, *s);
+        }
+    }
+}
+
+/// This structure hold the twiddles and radix for each layer
+#[derive(Debug)]
+pub struct FFTButterlyCache<F: FieldExt> {
+    /// n half
+    pub half: usize,
+    /// stages
+    pub layer: usize,
+    /// twiddles
+    pub twiddles: Vec<F>,
+    /// odd k flag
+    pub is_odd: bool,
+    /// low degree flag
+    pub is_low: bool,
+}
+
+// impl<F: FieldExt> FFTButterlyCache<F> {
+//     pub fn fft(a: &mut [F]) {}
+// }
+
+/// This structure hold the twiddles and radix for each layer
+#[derive(Debug)]
+pub struct FFTCache<F: FieldExt> {
+    /// n half
+    pub bit_reverse: FFTBitReverseCache,
+    /// stages
+    pub butterfly: FFTButterlyCache<F>,
+}
+
+/// This structure hold the twiddles and radix for each layer
+#[derive(Debug)]
+pub struct FFTChunk<F: FieldExt> {
+    /// fft data
+    pub fft_data: FFTCache<F>,
+    /// extended fft data
+    pub ext_fft_data: FFTCache<F>,
+}
+
+impl<F: FieldExt> FFTChunk<F> {
+    /// `FFTChunk` init
+    pub fn new(k: usize, ext_k: usize, omega: F, ext_omega: F) -> Self {
+        let n = 1 << k;
+        let ext_n = 1 << ext_k;
+        let half = n / 2;
+        let (offset, is_low) = if k < 4 { (0, true) } else { (k - 4, false) };
+        let (ext_offset, ext_is_low) = if ext_k < 4 {
+            (0, true)
+        } else {
+            (ext_k - 4, false)
+        };
+        let ext_half = ext_n / 2;
+
+        fn bitreverse(mut n: usize, l: usize) -> usize {
+            let mut r = 0;
+            for _ in 0..l {
+                r = (r << 1) | (n & 1);
+                n >>= 1;
+            }
+            r
+        }
+
+        // calculate twiddles factor
+        let mut w = F::one();
+        let mut e_w = F::one();
+        let mut twiddles = vec![F::one(); half];
+        let mut ext_twiddles = vec![F::one(); ext_half];
+
+        // mutable reference for multicore
+        let stash = &mut twiddles;
+        let e_stash = &mut ext_twiddles;
+
+        // init bit reverse indexes
+        let mut a_indexes = Vec::with_capacity(half / 2);
+        let mut b_indexes = Vec::with_capacity(half / 2);
+        let mut ext_a_indexes = Vec::with_capacity(ext_half / 2);
+        let mut ext_b_indexes = Vec::with_capacity(ext_half / 2);
+
+        // mutable reference for multicore
+        let tmp_a_idx = &mut a_indexes;
+        let tmp_b_idx = &mut b_indexes;
+        let tmp_ext_a_idx = &mut ext_a_indexes;
+        let tmp_ext_b_idx = &mut ext_b_indexes;
+
+        multicore::scope(|scope| {
+            scope.spawn(move |_| {
+                for i in 0..n {
+                    let ri = bitreverse(i, k);
+                    if i < ri {
+                        tmp_a_idx.push(ri);
+                        tmp_b_idx.push(i);
+                    }
+                }
+            });
+            scope.spawn(move |_| {
+                for i in 0..ext_n {
+                    let ri = bitreverse(i, k);
+                    if i < ri {
+                        tmp_ext_a_idx.push(ri);
+                        tmp_ext_b_idx.push(i);
+                    }
+                }
+            });
+            scope.spawn(move |_| {
+                for tw in stash.iter_mut() {
+                    *tw = w;
+                    w *= omega;
+                }
+            });
+            scope.spawn(move |_| {
+                for tw in e_stash.iter_mut() {
+                    *tw = e_w;
+                    e_w *= ext_omega;
+                }
+            });
+        });
+
+        Self {
+            fft_data: FFTCache {
+                bit_reverse: FFTBitReverseCache {
+                    a_indexes,
+                    b_indexes,
+                },
+                butterfly: FFTButterlyCache {
+                    half,
+                    layer: offset / 2,
+                    twiddles,
+                    is_odd: k % 2 == 1,
+                    is_low,
+                },
+            },
+            ext_fft_data: FFTCache {
+                bit_reverse: FFTBitReverseCache {
+                    a_indexes: ext_a_indexes,
+                    b_indexes: ext_b_indexes,
+                },
+                butterfly: FFTButterlyCache {
+                    half: ext_half,
+                    layer: ext_offset / 2,
+                    twiddles: ext_twiddles,
+                    is_odd: ext_k % 2 == 1,
+                    is_low: ext_is_low,
+                },
+            },
+        }
+    }
+}
+
+/// This structure hold the twiddles and radix for each layer
+#[derive(Debug)]
 pub struct FFTData<F: FieldExt> {
     /// n half
     pub half: usize,
@@ -146,6 +310,7 @@ pub struct EvaluationDomain<F: FieldExt> {
     omega: F,
     omega_inv: F,
     extended_omega: F,
+    extended_omega_inv: F,
     g_coset: F,
     g_coset_inv: F,
     quotient_poly_degree: u64,
@@ -253,6 +418,7 @@ impl<F: FieldExt> EvaluationDomain<F> {
             omega,
             omega_inv,
             extended_omega,
+            extended_omega_inv,
             g_coset,
             g_coset_inv,
             quotient_poly_degree,
@@ -502,6 +668,11 @@ impl<F: FieldExt> EvaluationDomain<F> {
         1 << self.extended_k
     }
 
+    /// Get degree
+    pub fn get_degree(&self) -> (u32, u32) {
+        (self.k, self.extended_k)
+    }
+
     /// Get $\omega$, the generator of the $2^k$ order multiplicative subgroup.
     pub fn get_omega(&self) -> F {
         self.omega
@@ -516,6 +687,11 @@ impl<F: FieldExt> EvaluationDomain<F> {
     /// Get the generator of the extended domain's multiplicative subgroup.
     pub fn get_extended_omega(&self) -> F {
         self.extended_omega
+    }
+
+    /// Get the generator of the extended domain's multiplicative subgroup.
+    pub fn get_extended_omega_inv(&self) -> F {
+        self.extended_omega_inv
     }
 
     /// Multiplies a value by some power of $\omega$, essentially rotating over
