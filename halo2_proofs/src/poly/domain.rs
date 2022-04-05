@@ -25,9 +25,13 @@ pub struct FFTBitReverseCache {
 impl FFTBitReverseCache {
     /// bit reverse method
     pub fn sort_bit_reverse<F: FieldExt>(&self, a: &mut [F]) {
-        for (f, s) in self.a_indexes.iter().zip(self.b_indexes.iter()) {
-            a.swap(*f, *s);
-        }
+        multicore::scope(|s| {
+            s.spawn(move |_| {
+                for (f, s) in self.a_indexes.iter().zip(self.b_indexes.iter()) {
+                    a.swap(*f, *s);
+                }
+            })
+        })
     }
 }
 
@@ -71,17 +75,6 @@ pub struct FFTChunk<F: FieldExt> {
 impl<F: FieldExt> FFTChunk<F> {
     /// `FFTChunk` init
     pub fn new(k: usize, ext_k: usize, omega: F, ext_omega: F) -> Self {
-        let n = 1 << k;
-        let ext_n = 1 << ext_k;
-        let half = n / 2;
-        let (offset, is_low) = if k < 4 { (0, true) } else { (k - 4, false) };
-        let (ext_offset, ext_is_low) = if ext_k < 4 {
-            (0, true)
-        } else {
-            (ext_k - 4, false)
-        };
-        let ext_half = ext_n / 2;
-
         fn bitreverse(mut n: usize, l: usize) -> usize {
             let mut r = 0;
             for _ in 0..l {
@@ -91,15 +84,21 @@ impl<F: FieldExt> FFTChunk<F> {
             r
         }
 
+        fn get_fft_helper(k: usize) -> (usize, usize, usize, bool) {
+            let n = 1 << k;
+            let half = n / 2;
+            let (offset, is_low) = if k < 4 { (0, true) } else { (k - 4, false) };
+            (n, half, offset, is_low)
+        }
+
+        let (n, half, offset, is_low) = get_fft_helper(k);
+        let (ext_n, ext_half, ext_offset, ext_is_low) = get_fft_helper(ext_k);
+
         // calculate twiddles factor
         let mut w = F::one();
         let mut e_w = F::one();
         let mut twiddles = vec![F::one(); half];
         let mut ext_twiddles = vec![F::one(); ext_half];
-
-        // mutable reference for multicore
-        let stash = &mut twiddles;
-        let e_stash = &mut ext_twiddles;
 
         // init bit reverse indexes
         let mut a_indexes = Vec::with_capacity(half / 2);
@@ -108,6 +107,8 @@ impl<F: FieldExt> FFTChunk<F> {
         let mut ext_b_indexes = Vec::with_capacity(ext_half / 2);
 
         // mutable reference for multicore
+        let stash = &mut twiddles;
+        let e_stash = &mut ext_twiddles;
         let tmp_a_idx = &mut a_indexes;
         let tmp_b_idx = &mut b_indexes;
         let tmp_ext_a_idx = &mut ext_a_indexes;
@@ -790,12 +791,21 @@ pub struct PinnedEvaluationDomain<'a, F: Field> {
 
 #[test]
 fn test_fft() {
-    use crate::poly::{commitment::prev_fft, EvaluationDomain};
+    use crate::poly::{commitment::prev_fft, EvaluationDomain, FFTCache};
     use ark_std::{end_timer, start_timer};
     use pairing::bn256::Fr;
     use rand_core::OsRng;
 
-    for k in 1..13 {
+    fn bitreverse(mut n: u32, l: u32) -> u32 {
+        let mut r = 0;
+        for _ in 0..l {
+            r = (r << 1) | (n & 1);
+            n >>= 1;
+        }
+        r
+    }
+
+    for k in 1..14 {
         let rng = OsRng;
         // polynomial degree n = 2^k
         let n = 1u64 << k;
@@ -803,9 +813,19 @@ fn test_fft() {
         let coeffs: Vec<_> = (0..n).map(|_| Fr::random(rng)).collect();
         // evaluation domain
         let domain: EvaluationDomain<Fr> = EvaluationDomain::new(1, k);
+        // fft cache
+        let (k, ext_k) = domain.get_degree();
+        let fft_cash = FFTChunk::new(
+            k as usize,
+            ext_k as usize,
+            domain.get_omega(),
+            domain.get_omega_inv(),
+        );
 
         let mut prev_fft_coeffs = coeffs.clone();
         let mut best_fft_coeffs = coeffs.clone();
+        let mut optimized_fft_coeffs = coeffs.clone();
+        let mut test_fft_coeffs = coeffs.clone();
 
         let message = format!("prev_fft degree {}", k);
         let start = start_timer!(|| message);
@@ -821,7 +841,26 @@ fn test_fft() {
         );
         end_timer!(start);
 
-        assert_eq!(prev_fft_coeffs, best_fft_coeffs)
+        let message = format!("optimized_fft_coeffs degree {}", k);
+        let start = start_timer!(|| message);
+        fft_cash
+            .fft_data
+            .bit_reverse
+            .sort_bit_reverse(&mut optimized_fft_coeffs);
+        end_timer!(start);
+
+        let message = format!("test_fft_coeffs degree {}", k);
+        let start = start_timer!(|| message);
+        for i in 0..n as u32 {
+            let ri = bitreverse(i as u32, k);
+            if i < ri {
+                test_fft_coeffs.swap(ri as usize, i as usize);
+            }
+        }
+        end_timer!(start);
+
+        assert_eq!(prev_fft_coeffs, best_fft_coeffs);
+        assert_eq!(optimized_fft_coeffs, test_fft_coeffs);
     }
 }
 
