@@ -13,6 +13,8 @@ use group::ff::{BatchInvert, Field, PrimeField};
 
 use std::{marker::PhantomData, os::unix::prelude::FileExt};
 
+use rayon::prelude::*;
+
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
 pub struct FFTBitReverseCache {
@@ -122,7 +124,7 @@ impl<F: FieldExt> FFTButterlyCache<F> {
             let tw_6 = self.twiddles[tw_offset * 6];
             let tw_7 = self.twiddles[tw_offset * 7];
 
-            for a in a.chunks_mut(16) {
+            a.par_chunks_mut(16).for_each(|a| {
                 // first layer butterfly arithmetic
                 let a_a = a[0] + a[1];
                 let a_b = a[0] - a[1];
@@ -233,7 +235,7 @@ impl<F: FieldExt> FFTButterlyCache<F> {
                     a[14] = j_c - k_w_6;
                     a[15] = j_d - k_w_7;
                 }
-            }
+            });
 
             // four radix butterfly arithmetic
             for _ in 0..self.layer {
