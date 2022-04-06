@@ -19,6 +19,8 @@ use rayon::prelude::*;
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
 pub struct FFTButterlyCache<F: FieldExt> {
+    /// degree
+    pub n: usize,
     /// n half
     pub half: usize,
     /// stages
@@ -33,16 +35,16 @@ pub struct FFTButterlyCache<F: FieldExt> {
 
 impl<F: FieldExt> FFTButterlyCache<F> {
     /// fft
-    pub fn butterfly_arithmetic(&self, a: &mut [F], n: usize) {
+    pub fn butterfly_arithmetic(&self, a: &mut [F]) {
         if self.is_low {
-            for i in 0..n / 2 {
+            for i in 0..self.half {
                 let t = a[2 * i + 1];
                 a[2 * i + 1] = a[2 * i];
                 a[2 * i] += t;
                 a[2 * i + 1] -= t;
             }
 
-            match n {
+            match self.n {
                 4 => {
                     let tw = a[2];
                     a[2] = a[0];
@@ -324,6 +326,7 @@ impl<F: FieldExt> FFTHelper<F> {
 
         Self {
             fft_data: FFTButterlyCache {
+                n,
                 half,
                 layer,
                 twiddles,
@@ -331,6 +334,7 @@ impl<F: FieldExt> FFTHelper<F> {
                 is_low,
             },
             ext_fft_data: FFTButterlyCache {
+                n: ext_n,
                 half: ext_half,
                 layer: ext_layer,
                 twiddles: ext_twiddles,
@@ -478,7 +482,8 @@ pub struct EvaluationDomain<F: FieldExt> {
     g_coset: F,
     g_coset_inv: F,
     quotient_poly_degree: u64,
-    ifft_divisor: F,
+    /// inv divisor
+    pub ifft_divisor: F,
     extended_ifft_divisor: F,
     t_evaluations: Vec<F>,
     barycentric_weight: F,
@@ -1036,7 +1041,7 @@ fn test_fft() {
             .for_each(|(a, b)| optimized_fft_coeffs.swap(*a, *b));
         fft_cash
             .fft_data
-            .butterfly_arithmetic(&mut optimized_fft_coeffs, n as usize);
+            .butterfly_arithmetic(&mut optimized_fft_coeffs);
         end_timer!(start);
 
         assert_eq!(prev_fft_coeffs, best_fft_coeffs);

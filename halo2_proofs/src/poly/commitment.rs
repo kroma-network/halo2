@@ -492,10 +492,21 @@ fn test_parameter_serialization() {
 
 #[test]
 fn test_commit_lagrange() {
-    const K: u32 = 6;
+    use crate::poly::{bit_reversed_indexes, FFTHelper};
+    use ark_std::{end_timer, start_timer};
+    use rayon::prelude::*;
+
+    const K: u32 = 12;
 
     let params: Params<G1Affine> = Params::<G1Affine>::unsafe_setup::<Bn256>(K);
     let domain = super::EvaluationDomain::new(1, K);
+    let (indexes, _) = bit_reversed_indexes(K as usize, K as usize);
+    let fft_cash = FFTHelper::new(
+        K as usize,
+        K as usize,
+        domain.get_extended_omega_inv(),
+        domain.get_extended_omega_inv(),
+    );
 
     let mut a = domain.empty_lagrange();
 
@@ -503,6 +514,19 @@ fn test_commit_lagrange() {
         *a = Fr::from(i as u64);
     }
 
+    let mut opt_a = a.clone();
+    let message = format!("normal commit lagrange {}", K);
+    let start = start_timer!(|| message);
     let b = domain.lagrange_to_coeff(a.clone());
+    end_timer!(start);
+
+    let message = format!("optimized commit lagrange {}", K);
+    let start = start_timer!(|| message);
+    indexes.iter().for_each(|(a, b)| opt_a.swap(*a, *b));
+    fft_cash.fft_data.butterfly_arithmetic(&mut opt_a);
+    opt_a.par_iter_mut().for_each(|a| *a *= domain.ifft_divisor);
+    end_timer!(start);
+
     assert_eq!(params.commit(&b), params.commit_lagrange(&a));
+    assert_eq!(b.values, opt_a.values);
 }
