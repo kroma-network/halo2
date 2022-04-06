@@ -10,32 +10,11 @@ use crate::{
 use super::{Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation};
 
 use group::ff::{BatchInvert, Field, PrimeField};
+use rand::seq::index;
 
 use std::{marker::PhantomData, os::unix::prelude::FileExt};
 
 use rayon::prelude::*;
-
-/// This structure hold the twiddles and radix for each layer
-#[derive(Debug)]
-pub struct FFTBitReverseCache {
-    /// indexes for bit reverse
-    pub a_indexes: Vec<usize>,
-    /// indexes for bit reverse
-    pub b_indexes: Vec<usize>,
-}
-
-impl FFTBitReverseCache {
-    /// bit reverse method
-    pub fn sort_bit_reverse<F: FieldExt>(&self, a: &mut [F]) {
-        multicore::scope(|s| {
-            s.spawn(move |_| {
-                for (f, s) in self.a_indexes.iter().zip(self.b_indexes.iter()) {
-                    a.swap(*f, *s);
-                }
-            })
-        })
-    }
-}
 
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
@@ -292,34 +271,16 @@ impl<F: FieldExt> FFTButterlyCache<F> {
 
 /// This structure hold the twiddles and radix for each layer
 #[derive(Debug)]
-pub struct FFTCache<F: FieldExt> {
-    /// n half
-    pub bit_reverse: FFTBitReverseCache,
-    /// stages
-    pub butterfly: FFTButterlyCache<F>,
-}
-
-/// This structure hold the twiddles and radix for each layer
-#[derive(Debug)]
 pub struct FFTHelper<F: FieldExt> {
     /// fft data
-    pub fft_data: FFTCache<F>,
+    pub fft_data: FFTButterlyCache<F>,
     /// extended fft data
-    pub ext_fft_data: FFTCache<F>,
+    pub ext_fft_data: FFTButterlyCache<F>,
 }
 
 impl<F: FieldExt> FFTHelper<F> {
     /// `FFTHelper` init
     pub fn new(k: usize, ext_k: usize, omega: F, ext_omega: F) -> Self {
-        fn bitreverse(mut n: usize, l: usize) -> usize {
-            let mut r = 0;
-            for _ in 0..l {
-                r = (r << 1) | (n & 1);
-                n >>= 1;
-            }
-            r
-        }
-
         fn get_fft_helper(k: usize) -> (usize, usize, bool, usize, bool) {
             let n = 1 << k;
             let half = n / 2;
@@ -342,39 +303,11 @@ impl<F: FieldExt> FFTHelper<F> {
         let mut twiddles = vec![F::one(); half];
         let mut ext_twiddles = vec![F::one(); ext_half];
 
-        // init bit reverse indexes
-        let mut a_indexes = Vec::with_capacity(half / 2);
-        let mut b_indexes = Vec::with_capacity(half / 2);
-        let mut ext_a_indexes = Vec::with_capacity(ext_half / 2);
-        let mut ext_b_indexes = Vec::with_capacity(ext_half / 2);
-
         // mutable reference for multicore
         let stash = &mut twiddles;
         let e_stash = &mut ext_twiddles;
-        let tmp_a_idx = &mut a_indexes;
-        let tmp_b_idx = &mut b_indexes;
-        let tmp_ext_a_idx = &mut ext_a_indexes;
-        let tmp_ext_b_idx = &mut ext_b_indexes;
 
         multicore::scope(|scope| {
-            scope.spawn(move |_| {
-                for i in 0..n {
-                    let ri = bitreverse(i, k);
-                    if i < ri {
-                        tmp_a_idx.push(ri);
-                        tmp_b_idx.push(i);
-                    }
-                }
-            });
-            scope.spawn(move |_| {
-                for i in 0..ext_n {
-                    let ri = bitreverse(i, k);
-                    if i < ri {
-                        tmp_ext_a_idx.push(ri);
-                        tmp_ext_b_idx.push(i);
-                    }
-                }
-            });
             scope.spawn(move |_| {
                 for tw in stash.iter_mut() {
                     *tw = w;
@@ -390,31 +323,19 @@ impl<F: FieldExt> FFTHelper<F> {
         });
 
         Self {
-            fft_data: FFTCache {
-                bit_reverse: FFTBitReverseCache {
-                    a_indexes,
-                    b_indexes,
-                },
-                butterfly: FFTButterlyCache {
-                    half,
-                    layer,
-                    twiddles,
-                    is_odd,
-                    is_low,
-                },
+            fft_data: FFTButterlyCache {
+                half,
+                layer,
+                twiddles,
+                is_odd,
+                is_low,
             },
-            ext_fft_data: FFTCache {
-                bit_reverse: FFTBitReverseCache {
-                    a_indexes: ext_a_indexes,
-                    b_indexes: ext_b_indexes,
-                },
-                butterfly: FFTButterlyCache {
-                    half: ext_half,
-                    layer: ext_layer,
-                    twiddles: ext_twiddles,
-                    is_odd: ext_is_odd,
-                    is_low: ext_is_low,
-                },
+            ext_fft_data: FFTButterlyCache {
+                half: ext_half,
+                layer: ext_layer,
+                twiddles: ext_twiddles,
+                is_odd: ext_is_odd,
+                is_low: ext_is_low,
             },
         }
     }
@@ -1031,9 +952,43 @@ pub struct PinnedEvaluationDomain<'a, F: Field> {
     omega: &'a F,
 }
 
+/// Get bit reverse indexes
+pub fn bit_reversed_indexes(k: usize, ext_k: usize) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    let n = 1 << k;
+    let ext_n = 1 << ext_k;
+    let mut indexes = Vec::with_capacity(n / 2);
+    let mut ext_indexes = Vec::with_capacity(ext_n / 2);
+
+    for i in 0..n {
+        let ri = bit_reverse(i, k);
+        if i < ri {
+            indexes.push((ri, i));
+        }
+    }
+
+    for i in 0..ext_k {
+        let ri = bit_reverse(i, k);
+        if i < ri {
+            ext_indexes.push((ri, i));
+        }
+    }
+
+    (indexes, ext_indexes)
+}
+
+fn bit_reverse(mut i: usize, k: usize) -> usize {
+    let mut r = 0;
+    for _ in 0..k {
+        r = (r << 1) | (i & 1);
+        i >>= 1;
+    }
+    r
+}
+
 #[test]
 fn test_fft() {
-    use crate::poly::{commitment::prev_fft, EvaluationDomain, FFTCache};
+    use super::bit_reversed_indexes;
+    use crate::poly::{commitment::prev_fft, EvaluationDomain};
     use ark_std::{end_timer, start_timer};
     use pairing::bn256::Fr;
     use rand_core::OsRng;
@@ -1054,6 +1009,7 @@ fn test_fft() {
             domain.get_omega(),
             domain.get_omega_inv(),
         );
+        let (indexes, _) = bit_reversed_indexes(k as usize, ext_k as usize);
 
         let mut prev_fft_coeffs = coeffs.clone();
         let mut best_fft_coeffs = coeffs.clone();
@@ -1075,13 +1031,11 @@ fn test_fft() {
 
         let message = format!("optimized_fft_coeffs degree {}", k);
         let start = start_timer!(|| message);
+        indexes
+            .iter()
+            .for_each(|(a, b)| optimized_fft_coeffs.swap(*a, *b));
         fft_cash
             .fft_data
-            .bit_reverse
-            .sort_bit_reverse(&mut optimized_fft_coeffs);
-        fft_cash
-            .fft_data
-            .butterfly
             .butterfly_arithmetic(&mut optimized_fft_coeffs, n as usize);
         end_timer!(start);
 

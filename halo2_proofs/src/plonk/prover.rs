@@ -122,21 +122,21 @@ pub fn create_proof<
             let instance_polys: Vec<_> = instance_values
                 .par_iter()
                 .map(|poly| {
-                    let mut poly = poly.to_vec();
-                    for (f, s) in fft_cache
-                        .fft_data
-                        .bit_reverse
-                        .a_indexes
-                        .iter()
-                        .zip(fft_cache.fft_data.bit_reverse.b_indexes.iter())
-                    {
-                        poly.swap(*f, *s);
-                    }
-                    let lagrange_vec = domain.lagrange_from_vec(poly);
-                    fft_cache
-                        .fft_data
-                        .butterfly
-                        .butterfly_arithmetic(lagrange_vec, domain.n);
+                    // let mut poly = poly.to_vec();
+                    // for (f, s) in fft_cache
+                    //     .fft_data
+                    //     .bit_reverse
+                    //     .a_indexes
+                    //     .iter()
+                    //     .zip(fft_cache.fft_data.bit_reverse.b_indexes.iter())
+                    // {
+                    //     poly.swap(*f, *s);
+                    // }
+                    let lagrange_vec = domain.lagrange_from_vec(poly.to_vec());
+                    // fft_cache
+                    //     .fft_data
+                    //     .butterfly
+                    //     .butterfly_arithmetic(lagrange_vec, domain.n);
                     domain.lagrange_to_coeff(lagrange_vec)
                 })
                 .collect();
