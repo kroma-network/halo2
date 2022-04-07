@@ -3,7 +3,7 @@
 
 use crate::{
     arithmetic::{best_fft, parallelize, FieldExt, Group},
-    multicore,
+    multicore::{self, prelude::*},
     plonk::Assigned,
 };
 
@@ -559,6 +559,41 @@ impl<G: Group> EvaluationDomain<G> {
     }
 }
 
+/// recursive butterfly arithmetic
+pub fn recursive_butterfly_arithmetic<G: Group>(
+    a: &mut [G],
+    n: usize,
+    twiddle_chunk: usize,
+    twiddles: &Vec<G::Scalar>,
+) {
+    if n == 2 {
+        let t = a[1];
+        a[1] = a[0];
+        a[0].group_add(&t);
+        a[1].group_sub(&t);
+    } else {
+        let (left, right) = a.split_at_mut(n / 2);
+        rayon::join(
+            || recursive_butterfly_arithmetic(left, n / 2, twiddle_chunk * 2, &twiddles),
+            || recursive_butterfly_arithmetic(right, n / 2, twiddle_chunk * 2, &twiddles),
+        );
+
+        left.par_iter_mut()
+            .zip(right.par_iter_mut())
+            .enumerate()
+            .for_each(|(i, (a, b))| {
+                let mut t = *b;
+                if i != 0 {
+                    t.group_scale(&twiddles[i * twiddle_chunk]);
+                }
+                println!("i: {:?} twiddle_chunk: {:?}", i, twiddle_chunk);
+                *b = *a;
+                a.group_add(&t);
+                b.group_sub(&t);
+            });
+    }
+}
+
 /// Represents the minimal parameters that determine an `EvaluationDomain`.
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -589,21 +624,22 @@ fn test_fft() {
         let ((const_n, twiddles, chunks), _) = domain.butterfly_arithmetic_cache();
 
         let mut best_fft_coeffs = coeffs.clone();
-        let mut optimized_fft_coeffs = coeffs.clone();
+        let mut par_iter_fft_coeffs = coeffs.clone();
+        let mut recursive_fft_coeffs = coeffs.clone();
 
-        let message = format!("best degree {}", k);
+        let message = format!("best fft degree {}", k);
         let start = start_timer!(|| message);
         best_fft(&mut best_fft_coeffs, domain.get_omega(), k);
         end_timer!(start);
 
-        let message = format!("optimized_fft_coeffs degree {}", k);
+        let message = format!("par iter fft degree {}", k);
         let start = start_timer!(|| message);
         indexes
             .iter()
-            .for_each(|(a, b)| optimized_fft_coeffs.swap(*a, *b));
-        assert_eq!(const_n, optimized_fft_coeffs.len());
+            .for_each(|(a, b)| par_iter_fft_coeffs.swap(*a, *b));
+        assert_eq!(const_n, par_iter_fft_coeffs.len());
         chunks.iter().for_each(|(chunk, twiddle_chunk)| {
-            optimized_fft_coeffs
+            par_iter_fft_coeffs
                 .par_chunks_mut(*chunk)
                 .for_each(|coeffs| {
                     let (left, right) = coeffs.split_at_mut(chunk / 2);
@@ -623,7 +659,13 @@ fn test_fft() {
         });
         end_timer!(start);
 
-        assert_eq!(best_fft_coeffs, optimized_fft_coeffs);
+        let message = format!("recursive fft degree {}", k);
+        let start = start_timer!(|| message);
+        recursive_butterfly_arithmetic(&mut recursive_fft_coeffs, n as usize, 1, &twiddles);
+        end_timer!(start);
+
+        assert_eq!(best_fft_coeffs, par_iter_fft_coeffs);
+        assert_eq!(best_fft_coeffs, recursive_fft_coeffs);
     }
 }
 
