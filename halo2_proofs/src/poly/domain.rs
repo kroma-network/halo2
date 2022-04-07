@@ -14,8 +14,12 @@ use group::ff::{BatchInvert, Field, PrimeField};
 use std::marker::PhantomData;
 
 /// This structure contains precomputed constants and other details needed for
-/// performing operations on an butterfly arithmetic
+/// performing operations on a butterfly arithmetic
 pub type ButterflyCache<T> = (usize, Vec<T>, Vec<(usize, usize)>);
+
+/// This structure contains precomputed constants and other details needed for
+/// performing operations on a bit reverse
+pub type BitReversePair = Vec<(usize, usize)>;
 
 /// This structure contains precomputed constants and other details needed for
 /// performing operations on an evaluation domain of size $2^k$ and an extended
@@ -471,7 +475,7 @@ impl<G: Group> EvaluationDomain<G> {
     }
 
     /// Gets bit reversed indexes for `k` and `extended_k`
-    pub fn bit_reversed_indexes(&self) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    pub fn bit_reversed_indexes(&self) -> (BitReversePair, BitReversePair) {
         fn bit_reverse(mut i: usize, k: usize) -> usize {
             let mut r = 0;
             for _ in 0..k {
@@ -481,20 +485,20 @@ impl<G: Group> EvaluationDomain<G> {
             r
         }
 
-        let n = 1 << &self.k;
-        let extended_n = 1 << &self.extended_k;
+        let n = 1 << self.k;
+        let extended_n = 1 << self.extended_k;
         let mut indexes = Vec::with_capacity(n / 2);
         let mut ext_indexes = Vec::with_capacity(extended_n / 2);
 
         for i in 0..n {
-            let ri = bit_reverse(i, *&self.k as usize);
+            let ri = bit_reverse(i, self.k as usize);
             if i < ri {
                 indexes.push((ri, i));
             }
         }
 
         for i in 0..extended_n {
-            let ri = bit_reverse(i, *&self.extended_k as usize);
+            let ri = bit_reverse(i, self.extended_k as usize);
             if i < ri {
                 ext_indexes.push((ri, i));
             }
@@ -510,7 +514,7 @@ impl<G: Group> EvaluationDomain<G> {
         let extended_n = 1 << self.extended_k;
 
         // chunk for element and twiddle
-        let mut chunk = 2 as usize;
+        let mut chunk = 2_usize;
         let mut twiddle_chunk = (self.n / 2) as usize;
         let mut chunks = vec![(0, 0); self.k as usize];
 
@@ -560,11 +564,11 @@ impl<G: Group> EvaluationDomain<G> {
 }
 
 /// recursive butterfly arithmetic
-pub fn recursive_butterfly_arithmetic<G: Group + std::fmt::Debug>(
+pub fn recursive_butterfly_arithmetic<G: Group>(
     a: &mut [G],
     n: usize,
     twiddle_chunk: usize,
-    twiddles: &Vec<G::Scalar>,
+    twiddles: &[G::Scalar],
 ) {
     if n == 2 {
         let t = a[1];
@@ -574,8 +578,8 @@ pub fn recursive_butterfly_arithmetic<G: Group + std::fmt::Debug>(
     } else {
         let (left, right) = a.split_at_mut(n / 2);
         rayon::join(
-            || recursive_butterfly_arithmetic(left, n / 2, twiddle_chunk * 2, &twiddles),
-            || recursive_butterfly_arithmetic(right, n / 2, twiddle_chunk * 2, &twiddles),
+            || recursive_butterfly_arithmetic(left, n / 2, twiddle_chunk * 2, twiddles),
+            || recursive_butterfly_arithmetic(right, n / 2, twiddle_chunk * 2, twiddles),
         );
 
         left.par_iter_mut()
