@@ -3,6 +3,7 @@
 
 use crate::{
     arithmetic::{best_fft, parallelize, FieldExt, Group},
+    multicore,
     plonk::Assigned,
 };
 
@@ -11,6 +12,10 @@ use super::{Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation};
 use group::ff::{BatchInvert, Field, PrimeField};
 
 use std::marker::PhantomData;
+
+/// This structure contains precomputed constants and other details needed for
+/// performing operations on an butterfly arithmetic
+pub type ButterflyCache<T> = (usize, Vec<T>, Vec<(usize, usize)>);
 
 /// This structure contains precomputed constants and other details needed for
 /// performing operations on an evaluation domain of size $2^k$ and an extended
@@ -464,6 +469,94 @@ impl<G: Group> EvaluationDomain<G> {
             omega: &self.omega,
         }
     }
+
+    /// Gets bit reversed indexes for `k` and `extended_k`
+    pub fn bit_reversed_indexes(&self) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+        fn bit_reverse(mut i: usize, k: usize) -> usize {
+            let mut r = 0;
+            for _ in 0..k {
+                r = (r << 1) | (i & 1);
+                i >>= 1;
+            }
+            r
+        }
+
+        let n = 1 << &self.k;
+        let extended_n = 1 << &self.extended_k;
+        let mut indexes = Vec::with_capacity(n / 2);
+        let mut ext_indexes = Vec::with_capacity(extended_n / 2);
+
+        for i in 0..n {
+            let ri = bit_reverse(i, *&self.k as usize);
+            if i < ri {
+                indexes.push((ri, i));
+            }
+        }
+
+        for i in 0..extended_n {
+            let ri = bit_reverse(i, *&self.extended_k as usize);
+            if i < ri {
+                ext_indexes.push((ri, i));
+            }
+        }
+
+        (indexes, ext_indexes)
+    }
+
+    /// Gets twiddle factor and fft helper
+    pub fn butterfly_arithmetic_cache(
+        &self,
+    ) -> (ButterflyCache<G::Scalar>, ButterflyCache<G::Scalar>) {
+        let extended_n = 1 << self.extended_k;
+
+        // chunk for element and twiddle
+        let mut chunk = 2 as usize;
+        let mut twiddle_chunk = (self.n / 2) as usize;
+        let mut chunks = vec![(0, 0); self.k as usize];
+
+        chunks.iter_mut().for_each(|each_chunk| {
+            *each_chunk = (chunk, twiddle_chunk);
+            chunk *= 2;
+            twiddle_chunk /= 2;
+        });
+
+        let mut extended_chunks = chunks.clone();
+        for _ in 0..self.k - self.extended_k {
+            extended_chunks.push((chunk, twiddle_chunk));
+            chunk *= 2;
+            twiddle_chunk /= 2;
+        }
+
+        // calculate twiddles factor
+        let mut w = G::Scalar::one();
+        let mut e_w = G::Scalar::one();
+        let mut twiddles = vec![G::Scalar::one(); (self.n / 2) as usize];
+        let mut ext_twiddles = vec![G::Scalar::one(); extended_n / 2];
+
+        // mutable reference for multicore
+        let stash = &mut twiddles;
+        let e_stash = &mut ext_twiddles;
+
+        multicore::scope(|scope| {
+            scope.spawn(move |_| {
+                for tw in stash.iter_mut() {
+                    *tw = w;
+                    w.group_scale(&self.omega);
+                }
+            });
+            scope.spawn(move |_| {
+                for tw in e_stash.iter_mut() {
+                    *tw = e_w;
+                    e_w.group_scale(&self.extended_omega);
+                }
+            });
+        });
+
+        (
+            (self.n as usize, twiddles, chunks),
+            (extended_n, ext_twiddles, extended_chunks),
+        )
+    }
 }
 
 /// Represents the minimal parameters that determine an `EvaluationDomain`.
@@ -473,6 +566,65 @@ pub struct PinnedEvaluationDomain<'a, G: Group> {
     k: &'a u32,
     extended_k: &'a u32,
     omega: &'a G::Scalar,
+}
+
+#[test]
+fn test_fft() {
+    use ark_std::{end_timer, start_timer};
+    use pairing::bn256::Fr as Scalar;
+    use rand_core::OsRng;
+    use rayon::prelude::*;
+
+    for k in 1..20 {
+        let rng = OsRng;
+        // polynomial degree n = 2^k
+        let n = 1u64 << k;
+        // polynomial coeffs
+        let coeffs: Vec<_> = (0..n).map(|_| Scalar::random(rng)).collect();
+        // evaluation domain
+        let domain: EvaluationDomain<Scalar> = EvaluationDomain::new(1, k);
+        // bit reversed indexes
+        let (indexes, _) = domain.bit_reversed_indexes();
+        // butterfly airhtmetic cache
+        let ((const_n, twiddles, chunks), _) = domain.butterfly_arithmetic_cache();
+
+        let mut best_fft_coeffs = coeffs.clone();
+        let mut optimized_fft_coeffs = coeffs.clone();
+
+        let message = format!("best degree {}", k);
+        let start = start_timer!(|| message);
+        best_fft(&mut best_fft_coeffs, domain.get_omega(), k);
+        end_timer!(start);
+
+        let message = format!("optimized_fft_coeffs degree {}", k);
+        let start = start_timer!(|| message);
+        indexes
+            .iter()
+            .for_each(|(a, b)| optimized_fft_coeffs.swap(*a, *b));
+        assert_eq!(const_n, optimized_fft_coeffs.len());
+        chunks.iter().for_each(|(chunk, twiddle_chunk)| {
+            optimized_fft_coeffs
+                .par_chunks_mut(*chunk)
+                .for_each(|coeffs| {
+                    let (left, right) = coeffs.split_at_mut(chunk / 2);
+                    left.par_iter_mut()
+                        .zip(right.par_iter_mut())
+                        .enumerate()
+                        .for_each(|(i, (a, b))| {
+                            let mut t = *b;
+                            if i != 0 {
+                                t.group_scale(&twiddles[i * twiddle_chunk]);
+                            }
+                            *b = *a;
+                            a.group_add(&t);
+                            b.group_sub(&t);
+                        });
+                });
+        });
+        end_timer!(start);
+
+        assert_eq!(best_fft_coeffs, optimized_fft_coeffs);
+    }
 }
 
 #[test]
