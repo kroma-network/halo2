@@ -560,7 +560,7 @@ impl<G: Group> EvaluationDomain<G> {
 }
 
 /// recursive butterfly arithmetic
-pub fn recursive_butterfly_arithmetic<G: Group>(
+pub fn recursive_butterfly_arithmetic<G: Group + std::fmt::Debug>(
     a: &mut [G],
     n: usize,
     twiddle_chunk: usize,
@@ -586,7 +586,6 @@ pub fn recursive_butterfly_arithmetic<G: Group>(
                 if i != 0 {
                     t.group_scale(&twiddles[i * twiddle_chunk]);
                 }
-                println!("i: {:?} twiddle_chunk: {:?}", i, twiddle_chunk);
                 *b = *a;
                 a.group_add(&t);
                 b.group_sub(&t);
@@ -661,6 +660,9 @@ fn test_fft() {
 
         let message = format!("recursive fft degree {}", k);
         let start = start_timer!(|| message);
+        indexes
+            .iter()
+            .for_each(|(a, b)| recursive_fft_coeffs.swap(*a, *b));
         recursive_butterfly_arithmetic(&mut recursive_fft_coeffs, n as usize, 1, &twiddles);
         end_timer!(start);
 
