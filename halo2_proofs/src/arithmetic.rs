@@ -1,7 +1,7 @@
 //! This module provides common utilities, traits and structures for group,
 //! field and polynomial arithmetic.
 
-use super::multicore::{self, prelude::*};
+use super::multicore::{self, join, prelude::*};
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
@@ -259,15 +259,20 @@ pub fn eval_polynomial<F: Field>(poly: &[F], point: F) -> F {
 ///
 /// This function will panic if the two vectors are not the same size.
 pub fn compute_inner_product<F: Field>(a: &[F], b: &[F]) -> F {
-    // TODO: parallelize?
-    assert_eq!(a.len(), b.len());
-
-    let mut acc = F::zero();
-    for (a, b) in a.iter().zip(b.iter()) {
-        acc += (*a) * (*b);
+    fn recursive_sum<F: Field>(a: &[F]) -> F {
+        let n = a.len();
+        if n == 2 {
+            a[0] + a[1]
+        } else {
+            let (a, b) = a.split_at(n / 2);
+            let (a, b) = join(|| recursive_sum(a), || recursive_sum(b));
+            a + b
+        }
     }
+    assert_eq!(a.len(), b.len());
+    let (a, b) = join(|| recursive_sum(a), || recursive_sum(b));
 
-    acc
+    a + b
 }
 
 /// Divides polynomial `a` in `X` by `X - b` with
