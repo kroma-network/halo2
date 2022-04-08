@@ -1,7 +1,10 @@
 name: Stable lints
 
 # We only run these lints on trial-merges of PRs to reduce noise.
-on: pull_request
+on:
+  push:
+    branches:
+      - main
 
 jobs:
   clippy:

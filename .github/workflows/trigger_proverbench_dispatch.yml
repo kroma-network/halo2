@@ -1,7 +1,9 @@
 name: Prover Bench on halo2 PR
 on:
-  pull_request:
-    types: [labeled ,  ready_for_review]
+  push:
+    branches:
+      - main
+
 jobs:
   Prover-benches-via-repo-dispatch-from-halo2-fork:
     if: ${{ github.event.label.name == 'benchmarks' }}

@@ -1,8 +1,5 @@
 name: Benchmarks
-on:
-  push:
-    branches:
-      - main
+on: [push, pull_request]
 
 permissions:
   contents: write
@@ -18,7 +15,7 @@ jobs:
         with:
           override: false
       - name: Run benchmark
-        run: cargo bench -- --output-format bencher | tee output.txt
+        run: cargo bench plonk
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
