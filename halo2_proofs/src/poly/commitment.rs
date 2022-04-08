@@ -8,7 +8,7 @@ use crate::arithmetic::{
     best_fft, best_multiexp, parallelize, CurveAffine, CurveExt, Engine, FieldExt, Group,
 };
 use crate::helpers::CurveRead;
-
+use crate::multicore::prelude::*;
 use ff::{Field, PrimeField};
 use group::{prime::PrimeCurveAffine, Curve, Group as _, GroupEncoding};
 use rand_core::OsRng;
@@ -86,11 +86,9 @@ impl<C: CurveAffine> Params<C> {
         let mut g_lagrange_projective = g_projective;
         best_fft(&mut g_lagrange_projective, alpha_inv, k);
         let minv = E::Scalar::TWO_INV.pow_vartime(&[k as u64, 0, 0, 0]);
-        parallelize(&mut g_lagrange_projective, |g, _| {
-            for g in g.iter_mut() {
-                *g *= minv;
-            }
-        });
+        g_lagrange_projective
+            .par_iter_mut()
+            .for_each(|g| *g *= minv);
 
         let g_lagrange = {
             let mut g_lagrange = vec![E::G1Affine::identity(); n as usize];
