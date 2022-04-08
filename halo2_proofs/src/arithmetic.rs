@@ -1,7 +1,7 @@
 //! This module provides common utilities, traits and structures for group,
 //! field and polynomial arithmetic.
 
-use super::multicore;
+use super::multicore::{self, prelude::*};
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
@@ -169,17 +169,6 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
 ///
 /// This will use multithreading if beneficial.
 pub fn best_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
-    let threads = multicore::current_num_threads();
-    let log_threads = log2_floor(threads);
-
-    if log_n <= log_threads {
-        serial_fft(a, omega, log_n);
-    } else {
-        parallel_fft(a, omega, log_n, log_threads);
-    }
-}
-
-fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     fn bitreverse(mut n: u32, l: u32) -> u32 {
         let mut r = 0;
         for _ in 0..l {
@@ -199,69 +188,42 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
         }
     }
 
-    let mut m = 1;
-    for _ in 0..log_n {
-        let w_m = omega.pow_vartime(&[u64::from(n / (2 * m)), 0, 0, 0]);
+    // precompute twiddle factors
+    let mut w = G::Scalar::one();
+    let mut twiddles = vec![G::Scalar::one(); (n / 2) as usize];
 
-        let mut k = 0;
-        while k < n {
-            let mut w = G::Scalar::one();
-            for j in 0..m {
-                let mut t = a[(k + j + m) as usize];
-                t.group_scale(&w);
-                a[(k + j + m) as usize] = a[(k + j) as usize];
-                a[(k + j + m) as usize].group_sub(&t);
-                a[(k + j) as usize].group_add(&t);
-                w *= &w_m;
-            }
-
-            k += 2 * m;
-        }
-
-        m *= 2;
+    for tw in twiddles.iter_mut() {
+        *tw = w;
+        w.group_scale(&omega);
     }
-}
 
-fn parallel_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32, log_threads: u32) {
-    assert!(log_n >= log_threads);
+    let mut chunk = 2_usize;
+    let mut twiddle_chunk = (n / 2) as usize;
+    for _ in 0..log_n {
+        a.par_chunks_mut(chunk).for_each(|coeffs| {
+            let (left, right) = coeffs.split_at_mut(chunk / 2);
 
-    let num_threads = 1 << log_threads;
-    let log_new_n = log_n - log_threads;
-    let mut tmp = vec![vec![G::group_zero(); 1 << log_new_n]; num_threads];
-    let new_omega = omega.pow_vartime(&[num_threads as u64, 0, 0, 0]);
+            // case when twiddle factor is one
+            let (a, left) = left.split_at_mut(1);
+            let (b, right) = right.split_at_mut(1);
+            let t = b[0];
+            b[0] = a[0];
+            a[0].group_add(&t);
+            b[0].group_sub(&t);
 
-    multicore::scope(|scope| {
-        let a = &*a;
-
-        for (j, tmp) in tmp.iter_mut().enumerate() {
-            scope.spawn(move |_| {
-                // Shuffle into a sub-FFT
-                let omega_j = omega.pow_vartime(&[j as u64, 0, 0, 0]);
-                let omega_step = omega.pow_vartime(&[(j as u64) << log_new_n, 0, 0, 0]);
-
-                let mut elt = G::Scalar::one();
-
-                for (i, tmp) in tmp.iter_mut().enumerate() {
-                    for s in 0..num_threads {
-                        let idx = (i + (s << log_new_n)) % (1 << log_n);
-                        let mut t = a[idx];
-                        t.group_scale(&elt);
-                        tmp.group_add(&t);
-                        elt *= &omega_step;
-                    }
-                    elt *= &omega_j;
-                }
-
-                // Perform sub-FFT
-                serial_fft(tmp, new_omega, log_new_n);
-            });
-        }
-    });
-
-    // Unshuffle
-    let mask = (1 << log_threads) - 1;
-    for (idx, a) in a.iter_mut().enumerate() {
-        *a = tmp[idx & mask][idx >> log_threads];
+            left.par_iter_mut()
+                .zip(right.par_iter_mut())
+                .enumerate()
+                .for_each(|(i, (a, b))| {
+                    let mut t = *b;
+                    t.group_scale(&twiddles[(i + 1) * twiddle_chunk]);
+                    *b = *a;
+                    a.group_add(&t);
+                    b.group_sub(&t);
+                });
+        });
+        chunk *= 2;
+        twiddle_chunk /= 2;
     }
 }
 
@@ -350,18 +312,6 @@ pub fn parallelize<T: Send, F: Fn(&mut [T], usize) + Send + Sync + Clone>(v: &mu
             });
         }
     });
-}
-
-fn log2_floor(num: usize) -> u32 {
-    assert!(num > 0);
-
-    let mut pow = 0;
-
-    while (1 << (pow + 1)) <= num {
-        pow += 1;
-    }
-
-    pow
 }
 
 /// Returns coefficients of an n - 1 degree polynomial given a set of n points
