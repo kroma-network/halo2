@@ -3,6 +3,7 @@
 //! the committed polynomials at arbitrary points.
 
 use crate::arithmetic::parallelize;
+use crate::multicore::join;
 use crate::plonk::Assigned;
 
 use group::ff::{BatchInvert, Field};
@@ -187,11 +188,17 @@ impl<'a, F: Field, B: Basis> Add<&'a Polynomial<F, B>> for Polynomial<F, B> {
     type Output = Polynomial<F, B>;
 
     fn add(mut self, rhs: &'a Polynomial<F, B>) -> Polynomial<F, B> {
-        parallelize(&mut self.values, |lhs, start| {
-            for (lhs, rhs) in lhs.iter_mut().zip(rhs.values[start..].iter()) {
-                *lhs += *rhs;
+        fn recursive_add<F: Field>(a: &mut [F], b: &[F]) {
+            let n = a.len();
+            if n == 1 {
+                a[0] += b[0];
+            } else {
+                let (al, ar) = a.split_at_mut(n / 2);
+                let (bl, br) = b.split_at(n / 2);
+                join(|| recursive_add(al, bl), || recursive_add(ar, br));
             }
-        });
+        }
+        recursive_add(&mut self.values, rhs);
 
         self
     }
@@ -201,11 +208,17 @@ impl<'a, F: Field, B: Basis> Sub<&'a Polynomial<F, B>> for Polynomial<F, B> {
     type Output = Polynomial<F, B>;
 
     fn sub(mut self, rhs: &'a Polynomial<F, B>) -> Polynomial<F, B> {
-        parallelize(&mut self.values, |lhs, start| {
-            for (lhs, rhs) in lhs.iter_mut().zip(rhs.values[start..].iter()) {
-                *lhs -= *rhs;
+        fn recursive_sub<F: Field>(a: &mut [F], b: &[F]) {
+            let n = a.len();
+            if n == 1 {
+                a[0] -= b[0];
+            } else {
+                let (al, ar) = a.split_at_mut(n / 2);
+                let (bl, br) = b.split_at(n / 2);
+                join(|| recursive_sub(al, bl), || recursive_sub(ar, br));
             }
-        });
+        }
+        recursive_sub(&mut self.values, rhs);
 
         self
     }
@@ -241,11 +254,16 @@ impl<'a, F: Field, B: Basis> Mul<F> for Polynomial<F, B> {
     type Output = Polynomial<F, B>;
 
     fn mul(mut self, rhs: F) -> Polynomial<F, B> {
-        parallelize(&mut self.values, |lhs, _| {
-            for lhs in lhs.iter_mut() {
-                *lhs *= rhs;
+        fn recursive_mul<F: Field>(a: &mut [F], b: F) {
+            let n = a.len();
+            if n == 1 {
+                a[0] *= b;
+            } else {
+                let (al, ar) = a.split_at_mut(n / 2);
+                join(|| recursive_mul(al, b), || recursive_mul(ar, b));
             }
-        });
+        }
+        recursive_mul(&mut self.values, rhs);
 
         self
     }
