@@ -582,14 +582,19 @@ pub fn recursive_butterfly_arithmetic<G: Group>(
             || recursive_butterfly_arithmetic(right, n / 2, twiddle_chunk * 2, twiddles),
         );
 
+        let (a, left) = left.split_at_mut(1);
+        let (b, right) = right.split_at_mut(1);
+        let t = b[0];
+        b[0] = a[0];
+        a[0].group_add(&t);
+        b[0].group_sub(&t);
+
         left.par_iter_mut()
             .zip(right.par_iter_mut())
             .enumerate()
             .for_each(|(i, (a, b))| {
                 let mut t = *b;
-                if i != 0 {
-                    t.group_scale(&twiddles[i * twiddle_chunk]);
-                }
+                t.group_scale(&twiddles[(i + 1) * twiddle_chunk]);
                 *b = *a;
                 a.group_add(&t);
                 b.group_sub(&t);
@@ -646,14 +651,20 @@ fn test_fft() {
                 .par_chunks_mut(*chunk)
                 .for_each(|coeffs| {
                     let (left, right) = coeffs.split_at_mut(chunk / 2);
+
+                    let (a, left) = left.split_at_mut(1);
+                    let (b, right) = right.split_at_mut(1);
+                    let t = b[0];
+                    b[0] = a[0];
+                    a[0].group_add(&t);
+                    b[0].group_sub(&t);
+
                     left.par_iter_mut()
                         .zip(right.par_iter_mut())
                         .enumerate()
                         .for_each(|(i, (a, b))| {
                             let mut t = *b;
-                            if i != 0 {
-                                t.group_scale(&twiddles[i * twiddle_chunk]);
-                            }
+                            t.group_scale(&twiddles[(i + 1) * twiddle_chunk]);
                             *b = *a;
                             a.group_add(&t);
                             b.group_sub(&t);
