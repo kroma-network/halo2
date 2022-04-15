@@ -16,6 +16,7 @@ use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 use std::io;
+use std::time::{Instant, SystemTime};
 
 /// These are the prover parameters for the polynomial commitment scheme.
 #[derive(Debug)]
@@ -56,6 +57,8 @@ impl<C: CurveAffine> Params<C> {
         // TODO: Make this function only available in test mod
         // Largest root of unity exponent of the Engine is `2^E::Scalar::S`, so we can
         // only support FFTs of polynomials below degree `2^E::Scalar::S`.
+
+        let start_time = Instant::now();
         assert!(k <= E::Scalar::S);
         let n: u64 = 1 << k;
 
@@ -63,13 +66,24 @@ impl<C: CurveAffine> Params<C> {
         let g1 = <E::G1Affine as PrimeCurveAffine>::generator();
         let s = E::Scalar::random(OsRng);
 
+        let mut s_power = vec![E::Scalar::zero(); n as usize];
+        parallelize(&mut s_power, |s_chunk, start| {
+            let mut current_s = s.pow_vartime(&[start as u64]);
+            for s_chunk_ptr in s_chunk.iter_mut() {
+                *s_chunk_ptr = current_s;
+                current_s *= s;
+            }
+        });
+
         let mut g_projective = vec![E::G1::group_zero(); n as usize];
         parallelize(&mut g_projective, |g, start| {
-            let mut current_g: E::G1 = g1.into();
-            current_g *= s.pow_vartime(&[start as u64]);
-            for g in g.iter_mut() {
-                *g = current_g;
-                current_g *= s;
+            //let mut current_g: E::G1 = g1.into();
+            //current_g *= s.pow_vartime(&[start as u64]);
+            for (idx, g) in g.iter_mut().enumerate() {
+                //*g = current_g;
+                //current_g *= s;
+                let pos = idx + start;
+                *g = g1 * s_power[pos];
             }
         });
 
@@ -81,21 +95,55 @@ impl<C: CurveAffine> Params<C> {
             g
         };
 
-        // Let's evaluate all of the Lagrange basis polynomials
-        // using an inverse FFT.
-        let mut alpha_inv = E::Scalar::ROOT_OF_UNITY_INV;
-        for _ in k..E::Scalar::S {
-            alpha_inv = alpha_inv.square();
-        }
-        let mut g_lagrange_projective = g_projective;
-        best_fft(&mut g_lagrange_projective, alpha_inv, k);
-        let minv = E::Scalar::TWO_INV.pow_vartime(&[k as u64, 0, 0, 0]);
-        parallelize(&mut g_lagrange_projective, |g, _| {
-            for g in g.iter_mut() {
-                *g *= minv;
-            }
-        });
+        println!("time1 : {:?}", Instant::now() - start_time);
+        let fast = true;
 
+        let mut g_lagrange_projective = g_projective;
+        if fast {
+            let mut root = E::Scalar::ROOT_OF_UNITY_INV;
+            root = root.invert().unwrap();
+            for _ in k..E::Scalar::S {
+                root = root.square();
+            }
+            let mut o_power = vec![E::Scalar::zero(); n as usize];
+            parallelize(&mut o_power, |o_chunk, start| {
+                let mut current_o = root.pow_vartime(&[start as u64]);
+                for o_chunk_ptr in o_chunk.iter_mut() {
+                    *o_chunk_ptr = current_o;
+                    current_o *= root;
+                }
+            });
+
+            //let mut g_lagrange_projective = vec![E::G1::group_zero(); n as usize];
+            parallelize(&mut g_lagrange_projective, |g, start| {
+                //let mut current_g: E::G1 = g1.into();
+                //current_g *= s.pow_vartime(&[start as u64]);
+                for (idx, g) in g.iter_mut().enumerate() {
+                    let pos = idx + start;
+                    let xx = (o_power[pos] * E::Scalar::from(n.into()).invert().unwrap())
+                        * (s.pow_vartime(&[n as u64]) - E::Scalar::one())
+                        * (s - o_power[pos]).invert().unwrap();
+
+                    *g = g1 * xx;
+                }
+            });
+        } else {
+            //let mut g_lagrange = vec![E::G1Affine::identity(); n as usize];
+
+            // Let's evaluate all of the Lagrange basis polynomials
+            // using an inverse FFT.
+            let mut alpha_inv = E::Scalar::ROOT_OF_UNITY_INV;
+            for _ in k..E::Scalar::S {
+                alpha_inv = alpha_inv.square();
+            }
+            best_fft(&mut g_lagrange_projective, alpha_inv, k);
+            let minv = E::Scalar::TWO_INV.pow_vartime(&[k as u64, 0, 0, 0]);
+            parallelize(&mut g_lagrange_projective, |g, _| {
+                for g in g.iter_mut() {
+                    *g *= minv;
+                }
+            });
+        }
         let g_lagrange = {
             let mut g_lagrange = vec![E::G1Affine::identity(); n as usize];
             parallelize(&mut g_lagrange, |g_lagrange, starts| {
@@ -107,6 +155,8 @@ impl<C: CurveAffine> Params<C> {
             drop(g_lagrange_projective);
             g_lagrange
         };
+
+        println!("time2 : {:?}", Instant::now() - start_time);
 
         let g2 = <E::G2Affine as PrimeCurveAffine>::generator();
         let s_g2 = g2 * s;
@@ -386,7 +436,7 @@ fn test_parameter_serialization() {
 
 #[test]
 fn test_commit_lagrange() {
-    const K: u32 = 6;
+    const K: u32 = 16;
 
     let params: Params<G1Affine> = Params::<G1Affine>::unsafe_setup::<Bn256>(K);
     let domain = super::EvaluationDomain::new(1, K);
