@@ -120,7 +120,7 @@ impl<C: CurveAffine> Params<C> {
                 //current_g *= s.pow_vartime(&[start as u64]);
                 for (idx, g) in g.iter_mut().enumerate() {
                     let pos = idx + start;
-                    let xx = (o_power[pos] * E::Scalar::from(n.into()).invert().unwrap())
+                    let xx = (o_power[pos] * E::Scalar::from(n).invert().unwrap())
                         * (s.pow_vartime(&[n as u64]) - E::Scalar::one())
                         * (s - o_power[pos]).invert().unwrap();
 
