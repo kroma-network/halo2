@@ -576,8 +576,14 @@ pub fn create_proof<
     let vanishing =
         vanishing.construct(params, domain, coset_evaluator, expressions, y, transcript)?;
     #[cfg(not(feature = "zero-knowledge"))]
-    let vanishing =
-        vanishing::Argument::construct(params, domain, coset_evaluator, expressions, y, transcript)?;
+    let vanishing = vanishing::Argument::construct(
+        params,
+        domain,
+        coset_evaluator,
+        expressions,
+        y,
+        transcript,
+    )?;
 
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
     let xn = x.pow(&[params.n as u64, 0, 0, 0]);

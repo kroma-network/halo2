@@ -89,9 +89,7 @@ impl<C: CurveAffine> Argument<C> {
         // Obtain a commitment to h(X) in the form of multiple pieces of degree n - 1
         let h_commitments = read_n_points(transcript, vk.domain.get_quotient_poly_degree())?;
 
-        Ok(Constructed {
-            h_commitments,
-        })
+        Ok(Constructed { h_commitments })
     }
 }
 
@@ -176,12 +174,11 @@ impl<'params, C: CurveAffine> Evaluated<C> {
     where
         'params: 'r,
     {
-        iter::empty()
-            .chain(Some(VerifierQuery::new_msm(
-                &self.h_commitment,
-                *x,
-                Rotation::cur(),
-                self.expected_h_eval,
-            )))
+        iter::empty().chain(Some(VerifierQuery::new_msm(
+            &self.h_commitment,
+            *x,
+            Rotation::cur(),
+            self.expected_h_eval,
+        )))
     }
 }

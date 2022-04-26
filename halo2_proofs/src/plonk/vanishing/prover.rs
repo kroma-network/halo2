@@ -159,9 +159,7 @@ impl<C: CurveAffine> Argument<C> {
             transcript.write_point(*c)?;
         }
 
-        Ok(Constructed {
-            h_pieces,
-        })
+        Ok(Constructed { h_pieces })
     }
 }
 
@@ -216,11 +214,10 @@ impl<C: CurveAffine> Evaluated<C> {
         &self,
         x: ChallengeX<C>,
     ) -> impl Iterator<Item = ProverQuery<'_, C>> + Clone {
-        iter::empty()
-            .chain(Some(ProverQuery {
-                point: *x,
-                rotation: Rotation::cur(),
-                poly: &self.h_poly,
-            }))
+        iter::empty().chain(Some(ProverQuery {
+            point: *x,
+            rotation: Rotation::cur(),
+            poly: &self.h_poly,
+        }))
     }
 }
