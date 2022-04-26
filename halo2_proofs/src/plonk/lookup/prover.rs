@@ -614,9 +614,20 @@ fn permute_expression_pair<C: CurveAffine, R: RngCore>(
     }
     assert!(repeated_input_rows.is_empty());
 
-    permuted_input_expression
-        .extend((0..(blinding_factors + 1)).map(|_| C::Scalar::random(&mut rng)));
-    permuted_table_coeffs.extend((0..(blinding_factors + 1)).map(|_| C::Scalar::random(&mut rng)));
+    permuted_input_expression.extend((0..(blinding_factors + 1)).map(|_| 
+        if cfg!(feature = "zero-knowledge") {
+            C::Scalar::random(&mut rng)
+        } else {
+            C::Scalar::zero()
+        }
+    ));
+    permuted_table_coeffs.extend((0..(blinding_factors + 1)).map(|_| 
+        if cfg!(feature = "zero-knowledge") {
+            C::Scalar::random(&mut rng)
+        } else {
+            C::Scalar::zero()
+        }
+    ));
     assert_eq!(permuted_input_expression.len(), params.n as usize);
     assert_eq!(permuted_table_coeffs.len(), params.n as usize);
 

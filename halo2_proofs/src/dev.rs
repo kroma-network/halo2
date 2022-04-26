@@ -464,10 +464,10 @@ impl<F: Group + Field> Mul<F> for Value<F> {
 ///
 /// // If we provide a too-small K, we get an error.
 /// assert!(matches!(
-///     MockProver::<Fp>::run(2, &circuit, vec![]).unwrap_err(),
+///     MockProver::<Fp>::run(1, &circuit, vec![]).unwrap_err(),
 ///     Error::NotEnoughRowsAvailable {
 ///         current_k,
-///     } if current_k == 2,
+///     } if current_k == 1,
 /// ));
 /// ```
 #[derive(Debug)]

@@ -68,6 +68,7 @@ gadget-traces = ["backtrace"]
 sanity-checks = []
 shplonk = []
 gwc = []
+zero-knowledge = []
 
 [lib]
 bench = false

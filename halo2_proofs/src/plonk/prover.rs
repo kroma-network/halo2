@@ -287,7 +287,11 @@ pub fn create_proof<
             // Add blinding factors to advice columns
             for advice in &mut advice {
                 for cell in &mut advice[unusable_rows_start..] {
-                    *cell = C::Scalar::random(&mut rng);
+                    *cell = if cfg!(feature = "zero-knowledge") {
+                        C::Scalar::random(&mut rng)
+                    } else {
+                        C::Scalar::zero()
+                    };
                 }
             }
 
@@ -490,6 +494,7 @@ pub fn create_proof<
         .collect::<Result<Vec<_>, _>>()?;
 
     // Commit to the vanishing argument's random polynomial for blinding h(x_3)
+    #[cfg(feature = "zero-knowledge")]
     let vanishing = vanishing::Argument::commit(params, domain, &mut rng, transcript)?;
 
     // Obtain challenge for keeping all separate gates linearly independent
@@ -567,8 +572,12 @@ pub fn create_proof<
         );
 
     // Construct the vanishing argument's h(X) commitments
+    #[cfg(feature = "zero-knowledge")]
     let vanishing =
         vanishing.construct(params, domain, coset_evaluator, expressions, y, transcript)?;
+    #[cfg(not(feature = "zero-knowledge"))]
+    let vanishing =
+        vanishing::Argument::construct(params, domain, coset_evaluator, expressions, y, transcript)?;
 
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
     let xn = x.pow(&[params.n as u64, 0, 0, 0]);
