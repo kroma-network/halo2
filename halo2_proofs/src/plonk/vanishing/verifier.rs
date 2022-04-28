@@ -13,35 +13,28 @@ use crate::{
 use super::super::{ChallengeX, ChallengeY};
 use super::Argument;
 
-#[cfg(feature = "zero-knowledge")]
 pub struct Committed<C: CurveAffine> {
     random_poly_commitment: C,
 }
 
 pub struct Constructed<C: CurveAffine> {
-    h_commitments: Vec<C>,
-    #[cfg(feature = "zero-knowledge")]
+    h_commitments: Vec<C>, 
     random_poly_commitment: C,
 }
 
 pub struct PartiallyEvaluated<C: CurveAffine> {
     h_commitments: Vec<C>,
-    #[cfg(feature = "zero-knowledge")]
-    random_poly_commitment: C,
-    #[cfg(feature = "zero-knowledge")]
+    random_poly_commitment: C, 
     random_eval: C::Scalar,
 }
 
 pub struct Evaluated<C: CurveAffine> {
-    h_commitment: MSM<C>,
-    #[cfg(feature = "zero-knowledge")]
+    h_commitment: MSM<C>, 
     random_poly_commitment: C,
-    expected_h_eval: C::Scalar,
-    #[cfg(feature = "zero-knowledge")]
+    expected_h_eval: C::Scalar, 
     random_eval: C::Scalar,
 }
 
-#[cfg(feature = "zero-knowledge")]
 impl<C: CurveAffine> Argument<C> {
     pub(in crate::plonk) fn read_commitments_before_y<
         E: EncodedChallenge<C>,
@@ -49,7 +42,11 @@ impl<C: CurveAffine> Argument<C> {
     >(
         transcript: &mut T,
     ) -> Result<Committed<C>, Error> {
+        #[cfg(feature = "zero-knowledge")]
         let random_poly_commitment = transcript.read_point()?;
+
+        #[cfg(not(feature = "zero-knowledge"))]
+        let random_poly_commitment = C::default();
 
         Ok(Committed {
             random_poly_commitment,
@@ -57,7 +54,6 @@ impl<C: CurveAffine> Argument<C> {
     }
 }
 
-#[cfg(feature = "zero-knowledge")]
 impl<C: CurveAffine> Committed<C> {
     pub(in crate::plonk) fn read_commitments_after_y<
         E: EncodedChallenge<C>,
@@ -77,22 +73,6 @@ impl<C: CurveAffine> Committed<C> {
     }
 }
 
-#[cfg(not(feature = "zero-knowledge"))]
-impl<C: CurveAffine> Argument<C> {
-    pub(in crate::plonk) fn read_commitments_after_y<
-        E: EncodedChallenge<C>,
-        T: TranscriptRead<C, E>,
-    >(
-        vk: &VerifyingKey<C>,
-        transcript: &mut T,
-    ) -> Result<Constructed<C>, Error> {
-        // Obtain a commitment to h(X) in the form of multiple pieces of degree n - 1
-        let h_commitments = read_n_points(transcript, vk.domain.get_quotient_poly_degree())?;
-
-        Ok(Constructed { h_commitments })
-    }
-}
-
 impl<C: CurveAffine> Constructed<C> {
     pub(in crate::plonk) fn evaluate_after_x<E: EncodedChallenge<C>, T: TranscriptRead<C, E>>(
         self,
@@ -101,11 +81,12 @@ impl<C: CurveAffine> Constructed<C> {
         #[cfg(feature = "zero-knowledge")]
         let random_eval = transcript.read_scalar()?;
 
+        #[cfg(not(feature = "zero-knowledge"))]
+        let random_eval = C::Scalar::default();
+
         Ok(PartiallyEvaluated {
             h_commitments: self.h_commitments,
-            #[cfg(feature = "zero-knowledge")]
             random_poly_commitment: self.random_poly_commitment,
-            #[cfg(feature = "zero-knowledge")]
             random_eval,
         })
     }
@@ -134,16 +115,14 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
         Evaluated {
             expected_h_eval,
             h_commitment,
-            #[cfg(feature = "zero-knowledge")]
             random_poly_commitment: self.random_poly_commitment,
-            #[cfg(feature = "zero-knowledge")]
             random_eval: self.random_eval,
         }
     }
 }
 
 impl<'params, C: CurveAffine> Evaluated<C> {
-    #[cfg(feature = "zero-knowledge")]
+    
     pub(in crate::plonk) fn queries<'r>(
         &'r self,
         x: ChallengeX<C>,
@@ -151,7 +130,8 @@ impl<'params, C: CurveAffine> Evaluated<C> {
     where
         'params: 'r,
     {
-        iter::empty()
+        #[cfg(feature = "zero-knowledge")]
+        let all_queries = iter::empty()
             .chain(Some(VerifierQuery::new_msm(
                 &self.h_commitment,
                 *x,
@@ -163,22 +143,16 @@ impl<'params, C: CurveAffine> Evaluated<C> {
                 *x,
                 Rotation::cur(),
                 self.random_eval,
-            )))
-    }
+            )));
 
-    #[cfg(not(feature = "zero-knowledge"))]
-    pub(in crate::plonk) fn queries<'r>(
-        &'r self,
-        x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone
-    where
-        'params: 'r,
-    {
-        iter::empty().chain(Some(VerifierQuery::new_msm(
+        #[cfg(not(feature = "zero-knowledge"))]
+        let all_queries = iter::empty().chain(Some(VerifierQuery::new_msm(
             &self.h_commitment,
             *x,
             Rotation::cur(),
             self.expected_h_eval,
-        )))
+        )));
+
+        all_queries
     }
 }

@@ -1322,38 +1322,39 @@ impl<F: Field> ConstraintSystem<F> {
 
     /// Compute the number of blinding factors necessary to perfectly blind
     /// each of the prover's witness polynomials.
-    #[cfg(feature = "zero-knowledge")]
     pub fn blinding_factors(&self) -> usize {
-        // All of the prover's advice columns are evaluated at no more than
-        let factors = *self.num_advice_queries.iter().max().unwrap_or(&1);
-        // distinct points during gate checks.
+        #[cfg(feature = "zero-knowledge")]
+        let factors = {
+            // All of the prover's advice columns are evaluated at no more than
+            let factors = *self.num_advice_queries.iter().max().unwrap_or(&1);
+            // distinct points during gate checks.
 
-        // - The permutation argument witness polynomials are evaluated at most 3 times.
-        // - Each lookup argument has independent witness polynomials, and they are
-        //   evaluated at most 2 times.
-        let factors = std::cmp::max(3, factors);
+            // - The permutation argument witness polynomials are evaluated at most 3 times.
+            // - Each lookup argument has independent witness polynomials, and they are
+            //   evaluated at most 2 times.
+            let factors = std::cmp::max(3, factors);
 
-        // Each polynomial is evaluated at most an additional time during
-        // multiopen (at x_3 to produce q_evals):
-        let factors = factors + 1;
+            // Each polynomial is evaluated at most an additional time during
+            // multiopen (at x_3 to produce q_evals):
+            let factors = factors + 1;
 
-        // h(x) is derived by the other evaluations so it does not reveal
-        // anything; in fact it does not even appear in the proof.
+            // h(x) is derived by the other evaluations so it does not reveal
+            // anything; in fact it does not even appear in the proof.
 
-        // h(x_3) is also not revealed; the verifier only learns a single
-        // evaluation of a polynomial in x_1 which has h(x_3) and another random
-        // polynomial evaluated at x_3 as coefficients -- this random polynomial
-        // is "random_poly" in the vanishing argument.
+            // h(x_3) is also not revealed; the verifier only learns a single
+            // evaluation of a polynomial in x_1 which has h(x_3) and another random
+            // polynomial evaluated at x_3 as coefficients -- this random polynomial
+            // is "random_poly" in the vanishing argument.
 
-        // Add an additional blinding factor as a slight defense against
-        // off-by-one errors.
-        factors + 1
-    }
+            // Add an additional blinding factor as a slight defense against
+            // off-by-one errors.
+            factors + 1
+        };
 
-    /// Compute the number of blinding factors when zero-knowledge is not required.
-    #[cfg(not(feature = "zero-knowledge"))]
-    pub fn blinding_factors(&self) -> usize {
-        0 as usize
+        // If without zero-knowledge, the last randomness padding is unnecessary
+        #[cfg(not(feature = "zero-knowledge"))]
+        let factors = 0 as usize;
+        factors
     }
 
     /// Returns the minimum necessary rows that need to exist in order to

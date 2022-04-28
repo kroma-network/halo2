@@ -204,16 +204,12 @@ pub fn verify_proof<
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    #[cfg(feature = "zero-knowledge")]
     let vanishing = vanishing::Argument::read_commitments_before_y(transcript)?;
 
     // Sample y challenge, which keeps the gates linearly independent.
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
 
-    #[cfg(feature = "zero-knowledge")]
     let vanishing = vanishing.read_commitments_after_y(vk, transcript)?;
-    #[cfg(not(feature = "zero-knowledge"))]
-    let vanishing = vanishing::Argument::read_commitments_after_y(vk, transcript)?;
 
     // Sample x challenge, which is used to ensure the circuit is
     // satisfied with high probability.
