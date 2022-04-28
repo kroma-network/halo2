@@ -2,19 +2,21 @@ use std::marker::PhantomData;
 
 use halo2_proofs::arithmetic::FieldExt;
 use halo2_proofs::circuit::{Cell, Chip, Layouter, Region, SimpleFloorPlanner};
+#[cfg(not(feature = "zero-knowledge"))]
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::plonk::*;
 use halo2_proofs::poly::Rotation;
+#[cfg(not(feature = "zero-knowledge"))]
 use pairing::bn256::Fr as Fp;
 
 #[warn(dead_code)]
 #[derive(Clone, Debug)]
 struct MyConfig {
-    lhs: Column<Advice>, 
-    rhs: Column<Advice>, 
-    out: Column<Advice>, 
-    s_add: Selector, 
-    q_even: Selector, 
+    lhs: Column<Advice>,
+    rhs: Column<Advice>,
+    out: Column<Advice>,
+    s_add: Selector,
+    q_even: Selector,
     table_even: Column<Advice>,
     instance: Column<Instance>,
 }
@@ -44,10 +46,10 @@ impl<F: FieldExt> Chip<F> for MyChip<F> {
 /// were `None` we would get an error.
 #[derive(Default)]
 struct MyCircuit<F: FieldExt> {
-    out_lookup: Vec<F>, 
+    out_lookup: Vec<F>,
     x: Option<F>,
     d: Option<F>,
-    t: usize, 
+    t: usize,
 }
 
 /// A variable representing a number.
@@ -126,23 +128,12 @@ impl<F: FieldExt> MyChip<F> {
         layouter.assign_region(
             || "add",
             |mut region: Region<'_, F>| {
-
                 config.s_add.enable(&mut region, 0)?;
                 let lhs = region
-                    .assign_advice(
-                        || "lhs",
-                        config.lhs,
-                        0,
-                        || a.value.ok_or(Error::Synthesis),
-                    )?
+                    .assign_advice(|| "lhs", config.lhs, 0, || a.value.ok_or(Error::Synthesis))?
                     .cell();
                 let rhs = region
-                    .assign_advice(
-                        || "rhs",
-                        config.rhs,
-                        0,
-                        || b.value.ok_or(Error::Synthesis),
-                    )?
+                    .assign_advice(|| "rhs", config.rhs, 0, || b.value.ok_or(Error::Synthesis))?
                     .cell();
                 region.constrain_equal(a.cell, lhs)?;
                 region.constrain_equal(b.cell, rhs)?;
@@ -158,7 +149,7 @@ impl<F: FieldExt> MyChip<F> {
                     .cell();
 
                 config.q_even.enable(&mut region, 0)?;
-                
+
                 out = Some(Number { cell, value });
                 Ok(())
             },
@@ -167,11 +158,7 @@ impl<F: FieldExt> MyChip<F> {
         Ok(out.unwrap())
     }
 
-    fn load_out_lookup(
-        &self,
-        mut layouter: impl Layouter<F>,
-        values: &[F],
-    ) -> Result<(), Error> {
+    fn load_out_lookup(&self, mut layouter: impl Layouter<F>, values: &[F]) -> Result<(), Error> {
         let config = self.config();
         layouter.assign_region(
             || "load values for even lookup table",
@@ -223,11 +210,11 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
         meta.enable_equality(out);
 
         meta.create_gate("add", |meta| {
-                let s_add = meta.query_selector(s_add);
-                let lhs = meta.query_advice(lhs, Rotation::cur());
-                let rhs = meta.query_advice(rhs, Rotation::cur());
-                let out = meta.query_advice(out, Rotation::cur());
-                vec![s_add * (lhs + rhs - out)]
+            let s_add = meta.query_selector(s_add);
+            let lhs = meta.query_advice(lhs, Rotation::cur());
+            let rhs = meta.query_advice(rhs, Rotation::cur());
+            let out = meta.query_advice(out, Rotation::cur());
+            vec![s_add * (lhs + rhs - out)]
         });
 
         meta.lookup_any("even number", |meta| {
@@ -239,13 +226,13 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
         });
 
         MyConfig {
-            lhs, 
-            rhs, 
-            out, 
-            s_add, 
-            q_even, 
+            lhs,
+            rhs,
+            out,
+            s_add,
+            q_even,
             table_even,
-            instance, 
+            instance,
         }
     }
 
@@ -257,7 +244,7 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
         let my_chip = MyChip::<F>::construct(config, ());
         my_chip.load_out_lookup(
             layouter.namespace(|| "witness even numbers"),
-            &self.out_lookup, 
+            &self.out_lookup,
         )?;
 
         let mut x = my_chip.load_private_lhs(layouter.namespace(|| "load x"), self.x)?;
@@ -271,8 +258,8 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
     }
 }
 
-/// We build a circuit to calculate x + t * d. Suppose t = 2, Here is the layout. To 
-/// include the lookup argument, we make a useless lookup argument on the out column. 
+/// We build a circuit to calculate x + t * d. Suppose t = 2, Here is the layout. To
+/// include the lookup argument, we make a useless lookup argument on the out column.
 /// Since t = 2^k - 2, the total number of rows is 2^k - 1, which is the maximum under
 /// the non-zero-knowledge setting.
 /// | instance   | s_add | lhs   | rhs   | out       | q_even    | out_lookup    |
@@ -290,9 +277,8 @@ fn main() {
     let d = Fp::from(2);
 
     // The maximum number of rows (2^k - 1) - 1 (load_private_input row).
-    let t = (1 << k) - 2 as usize;  
+    let t = (1 << k) - 2 as usize;
     let y = x + d * Fp::from(t as u64);
-
 
     let mut out_lookup = Vec::with_capacity(t);
     for i in 0..t {
@@ -301,10 +287,10 @@ fn main() {
 
     // Instantiate the circuit with the private inputs.
     let circuit = MyCircuit {
-        out_lookup, 
+        out_lookup,
         x: Some(x),
-        d: Some(d), 
-        t, 
+        d: Some(d),
+        t,
     };
 
     // Arrange the public input. We expose the result in row 0
@@ -316,7 +302,7 @@ fn main() {
     assert_eq!(prover.verify(), Ok(()));
 
     // If we try with one more operation, the number of rows isn't enough!
-    let t = (1 << k) - 1 as usize;  
+    let t = (1 << k) - 1 as usize;
 
     // Prepare the private and public inputs to the circuit!
     let x = Fp::zero();
@@ -330,10 +316,10 @@ fn main() {
     }
 
     let circuit = MyCircuit {
-        out_lookup, 
+        out_lookup,
         x: Some(x),
-        d: Some(d), 
-        t, 
+        d: Some(d),
+        t,
     };
 
     let public_inputs = vec![y];

@@ -18,20 +18,20 @@ pub struct Committed<C: CurveAffine> {
 }
 
 pub struct Constructed<C: CurveAffine> {
-    h_commitments: Vec<C>, 
+    h_commitments: Vec<C>,
     random_poly_commitment: C,
 }
 
 pub struct PartiallyEvaluated<C: CurveAffine> {
     h_commitments: Vec<C>,
-    random_poly_commitment: C, 
+    random_poly_commitment: C,
     random_eval: C::Scalar,
 }
 
 pub struct Evaluated<C: CurveAffine> {
-    h_commitment: MSM<C>, 
+    h_commitment: MSM<C>,
     random_poly_commitment: C,
-    expected_h_eval: C::Scalar, 
+    expected_h_eval: C::Scalar,
     random_eval: C::Scalar,
 }
 
@@ -122,7 +122,6 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
 }
 
 impl<'params, C: CurveAffine> Evaluated<C> {
-    
     pub(in crate::plonk) fn queries<'r>(
         &'r self,
         x: ChallengeX<C>,
