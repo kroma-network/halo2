@@ -2,6 +2,7 @@
 //! field and polynomial arithmetic.
 
 use super::multicore::{self, join, prelude::*};
+use std::io;
 pub use ff::Field;
 use group::{
     ff::{BatchInvert, PrimeField},
@@ -317,6 +318,54 @@ pub fn parallelize<T: Send, F: Fn(&mut [T], usize) + Send + Sync + Clone>(v: &mu
             });
         }
     });
+}
+
+/// This simple utility function will parallelize an operation returning `io::Result` that is to be
+/// performed over a mutable slice.
+pub fn parallelize_is_ok<
+    T: Send,
+    F: Fn(&mut [T], usize) -> io::Result<()> + Send + Sync + Clone,
+>(
+    v: &mut [T],
+    f: F,
+) -> io::Result<()> {
+    let n = v.len();
+    let num_threads = multicore::current_num_threads();
+    let mut chunk = (n as usize) / num_threads;
+    if chunk < num_threads {
+        chunk = n as usize;
+    }
+
+    let mut is_ok = true;
+    multicore::scope(|scope| {
+        for (chunk_num, v) in v.chunks_mut(chunk).enumerate() {
+            let f = f.clone();
+            scope.spawn(move |_| {
+                let start = chunk_num * chunk;
+                is_ok = is_ok && f(v, start).is_ok();
+            });
+        }
+    });
+
+    match is_ok {
+        true => Ok(()),
+        false => Err(io::Error::new(
+            io::ErrorKind::Other,
+            "invalid point encoding in proof",
+        )),
+    }
+}
+
+fn log2_floor(num: usize) -> u32 {
+    assert!(num > 0);
+
+    let mut pow = 0;
+
+    while (1 << (pow + 1)) <= num {
+        pow += 1;
+    }
+
+    pow
 }
 
 /// Returns coefficients of an n - 1 degree polynomial given a set of n points
