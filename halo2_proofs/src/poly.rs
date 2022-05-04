@@ -2,11 +2,10 @@
 //! various forms, including computing commitments to them and provably opening
 //! the committed polynomials at arbitrary points.
 
-use crate::arithmetic::parallelize;
+use crate::arithmetic::{parallelize, FieldExt};
 use crate::plonk::Assigned;
 
 use group::ff::{BatchInvert, Field};
-use pasta_curves::arithmetic::FieldExt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Mul, RangeFrom, RangeFull};

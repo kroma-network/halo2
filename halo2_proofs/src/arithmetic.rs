@@ -8,7 +8,7 @@ use group::{
     Group as _,
 };
 
-pub use pasta_curves::arithmetic::*;
+pub use pairing::arithmetic::*;
 
 fn multiexp_serial<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C], acc: &mut C::Curve) {
     let coeffs: Vec<_> = coeffs.iter().map(|a| a.to_repr()).collect();

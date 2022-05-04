@@ -9,12 +9,14 @@ use std::{
 };
 
 use group::ff::Field;
-use pasta_curves::arithmetic::FieldExt;
 
 use super::{
     Basis, Coeff, EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation,
 };
-use crate::{arithmetic::parallelize, multicore};
+use crate::{
+    arithmetic::{parallelize, FieldExt},
+    multicore,
+};
 
 /// Returns `(chunk_size, num_chunks)` suitable for processing the given polynomial length
 /// in the current parallelization environment.

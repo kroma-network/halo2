@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use group::ff::Field;
-use pasta_curves::arithmetic::FieldExt;
 
 use super::{metadata, CellValue, Value};
 use crate::{
+    arithmetic::FieldExt,
     plonk::{Any, Column, ColumnType, Expression, Gate, VirtualCell},
     poly::Rotation,
 };

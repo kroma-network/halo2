@@ -3,10 +3,10 @@ use std::fmt;
 use std::iter;
 
 use group::ff::Field;
-use pasta_curves::arithmetic::FieldExt;
 
 use super::{metadata, util, MockProver, Region};
 use crate::{
+    arithmetic::FieldExt,
     dev::Value,
     plonk::{Any, Column, ConstraintSystem, Expression, Gate},
     poly::Rotation,
