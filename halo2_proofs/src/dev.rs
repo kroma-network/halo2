@@ -253,9 +253,9 @@ struct Region {
     /// The selectors that have been enabled in this region. All other selectors are by
     /// construction not enabled.
     enabled_selectors: HashMap<Selector, Vec<usize>>,
-    /// The cells assigned in this region. We store this as a `Vec` so that if any cells
-    /// are double-assigned, they will be visibly darker.
-    cells: Vec<(Column<Any>, usize)>,
+    /// The cells assigned in this region. We store this as a `HashMap` with count
+    /// so that if any cells are double-assigned, they will be visibly darker.
+    cells: HashMap<(Column<Any>, usize), usize>,
 }
 
 impl Region {
@@ -273,6 +273,16 @@ impl Region {
             end = row;
         }
         self.rows = Some((start, end));
+    }
+
+    fn track_cell(&mut self, column: Column<Any>, row: usize) {
+        // Keep track of how many times this cell has been assigned to.
+        let count = *self.cells.get(&(column, row)).unwrap_or(&0);
+        self.cells.insert((column, row), count + 1);
+    }
+
+    fn is_assigned(&self, column: Column<Any>, row: usize) -> bool {
+        self.cells.contains_key(&(column, row))
     }
 }
 
@@ -511,7 +521,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
             columns: HashSet::default(),
             rows: None,
             enabled_selectors: HashMap::default(),
-            cells: vec![],
+            cells: HashMap::default(),
         });
     }
 
@@ -578,7 +588,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
 
         if let Some(region) = self.current_region.as_mut() {
             region.update_extent(column.into(), row);
-            region.cells.push((column.into(), row));
+            region.track_cell(column.into(), row);
         }
 
         *self
@@ -610,7 +620,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
 
         if let Some(region) = self.current_region.as_mut() {
             region.update_extent(column.into(), row);
-            region.cells.push((column.into(), row));
+            region.track_cell(column.into(), row);
         }
 
         *self
@@ -807,7 +817,7 @@ impl<F: FieldExt> MockProver<F> {
                                 let cell_row = ((gate_row + n + cell.rotation.0) % n) as usize;
 
                                 // Check that it was assigned!
-                                if r.cells.contains(&(cell.column, cell_row)) {
+                                if r.is_assigned(cell.column, cell_row) {
                                     None
                                 } else {
                                     Some(VerifyFailure::CellNotAssigned {
