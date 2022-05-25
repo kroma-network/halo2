@@ -3,11 +3,17 @@ extern crate criterion;
 
 use group::ff::Field;
 use halo2_proofs::arithmetic::FieldExt;
-use halo2_proofs::circuit::{Cell, Layouter, SimpleFloorPlanner, Value};
-use halo2_proofs::pasta::{EqAffine, Fp};
+use halo2_proofs::circuit::{Cell, Layouter, SimpleFloorPlanner,Value};
 use halo2_proofs::plonk::*;
-use halo2_proofs::poly::{commitment::Params, Rotation};
+use halo2_proofs::poly::commitment::Prover;
+use halo2_proofs::poly::ipa::commitment::{IPACommitmentScheme, ParamsIPA};
+use halo2_proofs::poly::ipa::multiopen::ProverIPA;
+use halo2_proofs::poly::ipa::strategy::BatchVerifier;
+use halo2_proofs::poly::Rotation;
+use halo2_proofs::transcript::TranscriptReadBuffer;
+use halo2_proofs::transcript::TranscriptWriterBuffer;
 use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
+use halo2curves::pasta::{EqAffine, Fp};
 use rand_core::OsRng;
 
 use std::marker::PhantomData;
@@ -253,18 +259,18 @@ fn criterion_benchmark(c: &mut Criterion) {
         }
     }
 
-    fn keygen(k: u32) -> (Params<EqAffine>, ProvingKey<EqAffine>) {
-        let params: Params<EqAffine> = Params::new(k);
-        let empty_circuit: MyCircuit<Fp> = MyCircuit {
-            a: Value::unknown(),
-            k,
-        };
-        let vk = keygen_vk(&params, &empty_circuit).expect("keygen_vk should not fail");
-        let pk = keygen_pk(&params, vk, &empty_circuit).expect("keygen_pk should not fail");
+    fn keygen(k: u32) -> (ParamsIPA<EqAffine>, ProvingKey<EqAffine>) {
+        use halo2_proofs::poly::commitment::ParamsProver;
+        let params: ParamsIPA<EqAffine> = ParamsIPA::new(k);
+        let empty_circuit: MyCircuit<Fp> = MyCircuit { a: None, k };
+        let vk = keygen_vk::<IPACommitmentScheme<EqAffine>, _>(&params, &empty_circuit)
+            .expect("keygen_vk should not fail");
+        let pk = keygen_pk::<IPACommitmentScheme<EqAffine>, _>(&params, vk, &empty_circuit)
+            .expect("keygen_pk should not fail");
         (params, pk)
     }
 
-    fn prover(k: u32, params: &Params<EqAffine>, pk: &ProvingKey<EqAffine>) -> Vec<u8> {
+    fn prover(k: u32, params: &ParamsIPA<EqAffine>, pk: &ProvingKey<EqAffine>) -> Vec<u8> {
         let rng = OsRng;
 
         let circuit: MyCircuit<Fp> = MyCircuit {
@@ -272,14 +278,23 @@ fn criterion_benchmark(c: &mut Criterion) {
             k,
         };
 
-        let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
-        create_proof(params, pk, &[circuit], &[&[]], rng, &mut transcript)
-            .expect("proof generation should not fail");
+        let mut transcript = Blake2bWrite::<_, _, Challenge255<EqAffine>>::init(vec![]);
+        create_proof::<IPACommitmentScheme<EqAffine>, ProverIPA<EqAffine>, _, _, _, _>(
+            params,
+            pk,
+            &[circuit],
+            &[&[]],
+            rng,
+            &mut transcript,
+        )
+        .expect("proof generation should not fail");
         transcript.finalize()
     }
 
-    fn verifier(params: &Params<EqAffine>, vk: &VerifyingKey<EqAffine>, proof: &[u8]) {
-        let strategy = SingleVerifier::new(params);
+    fn verifier(params: &ParamsIPA<EqAffine>, vk: &VerifyingKey<EqAffine>, proof: &[u8]) {
+        use halo2_proofs::poly::VerificationStrategy;
+        let strategy = BatchVerifier::new(params, OsRng);
+
         let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(proof);
         assert!(verify_proof(params, vk, strategy, &[&[]], &mut transcript).is_ok());
     }

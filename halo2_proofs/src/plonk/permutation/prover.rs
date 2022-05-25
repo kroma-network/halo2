@@ -12,9 +12,8 @@ use crate::{
     plonk::{self, Error},
     poly::{
         self,
-        commitment::{Blind, Params},
-        multiopen::ProverQuery,
-        Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation,
+        commitment::{Blind, CommitmentScheme, Params},
+        Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, ProverQuery, Rotation,
     },
     transcript::{EncodedChallenge, TranscriptWrite},
 };
@@ -44,25 +43,26 @@ pub(crate) struct Evaluated<C: CurveAffine> {
 
 impl Argument {
     pub(in crate::plonk) fn commit<
-        C: CurveAffine,
-        E: EncodedChallenge<C>,
+        'params,
+        Scheme: CommitmentScheme<'params>,
+        E: EncodedChallenge<Scheme::Curve>,
         Ev: Copy + Send + Sync,
         R: RngCore,
-        T: TranscriptWrite<C, E>,
+        T: TranscriptWrite<Scheme::Curve, E>,
     >(
         &self,
-        params: &Params<C>,
-        pk: &plonk::ProvingKey<C>,
-        pkey: &ProvingKey<C>,
-        advice: &[Polynomial<C::Scalar, LagrangeCoeff>],
-        fixed: &[Polynomial<C::Scalar, LagrangeCoeff>],
-        instance: &[Polynomial<C::Scalar, LagrangeCoeff>],
-        beta: ChallengeBeta<C>,
-        gamma: ChallengeGamma<C>,
-        evaluator: &mut poly::Evaluator<Ev, C::Scalar, ExtendedLagrangeCoeff>,
+        params: &'params Scheme::ParamsProver,
+        pk: &plonk::ProvingKey<Scheme::Curve>,
+        pkey: &ProvingKey<Scheme::Curve>,
+        advice: &[Polynomial<Scheme::Scalar, LagrangeCoeff>],
+        fixed: &[Polynomial<Scheme::Scalar, LagrangeCoeff>],
+        instance: &[Polynomial<Scheme::Scalar, LagrangeCoeff>],
+        beta: ChallengeBeta<Scheme::Curve>,
+        gamma: ChallengeGamma<Scheme::Curve>,
+        evaluator: &mut poly::Evaluator<Ev, Scheme::Scalar, ExtendedLagrangeCoeff>,
         mut rng: R,
         transcript: &mut T,
-    ) -> Result<Committed<C, Ev>, Error> {
+    ) -> Result<Committed<Scheme::Curve, Ev>, Error> {
         let domain = &pk.vk.domain;
 
         // How many columns can be included in a single permutation polynomial?
@@ -74,10 +74,10 @@ impl Argument {
         let blinding_factors = pk.vk.cs.blinding_factors();
 
         // Each column gets its own delta power.
-        let mut deltaomega = C::Scalar::one();
+        let mut deltaomega = Scheme::Scalar::one();
 
         // Track the "last" value from the previous column set
-        let mut last_z = C::Scalar::one();
+        let mut last_z = Scheme::Scalar::one();
 
         let mut sets = vec![];
 
@@ -94,7 +94,7 @@ impl Argument {
             // where p_j(X) is the jth column in this permutation,
             // and i is the ith row of the column.
 
-            let mut modified_values = vec![C::Scalar::one(); params.n as usize];
+            let mut modified_values = vec![Scheme::Scalar::one(); params.n() as usize];
 
             // Iterate over each column of the permutation
             for (&column, permuted_column_values) in columns.iter().zip(permutations.iter()) {
@@ -137,7 +137,7 @@ impl Argument {
                         deltaomega *= &omega;
                     }
                 });
-                deltaomega *= &C::Scalar::DELTA;
+                deltaomega *= &Scheme::Scalar::DELTA;
             }
 
             // The modified_values vector is a vector of products of fractions
@@ -152,7 +152,7 @@ impl Argument {
             // Compute the evaluations of the permutation product polynomial
             // over our domain, starting with z[0] = 1
             let mut z = vec![last_z];
-            for row in 1..(params.n as usize) {
+            for row in 1..(params.n() as usize) {
                 let mut tmp = z[row - 1];
 
                 tmp *= &modified_values[row - 1];
@@ -160,13 +160,13 @@ impl Argument {
             }
             let mut z = domain.lagrange_from_vec(z);
             // Set blinding factors
-            for z in &mut z[params.n as usize - blinding_factors..] {
-                *z = C::Scalar::random(&mut rng);
+            for z in &mut z[params.n() as usize - blinding_factors..] {
+                *z = Scheme::Scalar::random(&mut rng);
             }
             // Set new last_z
-            last_z = z[params.n as usize - (blinding_factors + 1)];
+            last_z = z[params.n() as usize - (blinding_factors + 1)];
 
-            let blind = Blind(C::Scalar::random(&mut rng));
+            let blind = Blind(Scheme::Scalar::random(&mut rng));
 
             let permutation_product_commitment_projective = params.commit_lagrange(&z, blind);
             let permutation_product_blind = blind;

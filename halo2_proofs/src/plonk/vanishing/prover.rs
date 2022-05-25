@@ -5,14 +5,14 @@ use group::Curve;
 use rand_core::RngCore;
 
 use super::Argument;
+
 use crate::{
     arithmetic::{eval_polynomial, CurveAffine, FieldExt},
     plonk::{ChallengeX, ChallengeY, Error},
     poly::{
         self,
-        commitment::{Blind, Params},
-        multiopen::ProverQuery,
-        Coeff, EvaluationDomain, ExtendedLagrangeCoeff, Polynomial,
+        commitment::{Blind, CommitmentScheme, Params, ParamsProver},
+        Coeff, EvaluationDomain, ExtendedLagrangeCoeff, Polynomial, ProverQuery,
     },
     transcript::{EncodedChallenge, TranscriptWrite},
 };
@@ -35,19 +35,25 @@ pub(in crate::plonk) struct Evaluated<C: CurveAffine> {
 }
 
 impl<C: CurveAffine> Argument<C> {
-    pub(in crate::plonk) fn commit<E: EncodedChallenge<C>, R: RngCore, T: TranscriptWrite<C, E>>(
-        params: &Params<C>,
-        domain: &EvaluationDomain<C::Scalar>,
+    pub(in crate::plonk) fn commit<
+        'params,
+        Scheme: CommitmentScheme<'params, Curve = C, Scalar = C::Scalar>,
+        E: EncodedChallenge<Scheme::Curve>,
+        R: RngCore,
+        T: TranscriptWrite<Scheme::Curve, E>,
+    >(
+        params: &'params Scheme::ParamsProver,
+        domain: &EvaluationDomain<Scheme::Scalar>,
         mut rng: R,
         transcript: &mut T,
-    ) -> Result<Committed<C>, Error> {
+    ) -> Result<Committed<Scheme::Curve>, Error> {
         // Sample a random polynomial of degree n - 1
         let mut random_poly = domain.empty_coeff();
         for coeff in random_poly.iter_mut() {
             *coeff = C::Scalar::random(&mut rng);
         }
         // Sample a random blinding factor
-        let random_blind = Blind(C::Scalar::random(rng));
+        let random_blind = Blind(Scheme::Scalar::random(rng));
 
         // Commit
         let c = params.commit(&random_poly, random_blind).to_affine();
@@ -62,20 +68,26 @@ impl<C: CurveAffine> Argument<C> {
 
 impl<C: CurveAffine> Committed<C> {
     pub(in crate::plonk) fn construct<
-        E: EncodedChallenge<C>,
+        'params,
+        Scheme: CommitmentScheme<'params, Curve = C, Scalar = C::Scalar>,
+        E: EncodedChallenge<Scheme::Curve>,
         Ev: Copy + Send + Sync,
         R: RngCore,
-        T: TranscriptWrite<C, E>,
+        T: TranscriptWrite<Scheme::Curve, E>,
+        I,
     >(
         self,
-        params: &Params<C>,
+        params: &'params Scheme::ParamsProver,
         domain: &EvaluationDomain<C::Scalar>,
         evaluator: poly::Evaluator<Ev, C::Scalar, ExtendedLagrangeCoeff>,
-        expressions: impl Iterator<Item = poly::Ast<Ev, C::Scalar, ExtendedLagrangeCoeff>>,
-        y: ChallengeY<C>,
+        expressions: I,
+        y: ChallengeY<Scheme::Curve>,
         mut rng: R,
         transcript: &mut T,
-    ) -> Result<Constructed<C>, Error> {
+    ) -> Result<Constructed<C>, Error>
+    where
+        I: Iterator<Item = poly::Ast<Ev, C::Scalar, ExtendedLagrangeCoeff>>,
+    {
         // Evaluate the h(X) polynomial's constraint system expressions for the constraints provided
         let h_poly = poly::Ast::distribute_powers(expressions, *y); // Fold the gates together with the y challenge
         let h_poly = evaluator.evaluate(&h_poly, domain); // Evaluate the h(X) polynomial
@@ -88,7 +100,7 @@ impl<C: CurveAffine> Committed<C> {
 
         // Split h(X) up into pieces
         let h_pieces = h_poly
-            .chunks_exact(params.n as usize)
+            .chunks_exact(params.n() as usize)
             .map(|v| domain.coeff_from_vec(v.to_vec()))
             .collect::<Vec<_>>();
         drop(h_poly);
@@ -103,8 +115,11 @@ impl<C: CurveAffine> Committed<C> {
             .zip(h_blinds.iter())
             .map(|(h_piece, blind)| params.commit(h_piece, *blind))
             .collect();
-        let mut h_commitments = vec![C::identity(); h_commitments_projective.len()];
-        C::Curve::batch_normalize(&h_commitments_projective, &mut h_commitments);
+        let mut h_commitments = vec![Scheme::Curve::identity(); h_commitments_projective.len()];
+        <<Scheme as CommitmentScheme>::Curve as CurveAffine>::CurveExt::batch_normalize(
+            &h_commitments_projective,
+            &mut h_commitments,
+        );
         let h_commitments = h_commitments;
 
         // Hash each h(X) piece

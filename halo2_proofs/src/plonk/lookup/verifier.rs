@@ -4,10 +4,11 @@ use super::super::{
     circuit::Expression, ChallengeBeta, ChallengeGamma, ChallengeTheta, ChallengeX,
 };
 use super::Argument;
+use crate::poly::commitment::MSM;
 use crate::{
     arithmetic::{CurveAffine, FieldExt},
     plonk::{Error, VerifyingKey},
-    poly::{multiopen::VerifierQuery, Rotation},
+    poly::{Rotation, VerifierQuery},
     transcript::{EncodedChallenge, TranscriptRead},
 };
 use ff::Field;
@@ -165,11 +166,11 @@ impl<C: CurveAffine> Evaluated<C> {
             ))
     }
 
-    pub(in crate::plonk) fn queries<'r, 'params: 'r>(
+    pub(in crate::plonk) fn queries<'r>(
         &'r self,
         vk: &'r VerifyingKey<C>,
         x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, 'params, C>> + Clone {
+    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone {
         let x_inv = vk.domain.rotate_omega(*x, Rotation::prev());
         let x_next = vk.domain.rotate_omega(*x, Rotation::next());
 

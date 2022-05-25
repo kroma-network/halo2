@@ -1,4 +1,4 @@
-use std::iter;
+use std::{iter, marker::PhantomData};
 
 use ff::Field;
 
@@ -6,8 +6,8 @@ use crate::{
     arithmetic::CurveAffine,
     plonk::{Error, VerifyingKey},
     poly::{
-        commitment::{Params, MSM},
-        multiopen::VerifierQuery,
+        commitment::{CommitmentScheme, Params, ParamsVerifier, MSM},
+        VerifierQuery,
     },
     transcript::{read_n_points, EncodedChallenge, TranscriptRead},
 };
@@ -30,8 +30,8 @@ pub struct PartiallyEvaluated<C: CurveAffine> {
     random_eval: C::Scalar,
 }
 
-pub struct Evaluated<'params, C: CurveAffine> {
-    h_commitment: MSM<'params, C>,
+pub struct Evaluated<C: CurveAffine, M: MSM<C>> {
+    h_commitment: M,
     random_poly_commitment: C,
     expected_h_eval: C::Scalar,
     random_eval: C::Scalar,
@@ -87,15 +87,23 @@ impl<C: CurveAffine> Constructed<C> {
 }
 
 impl<C: CurveAffine> PartiallyEvaluated<C> {
-    pub(in crate::plonk) fn verify(
+    pub(in crate::plonk) fn verify<
+        'params,
+        Scheme: CommitmentScheme<'params, Curve = C, Scalar = C::ScalarExt>,
+        I,
+    >(
         self,
-        params: &Params<C>,
-        expressions: impl Iterator<Item = C::Scalar>,
-        y: ChallengeY<C>,
-        xn: C::Scalar,
-    ) -> Evaluated<C> {
-        let expected_h_eval = expressions.fold(C::Scalar::zero(), |h_eval, v| h_eval * &*y + &v);
-        let expected_h_eval = expected_h_eval * ((xn - C::Scalar::one()).invert().unwrap());
+        params: &'params Scheme::ParamsVerifier,
+        expressions: I,
+        y: ChallengeY<Scheme::Curve>,
+        xn: Scheme::Scalar,
+    ) -> Evaluated<Scheme::Curve, Scheme::MSM>
+    where
+        I: Iterator<Item = Scheme::Scalar>,
+    {
+        let expected_h_eval =
+            expressions.fold(Scheme::Scalar::zero(), |h_eval, v| h_eval * &*y + &v);
+        let expected_h_eval = expected_h_eval * ((xn - Scheme::Scalar::one()).invert().unwrap());
 
         let h_commitment =
             self.h_commitments
@@ -103,7 +111,10 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
                 .rev()
                 .fold(params.empty_msm(), |mut acc, commitment| {
                     acc.scale(xn);
-                    acc.append_term(C::Scalar::one(), *commitment);
+                    let commitment: <<Scheme as CommitmentScheme>::Curve as CurveAffine>::CurveExt =
+                        (*commitment).into();
+                    acc.append_term(C::Scalar::one(), commitment);
+
                     acc
                 });
 
@@ -116,14 +127,11 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
     }
 }
 
-impl<'params, C: CurveAffine> Evaluated<'params, C> {
+impl<'params, C: CurveAffine, M: MSM<C>> Evaluated<C, M> {
     pub(in crate::plonk) fn queries<'r>(
         &'r self,
         x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, 'params, C>> + Clone
-    where
-        'params: 'r,
-    {
+    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone {
         iter::empty()
             .chain(Some(VerifierQuery::new_msm(
                 &self.h_commitment,

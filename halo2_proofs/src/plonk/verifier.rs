@@ -8,9 +8,11 @@ use super::{
     VerifyingKey,
 };
 use crate::arithmetic::{CurveAffine, FieldExt};
+use crate::poly::commitment::{CommitmentScheme, Verifier};
+// use crate::poly::VerificationStrategy;
 use crate::poly::{
-    commitment::{Blind, Guard, Params, MSM},
-    multiopen::{self, VerifierQuery},
+    commitment::{Blind, Params, MSM},
+    Guard, VerifierQuery,
 };
 use crate::transcript::{read_n_points, read_n_scalars, EncodedChallenge, TranscriptRead};
 
@@ -63,21 +65,24 @@ impl<'params, C: CurveAffine> VerificationStrategy<'params, C> for SingleVerifie
         }
     }
 }
+use crate::poly::commitment::ParamsVerifier;
 
 /// Returns a boolean indicating whether or not the proof is valid
 pub fn verify_proof<
     'params,
-    C: CurveAffine,
-    E: EncodedChallenge<C>,
-    T: TranscriptRead<C, E>,
-    V: VerificationStrategy<'params, C>,
+    Scheme: CommitmentScheme<'params>,
+    E: EncodedChallenge<Scheme::Curve>,
+    T: TranscriptRead<Scheme::Curve, E>,
+    V: Verifier<'params, Scheme>,
+    Strategy: VerificationStrategy<'params, Scheme, V, R>,
+    R: RngCore,
 >(
-    params: &'params Params<C>,
-    vk: &VerifyingKey<C>,
-    strategy: V,
-    instances: &[&[&[C::Scalar]]],
+    params: &'params Scheme::ParamsVerifier,
+    vk: &VerifyingKey<Scheme::Curve>,
+    strategy: Strategy,
+    instances: &[&[&[Scheme::Scalar]]],
     transcript: &mut T,
-) -> Result<V::Output, Error> {
+) -> Result<Strategy::Output, Error> {
     // Check that instances matches the expected number of instance columns
     for instances in instances.iter() {
         if instances.len() != vk.cs.num_instance_columns {
@@ -91,11 +96,11 @@ pub fn verify_proof<
             instance
                 .iter()
                 .map(|instance| {
-                    if instance.len() > params.n as usize - (vk.cs.blinding_factors() + 1) {
+                    if instance.len() > params.n() as usize - (vk.cs.blinding_factors() + 1) {
                         return Err(Error::InstanceTooLarge);
                     }
                     let mut poly = instance.to_vec();
-                    poly.resize(params.n as usize, C::Scalar::zero());
+                    poly.resize(params.n() as usize, Scheme::Scalar::zero());
                     let poly = vk.domain.lagrange_from_vec(poly);
 
                     Ok(params.commit_lagrange(&poly, Blind::default()).to_affine())
@@ -204,7 +209,7 @@ pub fn verify_proof<
     // commitments open to the correct values.
     let vanishing = {
         // x^n
-        let xn = x.pow(&[params.n as u64, 0, 0, 0]);
+        let xn = x.pow(&[params.n() as u64, 0, 0, 0]);
 
         let blinding_factors = vk.cs.blinding_factors();
         let l_evals = vk
@@ -212,9 +217,9 @@ pub fn verify_proof<
             .l_i_range(*x, xn, (-((blinding_factors + 1) as i32))..=0);
         assert_eq!(l_evals.len(), 2 + blinding_factors);
         let l_last = l_evals[0];
-        let l_blind: C::Scalar = l_evals[1..(1 + blinding_factors)]
+        let l_blind: Scheme::Scalar = l_evals[1..(1 + blinding_factors)]
             .iter()
-            .fold(C::Scalar::zero(), |acc, eval| acc + eval);
+            .fold(Scheme::Scalar::zero(), |acc, eval| acc + eval);
         let l_0 = l_evals[1 + blinding_factors];
 
         // Compute the expected value of h(x)
@@ -278,7 +283,7 @@ pub fn verify_proof<
                     )
             });
 
-        vanishing.verify(params, expressions, y, xn)
+        vanishing.verify::<Scheme, _>(params, expressions, y, xn)
     };
 
     let queries = instance_commitments
@@ -342,7 +347,12 @@ pub fn verify_proof<
 
     // We are now convinced the circuit is satisfied so long as the
     // polynomial commitments open to the correct values.
-    strategy.process(|msm| {
-        multiopen::verify_proof(params, transcript, queries, msm).map_err(|_| Error::Opening)
+
+    let verifier: V = Verifier::new(params);
+
+    strategy.process(|msm_accumulator| {
+        verifier
+            .verify_proof(transcript, queries, msm_accumulator)
+            .map_err(|_| Error::Opening)
     })
 }
