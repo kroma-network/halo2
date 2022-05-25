@@ -1,7 +1,10 @@
 //! Contains utilities for performing polynomial arithmetic over an evaluation
 //! domain that is of a suitable size for the application.
 
-use crate::{arithmetic::{best_fft, parallelize, FieldExt, Group}, plonk::Assigned};
+use crate::{
+    arithmetic::{best_fft, parallelize, FieldExt, Group},
+    plonk::Assigned,
+};
 
 use super::{Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation};
 

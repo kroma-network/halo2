@@ -6,10 +6,7 @@ use group::{
 };
 
 use super::ParamsIPA;
-use crate::poly::ipa::{
-    commitment::{IPACommitmentScheme, ParamsVerifierIPA},
-    // msm::MSMIPAAccumulator,
-};
+use crate::poly::ipa::commitment::{IPACommitmentScheme, ParamsVerifierIPA};
 use crate::{
     arithmetic::{best_multiexp, CurveAffine},
     poly::ipa::strategy::GuardIPA,
@@ -30,7 +27,6 @@ pub fn verify_proof<'params, C: CurveAffine, E: EncodedChallenge<C>, T: Transcri
     v: C::Scalar,
 ) -> Result<GuardIPA<'params, C>, Error> {
     let k = params.k as usize;
-    // let msm = MSMIPAAccumulator::from_msm(params, msm);
 
     // P' = P - [v] G_0 + [ξ] S
     msm.add_constant_term(-v); // add [-v] G_0
