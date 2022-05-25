@@ -203,7 +203,7 @@ mod tests {
         plonk::{Circuit, ConstraintSystem, Error},
     };
     use halo2curves::pasta::pallas::Base;
-    use halo2curves::{CurveAffine, FieldExt};
+    use halo2curves::FieldExt;
     use rand::rngs::OsRng;
 
     #[test]
