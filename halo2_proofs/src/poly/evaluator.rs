@@ -1,3 +1,9 @@
+use super::{
+    Basis, Coeff, EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation,
+};
+use crate::{arithmetic::parallelize, multicore};
+use group::ff::Field;
+use halo2curves::FieldExt;
 use std::{
     cmp,
     collections::{HashMap, HashSet},
@@ -7,14 +13,6 @@ use std::{
     ops::{Add, Mul, MulAssign, Neg, Sub},
     sync::Arc,
 };
-
-use group::ff::Field;
-use pasta_curves::arithmetic::FieldExt;
-
-use super::{
-    Basis, Coeff, EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation,
-};
-use crate::{arithmetic::parallelize, multicore};
 
 /// Returns `(chunk_size, num_chunks)` suitable for processing the given polynomial length
 /// in the current parallelization environment.
@@ -650,7 +648,7 @@ impl BasisOps for ExtendedLagrangeCoeff {
 mod tests {
     use std::iter;
 
-    use pasta_curves::pallas;
+    use halo2curves::pasta::pallas;
 
     use super::{get_chunk_params, new_evaluator, Ast, BasisOps, Evaluator};
     use crate::{

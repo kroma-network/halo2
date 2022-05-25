@@ -5,10 +5,20 @@ use group::Group;
 
 use std::collections::BTreeMap;
 
+use crate::{
+    arithmetic::{best_multiexp, parallelize, CurveAffine},
+    poly::{
+        commitment::{CommitmentScheme, Params, MSM},
+        ipa::commitment::ParamsVerifierIPA,
+    },
+};
+
+use super::commitment::{IPACommitmentScheme, ParamsIPA};
+
 /// A multiscalar multiplication in the polynomial commitment scheme
 #[derive(Debug, Clone)]
-pub struct MSM<'a, C: CurveAffine> {
-    pub(crate) params: &'a Params<C>,
+pub struct MSMIPA<'params, C: CurveAffine> {
+    pub(crate) params: &'params ParamsVerifierIPA<C>,
     g_scalars: Option<Vec<C::Scalar>>,
     w_scalar: Option<C::Scalar>,
     u_scalar: Option<C::Scalar>,
@@ -16,20 +26,21 @@ pub struct MSM<'a, C: CurveAffine> {
     other: BTreeMap<C::Base, (C::Scalar, C::Base)>,
 }
 
-impl<'a, C: CurveAffine> MSM<'a, C> {
-    /// Create a new, empty MSM using the provided parameters.
-    pub fn new(params: &'a Params<C>) -> Self {
+impl<'a, C: CurveAffine> MSMIPA<'a, C> {
+    /// Given verifier parameters Creates an empty multi scalar engine
+    pub fn new(params: &'a ParamsVerifierIPA<C>) -> Self {
         let g_scalars = None;
         let w_scalar = None;
         let u_scalar = None;
         let other = BTreeMap::new();
 
-        MSM {
-            params,
+        Self {
             g_scalars,
             w_scalar,
             u_scalar,
             other,
+
+            params,
         }
     }
 
@@ -83,6 +94,79 @@ impl<'a, C: CurveAffine> MSM<'a, C> {
         }
     }
 
+    fn add_msm(&mut self, other: &dyn MSM<C>) {
+        self.other_scalars.extend(other.scalars().iter());
+        self.other_bases.extend(other.bases().iter());
+    }
+
+    fn scale(&mut self, factor: C::Scalar) {
+        if let Some(g_scalars) = &mut self.g_scalars {
+            for g_scalar in g_scalars {
+                *g_scalar *= &factor;
+            }
+        }
+
+        for other in self.other.values_mut() {
+            other.0 *= factor;
+        }
+
+        self.w_scalar = self.w_scalar.map(|a| a * &factor);
+        self.u_scalar = self.u_scalar.map(|a| a * &factor);
+    }
+
+    fn check(&self) -> bool {
+        bool::from(self.eval().is_identity())
+    }
+
+    fn eval(&self) -> C::Curve {
+        let len = self.g_scalars.as_ref().map(|v| v.len()).unwrap_or(0)
+            + self.w_scalar.map(|_| 1).unwrap_or(0)
+            + self.u_scalar.map(|_| 1).unwrap_or(0)
+            + self.other.len();
+        let mut scalars: Vec<C::Scalar> = Vec::with_capacity(len);
+        let mut bases: Vec<C::Curve> = Vec::with_capacity(len);
+
+        scalars.extend(self.other.values().map(|(scalar, _)| scalar));
+        bases.extend(
+            self.other
+                .iter()
+                .map(|(x, (_, y))| C::from_xy(*x, *y).unwrap()),
+        );
+
+        if let Some(w_scalar) = self.w_scalar {
+            scalars.push(w_scalar);
+            bases.push(self.params.w.into());
+        }
+
+        if let Some(u_scalar) = self.u_scalar {
+            scalars.push(u_scalar);
+            bases.push(self.params.u.into());
+        }
+
+        if let Some(g_scalars) = &self.g_scalars {
+            scalars.extend(g_scalars);
+            let g: Vec<C::CurveExt> = self.params.g.iter().map(|g| (*g).into()).collect();
+            bases.extend(g);
+        }
+
+        assert_eq!(scalars.len(), len);
+
+        use group::Curve;
+        let mut normalized = vec![C::identity(); scalars.len()];
+        C::Curve::batch_normalize(&bases[..], &mut normalized);
+        best_multiexp(&scalars, &normalized[..])
+    }
+
+    fn bases(&self) -> Vec<C::CurveExt> {
+        self.other_bases.clone()
+    }
+
+    fn scalars(&self) -> Vec<C::Scalar> {
+        self.other_scalars.clone()
+    }
+}
+
+impl<'a, C: CurveAffine> MSMIPA<'a, C> {
     /// Add a value to the first entry of `g_scalars`.
     pub fn add_constant_term(&mut self, constant: C::Scalar) {
         if let Some(g_scalars) = self.g_scalars.as_mut() {
@@ -106,7 +190,6 @@ impl<'a, C: CurveAffine> MSM<'a, C> {
             self.g_scalars = Some(scalars.to_vec());
         }
     }
-
     /// Add to `w_scalar`
     pub fn add_to_w_scalar(&mut self, scalar: C::Scalar) {
         self.w_scalar = self.w_scalar.map_or(Some(scalar), |a| Some(a + &scalar));
@@ -115,58 +198,6 @@ impl<'a, C: CurveAffine> MSM<'a, C> {
     /// Add to `u_scalar`
     pub fn add_to_u_scalar(&mut self, scalar: C::Scalar) {
         self.u_scalar = self.u_scalar.map_or(Some(scalar), |a| Some(a + &scalar));
-    }
-
-    /// Scale all scalars in the MSM by some scaling factor
-    pub fn scale(&mut self, factor: C::Scalar) {
-        if let Some(g_scalars) = &mut self.g_scalars {
-            for g_scalar in g_scalars {
-                *g_scalar *= &factor;
-            }
-        }
-
-        for other in self.other.values_mut() {
-            other.0 *= factor;
-        }
-
-        self.w_scalar = self.w_scalar.map(|a| a * &factor);
-        self.u_scalar = self.u_scalar.map(|a| a * &factor);
-    }
-
-    /// Perform multiexp and check that it results in zero
-    pub fn eval(self) -> bool {
-        let len = self.g_scalars.as_ref().map(|v| v.len()).unwrap_or(0)
-            + self.w_scalar.map(|_| 1).unwrap_or(0)
-            + self.u_scalar.map(|_| 1).unwrap_or(0)
-            + self.other.len();
-        let mut scalars: Vec<C::Scalar> = Vec::with_capacity(len);
-        let mut bases: Vec<C> = Vec::with_capacity(len);
-
-        scalars.extend(self.other.values().map(|(scalar, _)| scalar));
-        bases.extend(
-            self.other
-                .iter()
-                .map(|(x, (_, y))| C::from_xy(*x, *y).unwrap()),
-        );
-
-        if let Some(w_scalar) = self.w_scalar {
-            scalars.push(w_scalar);
-            bases.push(self.params.w);
-        }
-
-        if let Some(u_scalar) = self.u_scalar {
-            scalars.push(u_scalar);
-            bases.push(self.params.u);
-        }
-
-        if let Some(g_scalars) = &self.g_scalars {
-            scalars.extend(g_scalars);
-            bases.extend(self.params.g.iter());
-        }
-
-        assert_eq!(scalars.len(), len);
-
-        bool::from(best_multiexp(&scalars, &bases).is_identity())
     }
 }
 

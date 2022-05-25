@@ -1,10 +1,7 @@
 //! Contains utilities for performing polynomial arithmetic over an evaluation
 //! domain that is of a suitable size for the application.
 
-use crate::{
-    arithmetic::{best_fft, parallelize, FieldExt, Group},
-    plonk::Assigned,
-};
+use crate::{arithmetic::{best_fft, parallelize, FieldExt, Group}, plonk::Assigned};
 
 use super::{Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation};
 
@@ -477,10 +474,9 @@ pub struct PinnedEvaluationDomain<'a, G: Group> {
 
 #[test]
 fn test_rotate() {
-    use rand_core::OsRng;
-
     use crate::arithmetic::eval_polynomial;
-    use crate::pasta::pallas::Scalar;
+    use halo2curves::pasta::pallas::Scalar;
+    use rand_core::OsRng;
 
     let domain = EvaluationDomain::<Scalar>::new(1, 3);
     let rng = OsRng;
@@ -521,7 +517,8 @@ fn test_l_i() {
     use rand_core::OsRng;
 
     use crate::arithmetic::{eval_polynomial, lagrange_interpolate};
-    use crate::pasta::pallas::Scalar;
+    use halo2curves::pasta::pallas::Scalar;
+
     let domain = EvaluationDomain::<Scalar>::new(1, 3);
 
     let mut l = vec![];
