@@ -18,11 +18,9 @@ use halo2_proofs::{
     },
     poly::Rotation,
 };
+use halo2curves::pasta::pallas;
+use halo2curves::{CurveAffine, FieldExt};
 use lazy_static::lazy_static;
-use pasta_curves::{
-    arithmetic::{CurveAffine, FieldExt},
-    pallas,
-};
 
 pub mod base_field_elem;
 pub mod full_width;

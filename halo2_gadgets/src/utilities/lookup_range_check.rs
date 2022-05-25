@@ -12,6 +12,8 @@ use ff::PrimeFieldBits;
 
 use super::*;
 
+use halo2curves::FieldExt;
+
 /// The running sum $[z_0, ..., z_W]$. If created in strict mode, $z_W = 0$.
 #[derive(Debug)]
 pub struct RunningSum<F: FieldExt + PrimeFieldBits>(Vec<AssignedCell<F, F>>);
@@ -395,7 +397,8 @@ mod tests {
         dev::{FailureLocation, MockProver, VerifyFailure},
         plonk::{Circuit, ConstraintSystem, Error},
     };
-    use pasta_curves::{arithmetic::FieldExt, pallas};
+    use halo2curves::pasta::pallas;
+    use halo2curves::FieldExt;
 
     use std::{convert::TryInto, marker::PhantomData};
 

@@ -1,25 +1,30 @@
 use ff::Field;
-use halo2_proofs::{
-    circuit::{Layouter, SimpleFloorPlanner, Value},
-    pasta::Fp,
-    plonk::{
-        create_proof, keygen_pk, keygen_vk, verify_proof, Advice, Circuit, Column,
-        ConstraintSystem, Error, SingleVerifier,
-    },
-    poly::commitment::Params,
-    transcript::{Blake2bRead, Blake2bWrite, Challenge255},
-};
-use pasta_curves::{pallas, vesta};
-
 use halo2_gadgets::poseidon::{
     primitives::{self as poseidon, ConstantLength, Spec},
     Hash, Pow5Chip, Pow5Config,
 };
+use halo2_proofs::poly::{
+    commitment::ParamsProver,
+    ipa::{commitment::IPACommitmentScheme, multiopen::ProverIPA, strategy::BatchVerifier},
+};
+use halo2_proofs::{
+    circuit::{Layouter, SimpleFloorPlanner, Value},
+    plonk::{
+        create_proof, keygen_pk, keygen_vk, verify_proof, Advice, Circuit, Column,
+        ConstraintSystem, Error,
+    },
+    poly::ipa::commitment::ParamsIPA,
+    transcript::{Blake2bRead, Blake2bWrite, Challenge255},
+};
+use halo2curves::pasta::{pallas, vesta, EqAffine, Fp};
 use std::convert::TryInto;
 use std::marker::PhantomData;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::rngs::OsRng;
+
+use halo2_proofs::transcript::TranscriptReadBuffer;
+use halo2_proofs::transcript::TranscriptWriterBuffer;
 
 #[derive(Clone, Copy)]
 struct HashCircuit<S, const WIDTH: usize, const RATE: usize, const L: usize>
@@ -184,7 +189,7 @@ fn bench_poseidon<S, const WIDTH: usize, const RATE: usize, const L: usize>(
     S: Spec<Fp, WIDTH, RATE> + Copy + Clone,
 {
     // Initialize the polynomial commitment parameters
-    let params: Params<vesta::Affine> = Params::new(K);
+    let params: ParamsIPA<vesta::Affine> = ParamsIPA::new(K);
 
     let empty_circuit = HashCircuit::<S, WIDTH, RATE, L> {
         message: Value::unknown(),
@@ -193,8 +198,10 @@ fn bench_poseidon<S, const WIDTH: usize, const RATE: usize, const L: usize>(
     };
 
     // Initialize the proving key
-    let vk = keygen_vk(&params, &empty_circuit).expect("keygen_vk should not fail");
-    let pk = keygen_pk(&params, vk, &empty_circuit).expect("keygen_pk should not fail");
+    let vk = keygen_vk::<IPACommitmentScheme<EqAffine>, _>(&params, &empty_circuit)
+        .expect("keygen_vk should not fail");
+    let pk = keygen_pk::<IPACommitmentScheme<EqAffine>, _>(&params, vk, &empty_circuit)
+        .expect("keygen_pk should not fail");
 
     let prover_name = name.to_string() + "-prover";
     let verifier_name = name.to_string() + "-verifier";
@@ -216,23 +223,40 @@ fn bench_poseidon<S, const WIDTH: usize, const RATE: usize, const L: usize>(
     c.bench_function(&prover_name, |b| {
         b.iter(|| {
             // Create a proof
-            let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
-            create_proof(&params, &pk, &[circuit], &[&[]], &mut rng, &mut transcript)
-                .expect("proof generation should not fail")
+            let mut transcript = Blake2bWrite::<_, EqAffine, Challenge255<_>>::init(vec![]);
+            create_proof::<IPACommitmentScheme<_>, ProverIPA<_>, _, _, _, _>(
+                &params,
+                &pk,
+                &[circuit],
+                &[&[]],
+                &mut rng,
+                &mut transcript,
+            )
+            .expect("proof generation should not fail")
         })
     });
 
     // Create a proof
-    let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
-    create_proof(&params, &pk, &[circuit], &[&[]], &mut rng, &mut transcript)
-        .expect("proof generation should not fail");
+    let mut transcript = Blake2bWrite::<_, EqAffine, Challenge255<_>>::init(vec![]);
+    create_proof::<IPACommitmentScheme<_>, ProverIPA<_>, _, _, _, _>(
+        &params,
+        &pk,
+        &[circuit],
+        &[&[]],
+        &mut rng,
+        &mut transcript,
+    )
+    .expect("proof generation should not fail");
     let proof = transcript.finalize();
 
     c.bench_function(&verifier_name, |b| {
         b.iter(|| {
-            let strategy = SingleVerifier::new(&params);
+            use halo2_proofs::poly::VerificationStrategy;
+            let strategy = BatchVerifier::new(&params, OsRng);
             let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
-            assert!(verify_proof(&params, pk.get_vk(), strategy, &[&[]], &mut transcript).is_ok());
+            let strategy =
+                verify_proof(&params, pk.get_vk(), strategy, &[&[]], &mut transcript).unwrap();
+            assert!(strategy.finalize());
         });
     });
 }
