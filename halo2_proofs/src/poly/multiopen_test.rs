@@ -212,7 +212,7 @@ mod test {
         'params,
         Scheme: CommitmentScheme<'params>,
         TranscriptWrite: TranscriptWriterBuffer<Vec<u8>, Scheme::Curve, Ch>,
-        Prover: _Prover<'params, Scheme, Rng>,
+        Prover: _Prover<'params, Scheme>,
         Ch,
         Rng,
     >(

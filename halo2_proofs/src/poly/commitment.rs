@@ -121,7 +121,7 @@ pub trait MSM<C: CurveAffine>: Debug {
 }
 
 /// Common multi-open prover interface for various commitment schemes
-pub trait Prover<'params, Scheme: CommitmentScheme<'params>, R: RngCore> {
+pub trait Prover<'params, Scheme: CommitmentScheme<'params>> {
     /// Creates new prover instance
     fn new(params: &'params Scheme::ParamsProver) -> Self;
 
@@ -130,6 +130,7 @@ pub trait Prover<'params, Scheme: CommitmentScheme<'params>, R: RngCore> {
         'com,
         E: EncodedChallenge<Scheme::Curve>,
         T: TranscriptWrite<Scheme::Curve, E>,
+        R,
         I,
     >(
         &self,
@@ -138,13 +139,12 @@ pub trait Prover<'params, Scheme: CommitmentScheme<'params>, R: RngCore> {
         queries: I,
     ) -> io::Result<()>
     where
-        I: IntoIterator<Item = ProverQuery<'com, Scheme::Curve>> + Clone;
+        I: IntoIterator<Item = ProverQuery<'com, Scheme::Curve>> + Clone,
+        R: RngCore;
 }
 
 /// Common multi-open verifier interface for various commitment schemes
 pub trait Verifier<'params, Scheme: CommitmentScheme<'params>> {
-    /// Domain specific verifier constants
-
     /// Unfinalized verification result. This is returned in verification
     /// to allow developer to compress or combined verification results
     type Guard: Guard<'params, Scheme, MSMAccumulator = Self::MSMAccumulator>;

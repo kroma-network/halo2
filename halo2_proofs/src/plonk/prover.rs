@@ -36,7 +36,7 @@ use group::prime::PrimeCurveAffine;
 pub fn create_proof<
     'params,
     Scheme: CommitmentScheme<'params>,
-    Prover: _Prover<'params, Scheme, R>,
+    Prover: _Prover<'params, Scheme>,
     E: EncodedChallenge<Scheme::Curve>,
     R: RngCore,
     T: TranscriptWrite<Scheme::Curve, E>,

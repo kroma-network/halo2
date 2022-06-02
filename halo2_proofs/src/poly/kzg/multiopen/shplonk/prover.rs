@@ -93,7 +93,7 @@ impl<'a, E: Engine> ProverSHPLONK<'a, E> {
 }
 
 /// Create a multi-opening proof
-impl<'params, E: Engine + Debug, R: RngCore> Prover<'params, KZGCommitmentScheme<E>, R>
+impl<'params, E: Engine + Debug> Prover<'params, KZGCommitmentScheme<E>>
     for ProverSHPLONK<'params, E>
 {
     fn new(params: &'params ParamsKZG<E>) -> Self {
@@ -105,6 +105,7 @@ impl<'params, E: Engine + Debug, R: RngCore> Prover<'params, KZGCommitmentScheme
         'com,
         Ch: EncodedChallenge<E::G1Affine>,
         T: TranscriptWrite<E::G1Affine, Ch>,
+        R,
         I,
     >(
         &self,
@@ -114,6 +115,7 @@ impl<'params, E: Engine + Debug, R: RngCore> Prover<'params, KZGCommitmentScheme
     ) -> io::Result<()>
     where
         I: IntoIterator<Item = ProverQuery<'com, E::G1Affine>> + Clone,
+        R: RngCore,
     {
         let zero = || Polynomial::<E::Scalar, Coeff> {
             values: vec![E::Scalar::zero(); self.params.n as usize],

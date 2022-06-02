@@ -21,15 +21,13 @@ pub struct ProverIPA<'params, C: CurveAffine> {
     pub(crate) params: &'params ParamsIPA<C>,
 }
 
-impl<'params, C: CurveAffine, R: RngCore> Prover<'params, IPACommitmentScheme<C>, R>
-    for ProverIPA<'params, C>
-{
+impl<'params, C: CurveAffine> Prover<'params, IPACommitmentScheme<C>> for ProverIPA<'params, C> {
     fn new(params: &'params ParamsIPA<C>) -> Self {
         Self { params }
     }
 
     /// Create a multi-opening proof
-    fn create_proof<'com, Z: EncodedChallenge<C>, T: TranscriptWrite<C, Z>, I>(
+    fn create_proof<'com, Z: EncodedChallenge<C>, T: TranscriptWrite<C, Z>, R, I>(
         &self,
         mut rng: R,
         transcript: &mut T,
@@ -37,6 +35,7 @@ impl<'params, C: CurveAffine, R: RngCore> Prover<'params, IPACommitmentScheme<C>
     ) -> io::Result<()>
     where
         I: IntoIterator<Item = ProverQuery<'com, C>> + Clone,
+        R: RngCore,
     {
         let x_1: ChallengeX1<_> = transcript.squeeze_challenge_scalar();
         let x_2: ChallengeX2<_> = transcript.squeeze_challenge_scalar();

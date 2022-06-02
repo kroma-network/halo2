@@ -27,9 +27,7 @@ pub struct ProverGWC<'params, E: Engine> {
 }
 
 /// Create a multi-opening proof
-impl<'params, E: Engine + Debug, R: RngCore> Prover<'params, KZGCommitmentScheme<E>, R>
-    for ProverGWC<'params, E>
-{
+impl<'params, E: Engine + Debug> Prover<'params, KZGCommitmentScheme<E>> for ProverGWC<'params, E> {
     fn new(params: &'params ParamsKZG<E>) -> Self {
         Self { params }
     }
@@ -39,6 +37,7 @@ impl<'params, E: Engine + Debug, R: RngCore> Prover<'params, KZGCommitmentScheme
         'com,
         Ch: EncodedChallenge<E::G1Affine>,
         T: TranscriptWrite<E::G1Affine, Ch>,
+        R,
         I,
     >(
         &self,
@@ -48,6 +47,7 @@ impl<'params, E: Engine + Debug, R: RngCore> Prover<'params, KZGCommitmentScheme
     ) -> io::Result<()>
     where
         I: IntoIterator<Item = ProverQuery<'com, E::G1Affine>> + Clone,
+        R: RngCore,
     {
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
         let commitment_data = construct_intermediate_sets(queries);
