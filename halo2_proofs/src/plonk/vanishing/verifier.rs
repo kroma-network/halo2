@@ -128,10 +128,10 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
 }
 
 impl<'params, C: CurveAffine, M: MSM<C>> Evaluated<C, M> {
-    pub(in crate::plonk) fn queries<'r>(
-        &'r self,
+    pub(in crate::plonk) fn queries(
+        &self,
         x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone {
+    ) -> impl Iterator<Item = VerifierQuery<C>> + Clone {
         iter::empty()
             .chain(Some(VerifierQuery::new_msm(
                 &self.h_commitment,

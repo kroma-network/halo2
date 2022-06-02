@@ -150,7 +150,7 @@ impl<'a, E: MultiMillerLoop + Debug> DualMSM<'a, E> {
     /// Create a new two channel MSM accumulator instance
     pub fn new(params: &'a ParamsKZG<E>) -> Self {
         Self {
-            params: params,
+            params,
             left: MSMKZG::new(),
             right: MSMKZG::new(),
         }

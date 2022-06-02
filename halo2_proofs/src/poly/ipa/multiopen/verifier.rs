@@ -142,6 +142,6 @@ impl<'params, C: CurveAffine> Verifier<'params, IPACommitmentScheme<C>>
         );
 
         // Verify the opening proof
-        super::commitment::verify_proof(&self.params, msm, transcript, *x_3, v)
+        super::commitment::verify_proof(self.params, msm, transcript, *x_3, v)
     }
 }

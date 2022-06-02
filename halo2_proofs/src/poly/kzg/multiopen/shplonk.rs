@@ -116,7 +116,7 @@ where
             .entry(rotation_set.clone())
             .or_insert_with(Vec::new);
         if !commitments.contains(commitment) {
-            commitments.push(commitment.clone());
+            commitments.push(*commitment);
         }
     }
 
@@ -130,9 +130,9 @@ where
                 .map(|commitment| {
                     let evals: Vec<F> = rotations
                         .iter()
-                        .map(|rotation| get_eval(commitment.clone(), *rotation))
+                        .map(|rotation| get_eval(*commitment, *rotation))
                         .collect();
-                    Commitment((commitment.clone(), evals))
+                    Commitment((*commitment, evals))
                 })
                 .collect();
 

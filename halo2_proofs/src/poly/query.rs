@@ -101,6 +101,7 @@ pub enum CommitmentReference<'r, C: CurveAffine> {
 }
 
 impl<'r, C: CurveAffine> PartialEq for CommitmentReference<'r, C> {
+    #![allow(clippy::vtable_address_comparisons)]
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (&CommitmentReference::Commitment(a), &CommitmentReference::Commitment(b)) => {

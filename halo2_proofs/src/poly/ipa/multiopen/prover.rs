@@ -119,6 +119,6 @@ impl<'params, C: CurveAffine, R: RngCore> Prover<'params, IPACommitmentScheme<C>
             },
         );
 
-        commitment::create_proof(&self.params, rng, transcript, &p_poly, p_poly_blind, *x_3)
+        commitment::create_proof(self.params, rng, transcript, &p_poly, p_poly_blind, *x_3)
     }
 }

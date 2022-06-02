@@ -38,7 +38,7 @@ where
     I: IntoIterator<Item = Q> + Clone,
 {
     let mut point_query_map: BTreeMap<F, Vec<Q>> = BTreeMap::new();
-    for query in queries.clone() {
+    for query in queries {
         if let Some(queries) = point_query_map.get_mut(&query.get_point()) {
             queries.push(query);
         } else {

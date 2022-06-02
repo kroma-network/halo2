@@ -55,7 +55,7 @@ mod test {
             BatchVerifier<_, _>,
             _,
             _,
-        >(rng, &verifier_params, &proof[..], false);
+        >(rng, verifier_params, &proof[..], false);
 
         verify::<
             IPACommitmentScheme<EqAffine>,
@@ -64,7 +64,7 @@ mod test {
             BatchVerifier<_, _>,
             _,
             _,
-        >(rng, &verifier_params, &proof[..], true);
+        >(rng, verifier_params, &proof[..], true);
     }
 
     #[test]
@@ -88,7 +88,7 @@ mod test {
 
         verify::<_, Blake2bRead<_, _, Challenge255<_>>, VerifierGWC<_>, BatchVerifier<_, _>, _, _>(
             rng,
-            &verifier_params,
+            verifier_params,
             &proof[..],
             false,
         );
@@ -100,7 +100,7 @@ mod test {
             BatchVerifier<_, _>,
             _,
             _,
-        >(rng, &verifier_params, &proof[..], true);
+        >(rng, verifier_params, &proof[..], true);
     }
 
     #[test]
@@ -133,7 +133,7 @@ mod test {
             BatchVerifier<_, _>,
             _,
             _,
-        >(rng, &verifier_params, &proof[..], false);
+        >(rng, verifier_params, &proof[..], false);
 
         verify::<
             KZGCommitmentScheme<Bn256>,
@@ -142,7 +142,7 @@ mod test {
             BatchVerifier<_, _>,
             _,
             _,
-        >(rng, &verifier_params, &proof[..], true);
+        >(rng, verifier_params, &proof[..], true);
     }
 
     fn verify<
