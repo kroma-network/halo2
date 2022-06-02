@@ -55,9 +55,14 @@ impl<'params, E: MultiMillerLoop + Debug> Verifier<'params, KZGCommitmentScheme<
         I: IntoIterator<Item = VerifierQuery<'com, E::G1Affine>> + Clone,
     {
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
-        let u: ChallengeU<_> = transcript.squeeze_challenge_scalar();
 
         let commitment_data = construct_intermediate_sets(queries);
+
+        let w: Vec<E::G1Affine> = (0..commitment_data.len())
+            .map(|_| transcript.read_point().map_err(|_| Error::SamplingError))
+            .collect::<Result<Vec<E::G1Affine>, Error>>()?;
+
+        let u: ChallengeU<_> = transcript.squeeze_challenge_scalar();
 
         let mut commitment_multi = MSMKZG::<E>::new();
         let mut eval_multi = E::Scalar::zero();
@@ -65,11 +70,9 @@ impl<'params, E: MultiMillerLoop + Debug> Verifier<'params, KZGCommitmentScheme<
         let mut witness = MSMKZG::<E>::new();
         let mut witness_with_aux = MSMKZG::<E>::new();
 
-        for commitment_at_a_point in commitment_data.iter() {
+        for (commitment_at_a_point, wi) in commitment_data.iter().zip(w.into_iter()) {
             assert!(!commitment_at_a_point.queries.is_empty());
             let z = commitment_at_a_point.point;
-
-            let wi = transcript.read_point().map_err(|_| Error::SamplingError)?;
 
             witness_with_aux.scale(*u);
             witness_with_aux.append_term(z, wi.into());
