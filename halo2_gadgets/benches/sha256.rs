@@ -1,13 +1,16 @@
+use halo2_proofs::poly::ipa::commitment::IPACommitmentScheme;
+use halo2_proofs::poly::ipa::multiopen::ProverIPA;
+use halo2_proofs::poly::ipa::multiopen::VerifierIPA;
+use halo2_proofs::poly::ipa::strategy::BatchVerifier;
+use halo2_proofs::transcript::TranscriptReadBuffer;
+use halo2_proofs::transcript::TranscriptWriterBuffer;
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
-    pasta::{pallas, EqAffine},
-    plonk::{
-        create_proof, keygen_pk, keygen_vk, verify_proof, Circuit, ConstraintSystem, Error,
-        SingleVerifier,
-    },
-    poly::commitment::Params,
+    plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, Circuit, ConstraintSystem, Error},
+    poly::{commitment::Params, commitment::ParamsProver, ipa::commitment::ParamsIPA},
     transcript::{Blake2bRead, Blake2bWrite, Challenge255},
 };
+use halo2curves::pasta::{pallas, EqAffine};
 use rand::rngs::OsRng;
 
 use std::{
@@ -80,7 +83,7 @@ fn bench(name: &str, k: u32, c: &mut Criterion) {
     // Initialize the polynomial commitment parameters
     let params_path = Path::new("./benches/sha256_assets/sha256_params");
     if File::open(&params_path).is_err() {
-        let params: Params<EqAffine> = Params::new(k);
+        let params: ParamsIPA<EqAffine> = ParamsIPA::new(k);
         let mut buf = Vec::new();
 
         params.write(&mut buf).expect("Failed to write params");
@@ -91,14 +94,16 @@ fn bench(name: &str, k: u32, c: &mut Criterion) {
     }
 
     let params_fs = File::open(&params_path).expect("couldn't load sha256_params");
-    let params: Params<EqAffine> =
-        Params::read::<_>(&mut BufReader::new(params_fs)).expect("Failed to read params");
+    let params: ParamsIPA<EqAffine> =
+        ParamsIPA::read::<_>(&mut BufReader::new(params_fs)).expect("Failed to read params");
 
     let empty_circuit: MyCircuit = MyCircuit {};
 
     // Initialize the proving key
-    let vk = keygen_vk(&params, &empty_circuit).expect("keygen_vk should not fail");
-    let pk = keygen_pk(&params, vk, &empty_circuit).expect("keygen_pk should not fail");
+    let vk = keygen_vk::<IPACommitmentScheme<_>, _>(&params, &empty_circuit)
+        .expect("keygen_vk should not fail");
+    let pk = keygen_pk::<IPACommitmentScheme<_>, _>(&params, vk, &empty_circuit)
+        .expect("keygen_pk should not fail");
 
     let circuit: MyCircuit = MyCircuit {};
 
@@ -119,8 +124,15 @@ fn bench(name: &str, k: u32, c: &mut Criterion) {
     let proof_path = Path::new("./benches/sha256_assets/sha256_proof");
     if File::open(&proof_path).is_err() {
         let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
-        create_proof(&params, &pk, &[circuit], &[], OsRng, &mut transcript)
-            .expect("proof generation should not fail");
+        create_proof::<IPACommitmentScheme<_>, ProverIPA<_>, _, _, _, _>(
+            &params,
+            &pk,
+            &[circuit],
+            &[],
+            OsRng,
+            &mut transcript,
+        )
+        .expect("proof generation should not fail");
         let proof: Vec<u8> = transcript.finalize();
         let mut file = File::create(&proof_path).expect("Failed to create sha256_proof");
         file.write_all(&proof[..]).expect("Failed to write proof");
@@ -134,9 +146,18 @@ fn bench(name: &str, k: u32, c: &mut Criterion) {
 
     c.bench_function(&verifier_name, |b| {
         b.iter(|| {
-            let strategy = SingleVerifier::new(&params);
+            use halo2_proofs::poly::VerificationStrategy;
+            let strategy = BatchVerifier::new(&params, OsRng);
             let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
-            assert!(verify_proof(&params, pk.get_vk(), strategy, &[], &mut transcript).is_ok());
+            let strategy = verify_proof::<IPACommitmentScheme<_>, _, _, VerifierIPA<_>, _, _>(
+                &params,
+                pk.get_vk(),
+                strategy,
+                &[],
+                &mut transcript,
+            )
+            .unwrap();
+            assert!(strategy.finalize());
         });
     });
 }
