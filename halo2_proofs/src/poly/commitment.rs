@@ -81,18 +81,20 @@ impl<C: CurveAffine> Params<C> {
             g
         };
 
-        // Let's evaluate all of the Lagrange basis polynomials
-        // using an inverse FFT.
-        let mut alpha_inv = E::Scalar::ROOT_OF_UNITY_INV;
+        let mut g_lagrange_projective = vec![E::G1::group_zero(); n as usize];
+        let mut root = E::Scalar::ROOT_OF_UNITY_INV.invert().unwrap();
         for _ in k..E::Scalar::S {
-            alpha_inv = alpha_inv.square();
+            root = root.square();
         }
-        let mut g_lagrange_projective = g_projective;
-        best_fft(&mut g_lagrange_projective, alpha_inv, k);
-        let minv = E::Scalar::TWO_INV.pow_vartime(&[k as u64, 0, 0, 0]);
-        parallelize(&mut g_lagrange_projective, |g, _| {
-            for g in g.iter_mut() {
-                *g *= minv;
+        let n_inv = Option::<E::Scalar>::from(E::Scalar::from(n).invert())
+            .expect("inversion should be ok for n = 1<<k");
+        let multiplier = (s.pow_vartime(&[n as u64]) - E::Scalar::one()) * n_inv;
+        parallelize(&mut g_lagrange_projective, |g, start| {
+            for (idx, g) in g.iter_mut().enumerate() {
+                let offset = start + idx;
+                let root_pow = root.pow_vartime(&[offset as u64]);
+                let scalar = multiplier * root_pow * (s - root_pow).invert().unwrap();
+                *g = g1 * scalar;
             }
         });
 
@@ -177,12 +179,23 @@ impl<C: CurveAffine> Params<C> {
         let k = u32::from_le_bytes(k);
         let n = 1 << k;
 
-        let g: Vec<C> = (0..n)
-            .map(|_| C::read(&mut reader))
-            .collect::<Result<_, _>>()?;
-        let g_lagrange: Vec<C> = (0..n)
-            .map(|_| C::read(&mut reader))
-            .collect::<Result<_, _>>()?;
+        let load_points_from_file_parallelly = |reader: &mut R| -> io::Result<Vec<C>> {
+            let mut points_compressed: Vec<C::Repr> = vec![C::Repr::default(); n];
+            for points_compressed in points_compressed.iter_mut() {
+                reader.read_exact((*points_compressed).as_mut())?;
+            }
+
+            let mut points = vec![C::default(); n];
+            parallelize(&mut points, |points, chunks| {
+                for (i, point) in points.iter_mut().enumerate() {
+                    *point = Option::from(C::from_bytes(&points_compressed[chunks + i])).unwrap();
+                }
+            });
+            Ok(points)
+        };
+
+        let g = load_points_from_file_parallelly(&mut reader)?;
+        let g_lagrange = load_points_from_file_parallelly(&mut reader)?;
 
         let mut additional_data_len = [0u8; 4];
         reader.read_exact(&mut additional_data_len[..])?;
@@ -193,7 +206,7 @@ impl<C: CurveAffine> Params<C> {
 
         Ok(Params {
             k,
-            n,
+            n: n as u64,
             g,
             g_lagrange,
             additional_data,
