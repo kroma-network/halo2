@@ -129,7 +129,6 @@ where
     let rotation_sets = rotation_set_commitment_map
         .into_iter()
         .map(|(rotations, commitments)| {
-
             let commitments: Vec<Commitment<F, Q::Commitment>> = commitments
                 .iter()
                 .map(|commitment| {
@@ -154,5 +153,120 @@ where
     IntermediateSets {
         rotation_sets,
         super_point_set,
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use proptest::{
+        collection::vec,
+        prelude::*,
+        sample::{select, subsequence},
+        strategy::Strategy,
+    };
+
+    use super::{construct_intermediate_sets, Commitment, IntermediateSets};
+    use crate::poly::Rotation;
+    use halo2curves::{pasta::Fp, FieldExt};
+
+    use std::collections::BTreeMap;
+    use std::convert::TryFrom;
+
+    #[derive(Debug, Clone)]
+    struct MyQuery<F> {
+        point: F,
+        eval: F,
+        commitment: usize,
+    }
+
+    impl super::Query<Fp> for MyQuery<Fp> {
+        type Commitment = usize;
+        type Eval = Fp;
+
+        fn get_point(&self) -> Fp {
+            self.point
+        }
+
+        fn get_eval(&self) -> Self::Eval {
+            self.eval
+        }
+
+        fn get_commitment(&self) -> Self::Commitment {
+            self.commitment
+        }
+    }
+
+    prop_compose! {
+        fn arb_point()(
+            bytes in vec(any::<u8>(), 64)
+        ) -> Fp {
+            Fp::from_bytes_wide(&<[u8; 64]>::try_from(bytes).unwrap())
+        }
+    }
+
+    prop_compose! {
+        fn arb_query(commitment: usize, point: Fp)(
+            eval in arb_point()
+        ) -> MyQuery<Fp> {
+            MyQuery {
+                point,
+                eval,
+                commitment
+            }
+        }
+    }
+
+    prop_compose! {
+        // Mapping from column index to point index.
+        fn arb_queries_inner(num_points: usize, num_cols: usize, num_queries: usize)(
+            col_indices in vec(select((0..num_cols).collect::<Vec<_>>()), num_queries),
+            point_indices in vec(select((0..num_points).collect::<Vec<_>>()), num_queries)
+        ) -> Vec<(usize, usize)> {
+            col_indices.into_iter().zip(point_indices.into_iter()).collect()
+        }
+    }
+
+    prop_compose! {
+        fn compare_queries(
+            num_points: usize,
+            num_cols: usize,
+            num_queries: usize,
+        )(
+            points_1 in vec(arb_point(), num_points),
+            points_2 in vec(arb_point(), num_points),
+            mapping in arb_queries_inner(num_points, num_cols, num_queries)
+        )(
+            queries_1 in mapping.iter().map(|(commitment, point_idx)| arb_query(*commitment, points_1[*point_idx])).collect::<Vec<_>>(),
+            queries_2 in mapping.iter().map(|(commitment, point_idx)| arb_query(*commitment, points_2[*point_idx])).collect::<Vec<_>>(),
+        ) -> (
+            Vec<MyQuery<Fp>>,
+            Vec<MyQuery<Fp>>
+        ) {
+            (
+                queries_1,
+                queries_2,
+            )
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_intermediate_sets(
+            (queries_1, queries_2) in compare_queries(8, 8, 16)
+        ) {
+            let IntermediateSets { rotation_sets, .. } = construct_intermediate_sets(queries_1);
+            let commitment_sets = rotation_sets.iter().map(|data|
+                data.commitments.iter().map(Commitment::get).collect::<Vec<_>>()
+            ).collect::<Vec<_>>();
+
+            // It shouldn't matter what the point or eval values are; we should get
+            // the same exact point set indices and point indices again.
+            let IntermediateSets { rotation_sets: new_rotation_sets, .. } = construct_intermediate_sets(queries_2);
+            let new_commitment_sets = new_rotation_sets.iter().map(|data|
+                data.commitments.iter().map(Commitment::get).collect::<Vec<_>>()
+            ).collect::<Vec<_>>();
+
+            assert_eq!(commitment_sets, new_commitment_sets);
+        }
     }
 }
