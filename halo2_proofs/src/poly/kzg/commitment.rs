@@ -110,31 +110,42 @@ impl<'params, E: Engine + Debug> Params<'params, E::G1Affine, MSMKZG<E>> for Par
         let k = u32::from_le_bytes(k);
         let n = 1 << k;
 
-        let load_points_from_file_parallelly = |reader: &mut R| -> io::Result<Vec<E::G1Affine>> {
-            let mut points_compressed =
-                vec![<<E as Engine>::G1Affine as GroupEncoding>::Repr::default(); n];
-            for points_compressed in points_compressed.iter_mut() {
-                reader.read_exact((*points_compressed).as_mut())?;
-            }
+        let load_points_from_file_parallelly =
+            |reader: &mut R| -> io::Result<Vec<Option<E::G1Affine>>> {
+                let mut points_compressed =
+                    vec![<<E as Engine>::G1Affine as GroupEncoding>::Repr::default(); n];
+                for points_compressed in points_compressed.iter_mut() {
+                    reader.read_exact((*points_compressed).as_mut())?;
+                }
 
-            let points = points_compressed
-                .iter()
-                .map(|compressed| Option::from(E::G1Affine::from_bytes(compressed)).unwrap())
-                .collect();
-
-            Ok(points)
-        };
+                let mut points = vec![Option::<E::G1Affine>::None; n];
+                parallelize(&mut points, |points, chunks| {
+                    for (i, point) in points.iter_mut().enumerate() {
+                        *point =
+                            Option::from(E::G1Affine::from_bytes(&points_compressed[chunks + i]));
+                    }
+                });
+                Ok(points)
+            };
 
         let g = load_points_from_file_parallelly(reader)?;
+        let g: Vec<<E as Engine>::G1Affine> = g
+            .iter()
+            .map(|point| {
+                point.ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid point encoding"))
+            })
+            .collect::<Result<_, _>>()?;
+
         let g_lagrange = load_points_from_file_parallelly(reader)?;
+        let g_lagrange: Vec<<E as Engine>::G1Affine> = g_lagrange
+            .iter()
+            .map(|point| {
+                point.ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid point encoding"))
+            })
+            .collect::<Result<_, _>>()?;
 
-        let mut point_compressed = <<E as Engine>::G2Affine as GroupEncoding>::Repr::default();
-        reader.read_exact(point_compressed.as_mut())?;
-        let g2 = Option::from(E::G2Affine::from_bytes(&point_compressed)).unwrap();
-
-        let mut point_compressed = <<E as Engine>::G2Affine as GroupEncoding>::Repr::default();
-        reader.read_exact(point_compressed.as_mut())?;
-        let s_g2 = Option::from(E::G2Affine::from_bytes(&point_compressed)).unwrap();
+        let g2 = E::G2Affine::read(reader)?;
+        let s_g2 = E::G2Affine::read(reader)?;
 
         Ok(Self {
             k,
@@ -250,7 +261,7 @@ mod test {
     use crate::helpers::CurveRead;
     use crate::poly::commitment::ParamsProver;
     use crate::poly::commitment::{Blind, CommitmentScheme, Params, MSM};
-    use crate::poly::kzg::commitment::ParamsKZG;
+    use crate::poly::kzg::commitment::{ParamsKZG, ParamsVerifierKZG};
     use crate::poly::kzg::msm::MSMKZG;
     use crate::poly::kzg::multiopen::ProverSHPLONK;
     use crate::poly::{Coeff, LagrangeCoeff, Polynomial};
@@ -286,5 +297,33 @@ mod test {
         let alpha = Blind(Fr::random(OsRng));
 
         assert_eq!(params.commit(&b, alpha), params.commit_lagrange(&a, alpha));
+    }
+
+    #[test]
+    fn test_parameter_serialisation_roundtrip() {
+        const K: u32 = 4;
+
+        use ff::Field;
+        use rand_core::OsRng;
+
+        use super::super::commitment::{Blind, Params};
+        use crate::arithmetic::{eval_polynomial, FieldExt};
+        use crate::halo2curves::bn256::{Bn256, Fr};
+        use crate::poly::EvaluationDomain;
+
+        let params0 = ParamsKZG::<Bn256>::new(K);
+        let mut data = vec![];
+        <ParamsKZG<_> as Params<_, _>>::write(&params0, &mut data).unwrap();
+        let params1: ParamsKZG<Bn256> = Params::read::<_>(&mut &data[..]).unwrap();
+
+        assert_eq!(params0.k, params1.k);
+        assert_eq!(params0.n, params1.n);
+        assert_eq!(params0.g.len(), params1.g.len());
+        assert_eq!(params0.g_lagrange.len(), params1.g_lagrange.len());
+
+        assert_eq!(params0.g, params1.g);
+        assert_eq!(params0.g_lagrange, params1.g_lagrange);
+        assert_eq!(params0.g2, params1.g2);
+        assert_eq!(params0.s_g2, params1.s_g2);
     }
 }
