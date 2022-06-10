@@ -150,8 +150,6 @@ impl<'params, E: Engine + Debug> Params<'params, E::G1Affine, MSMKZG<E>> for Par
 impl<'params, E: Engine + Debug> ParamsVerifier<'params, E::G1Affine, MSMKZG<E>> for ParamsKZG<E> {}
 
 impl<'params, E: Engine + Debug> ParamsProver<'params, E::G1Affine, MSMKZG<E>> for ParamsKZG<E> {
-    // TODO: Verifier requires shorter key. Keeping as same as prover params since PLONK
-    // implementation here requires commitment to public inputs.
     type ParamsVerifier = ParamsVerifierKZG<E>;
 
     fn verifier_params(&'params self) -> &'params Self::ParamsVerifier {
@@ -245,7 +243,6 @@ impl<'params, E: Engine + Debug> ParamsProver<'params, E::G1Affine, MSMKZG<E>> f
 
 #[cfg(test)]
 mod test {
-    // TODO: duplicate is in IPA side
 
     use crate::arithmetic::{
         best_fft, best_multiexp, parallelize, CurveAffine, CurveExt, FieldExt, Group,

@@ -95,7 +95,6 @@ pub fn create_proof<
                 .collect();
             let mut instance_commitments =
                 vec![Scheme::Curve::identity(); instance_commitments_projective.len()];
-            // C::Curve::batch_normalize(&instance_commitments_projective, &mut instance_commitments);
             <<Scheme as CommitmentScheme>::Curve as CurveAffine>::CurveExt::batch_normalize(
                 &instance_commitments_projective,
                 &mut instance_commitments,

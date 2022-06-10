@@ -136,7 +136,6 @@ impl<'params, C: CurveAffine> Params<'params, C, MSMIPA<'params, C>> for ParamsI
     }
 }
 
-// impl<'params, C: CurveAffine> ParamsProver<'params, C, MSMIPAAccumulator<'params, C>>
 impl<'params, C: CurveAffine> ParamsProver<'params, C, MSMIPA<'params, C>> for ParamsIPA<C> {
     type ParamsVerifier = ParamsVerifierIPA<C>;
 
@@ -338,7 +337,6 @@ mod test {
         let params = ParamsIPA::<EpAffine>::new(K);
         let mut params_buffer = vec![];
         <ParamsIPA<_> as Params<_, _>>::write(&params, &mut params_buffer).unwrap();
-        // params.write(&mut params_buffer).unwrap();
         let params: ParamsIPA<EpAffine> = Params::read::<_>(&mut &params_buffer[..]).unwrap();
 
         let domain = EvaluationDomain::new(1, K);

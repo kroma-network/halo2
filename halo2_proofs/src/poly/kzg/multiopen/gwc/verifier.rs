@@ -123,7 +123,6 @@ impl<'params, E: MultiMillerLoop + Debug, R: RngCore>
     for BatchVerifier<'params, E, R>
 {
     type Output = Self;
-    // type MSMAccumulator = DualMSM<'paras, E>;
 
     fn new(params: &'params ParamsKZG<E>, rng: R) -> Self {
         BatchVerifier::new(params, rng)

@@ -31,7 +31,6 @@ pub trait VerificationStrategy<
     /// output.
     fn process(
         self,
-        // f: impl FnOnce(Scheme::MSM) -> Result<V::Guard, Error>,
         f: impl FnOnce(V::MSMAccumulator) -> Result<V::Guard, Error>,
     ) -> Result<Self::Output, Error>;
 

@@ -88,7 +88,6 @@ impl<'params, C: CurveAffine, R: RngCore>
 
     fn process(
         mut self,
-
         f: impl FnOnce(MSMIPA<'params, C>) -> Result<GuardIPA<'params, C>, Error>,
     ) -> Result<Self::Output, Error> {
         self.msm_accumulator.scale(C::Scalar::random(&mut self.rng));
