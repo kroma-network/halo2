@@ -113,10 +113,10 @@ where
     // ...
     let mut rotation_set_commitment_map = Vec::<(Vec<_>, Vec<Q::Commitment>)>::new();
     for (commitment, rotation_set) in commitment_rotation_set_map.iter() {
-        if let Some(pos) = rotation_set_commitment_map
-            .iter()
-            .position(|(set, _)| *set == *rotation_set)
-        {
+        if let Some(pos) = rotation_set_commitment_map.iter().position(|(set, _)| {
+            BTreeSet::<F>::from_iter(set.iter().cloned())
+                == BTreeSet::<F>::from_iter(rotation_set.iter().cloned())
+        }) {
             let (_, commitments) = &mut rotation_set_commitment_map[pos];
             if !commitments.contains(commitment) {
                 commitments.push(*commitment);
