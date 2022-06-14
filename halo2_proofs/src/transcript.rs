@@ -4,7 +4,7 @@
 use blake2b_simd::{Params as Blake2bParams, State as Blake2bState};
 use group::ff::PrimeField;
 use std::convert::TryInto;
-
+use ff::Field;
 use halo2curves::{Coordinates, CurveAffine, FieldExt};
 
 use std::io::{self, Read, Write};
@@ -142,18 +142,27 @@ impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>>
         let result: [u8; 64] = hasher.finalize().as_bytes().try_into().unwrap();
         Challenge255::<C>::new(&result)
     }
-
+    
+    // This function is slightly modified from PSE's version.
+    // In PSE's version, an error is returned if the input point is infinity.
+    // Here we want to be able to absorb infinity point because of the 
+    // randomness we used in the polynomial commitment is 0.
     fn common_point(&mut self, point: C) -> io::Result<()> {
         self.state.update(&[BLAKE2B_PREFIX_POINT]);
-        let coords: Coordinates<C> = Option::from(point.coordinates()).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                "cannot write points at infinity to the transcript",
-            )
-        })?;
-        self.state.update(coords.x().to_repr().as_ref());
-        self.state.update(coords.y().to_repr().as_ref());
 
+        let tmp:Option<Coordinates<_>> = Option::from(point.coordinates());
+        match tmp {
+
+            Some(coords)=>{
+                self.state.update(coords.x().to_repr().as_ref());
+                self.state.update(coords.y().to_repr().as_ref());
+            },
+            None =>{
+                // Infinity point
+                self.state.update(&C::Base::zero().to_repr().as_ref());
+                self.state.update(&C::Base::from(5).to_repr().as_ref());
+            }
+        }
         Ok(())
     }
 
@@ -218,16 +227,24 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
         Challenge255::<C>::new(&result)
     }
 
+    // This function is slightly modified from PSE's version.
+    // In PSE's version, an error is returned if the input point is infinity.
+    // Here we want to be able to absorb infinity point because of the 
+    // randomness we used in the polynomial commitment is 0.
     fn common_point(&mut self, point: C) -> io::Result<()> {
         self.state.update(&[BLAKE2B_PREFIX_POINT]);
-        let coords: Coordinates<C> = Option::from(point.coordinates()).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                "cannot write points at infinity to the transcript",
-            )
-        })?;
-        self.state.update(coords.x().to_repr().as_ref());
-        self.state.update(coords.y().to_repr().as_ref());
+        let tmp:Option<Coordinates<_>> = Option::from(point.coordinates());
+        match tmp {
+            Some(coords)=>{
+                self.state.update(coords.x().to_repr().as_ref());
+                self.state.update(coords.y().to_repr().as_ref());
+            },
+            None =>{
+                // Infinity point
+                self.state.update(&C::Base::zero().to_repr().as_ref());
+                self.state.update(&C::Base::from(5).to_repr().as_ref());
+            }
+        }
 
         Ok(())
     }
