@@ -293,7 +293,7 @@ pub fn create_proof<
             // Add blinding factors to advice columns
             for advice in &mut advice {
                 for cell in &mut advice[unusable_rows_start..] {
-                    *cell = C::Scalar::random(&mut rng);
+                    //*cell = C::Scalar::random(&mut rng);
                 }
             }
 
