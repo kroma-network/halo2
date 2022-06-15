@@ -3,7 +3,7 @@ extern crate criterion;
 
 use group::ff::Field;
 use halo2_proofs::arithmetic::FieldExt;
-use halo2_proofs::circuit::{Cell, Layouter, SimpleFloorPlanner,Value};
+use halo2_proofs::circuit::{Cell, Layouter, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::*;
 use halo2_proofs::poly::ipa::commitment::{IPACommitmentScheme, ParamsIPA};
 use halo2_proofs::poly::ipa::multiopen::ProverIPA;
@@ -261,7 +261,10 @@ fn criterion_benchmark(c: &mut Criterion) {
     fn keygen(k: u32) -> (ParamsIPA<EqAffine>, ProvingKey<EqAffine>) {
         use halo2_proofs::poly::commitment::ParamsProver;
         let params: ParamsIPA<EqAffine> = ParamsIPA::new(k);
-        let empty_circuit: MyCircuit<Fp> = MyCircuit { a: None, k };
+        let empty_circuit: MyCircuit<Fp> = MyCircuit {
+            a: Value::unknown(),
+            k,
+        };
         let vk = keygen_vk::<IPACommitmentScheme<EqAffine>, _>(&params, &empty_circuit)
             .expect("keygen_vk should not fail");
         let pk = keygen_pk::<IPACommitmentScheme<EqAffine>, _>(&params, vk, &empty_circuit)

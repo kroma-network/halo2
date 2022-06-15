@@ -3,7 +3,6 @@ use super::{schedule_util::*, MessageScheduleConfig, MessageWord};
 
 use halo2_proofs::{
     circuit::{Region, Value},
-    pasta::pallas,
     plonk::Error,
 };
 

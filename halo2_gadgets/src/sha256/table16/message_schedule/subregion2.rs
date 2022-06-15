@@ -6,6 +6,7 @@ use halo2_proofs::{
     plonk::Error,
 };
 
+use halo2curves::pasta::pallas;
 use std::convert::TryInto;
 
 /// A word in subregion 2
