@@ -127,7 +127,7 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
     }
 }
 
-impl<'params, C: CurveAffine, M: MSM<C>> Evaluated<C, M> {
+impl<C: CurveAffine, M: MSM<C>> Evaluated<C, M> {
     pub(in crate::plonk) fn queries(
         &self,
         x: ChallengeX<C>,

@@ -37,7 +37,7 @@ impl<E: Engine> MSMKZG<E> {
     }
 }
 
-impl<'params, E: Engine + Debug> MSM<E::G1Affine> for MSMKZG<E> {
+impl<E: Engine + Debug> MSM<E::G1Affine> for MSMKZG<E> {
     fn append_term(&mut self, scalar: E::Scalar, point: E::G1) {
         self.scalars.push(scalar);
         self.bases.push(point);
@@ -84,7 +84,7 @@ pub(crate) struct PreMSM<E: Engine> {
     projectives_msms: Vec<MSMKZG<E>>,
 }
 
-impl<'a, E: Engine + Debug> PreMSM<E> {
+impl<E: Engine + Debug> PreMSM<E> {
     pub(crate) fn new() -> Self {
         PreMSM {
             projectives_msms: vec![],
