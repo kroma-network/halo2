@@ -459,13 +459,13 @@ fn plonk_api() {
 
     use rand_core::RngCore;
 
-    fn keygen<'params, Scheme: CommitmentScheme<'params>>(
-        params: &'params Scheme::ParamsProver,
+    fn keygen<Scheme: CommitmentScheme>(
+        params: &Scheme::ParamsProver,
     ) -> ProvingKey<Scheme::Curve> {
         let (_, _, lookup_table) = common!(Scheme);
         let empty_circuit: MyCircuit<Scheme::Scalar> = MyCircuit {
             a: Value::unknown(),
-            lookup_table: lookup_table.clone(),
+            lookup_table,
         };
 
         // Initialize the proving key
@@ -476,7 +476,7 @@ fn plonk_api() {
 
     fn create_proof<
         'params,
-        Scheme: CommitmentScheme<'params>,
+        Scheme: CommitmentScheme,
         TranscriptWrite: TranscriptWriterBuffer<Vec<u8>, Scheme::Curve, Ch>,
         Prover: _Prover<'params, Scheme>,
         Ch,
@@ -522,7 +522,7 @@ fn plonk_api() {
     fn verify_proof<
         'a,
         'params,
-        Scheme: CommitmentScheme<'params>,
+        Scheme: CommitmentScheme,
         Verifier: _Verifier<'params, Scheme>,
         TranscriptRead: TranscriptReadBuffer<&'a [u8], Scheme::Curve, Ch>,
         Strategy: VerificationStrategy<'params, Scheme, Verifier, Rng, Output = Strategy>,

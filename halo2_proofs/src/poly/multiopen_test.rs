@@ -148,7 +148,7 @@ mod test {
     fn verify<
         'a,
         'params,
-        Scheme: CommitmentScheme<'params>,
+        Scheme: CommitmentScheme,
         TranscriptRead: TranscriptReadBuffer<&'a [u8], Scheme::Curve, Ch>,
         Verifier: _Verifier<'params, Scheme>,
         Strategy: VerificationStrategy<'params, Scheme, Verifier, R, Output = Strategy>,
@@ -210,7 +210,7 @@ mod test {
 
     fn create_proof<
         'params,
-        Scheme: CommitmentScheme<'params>,
+        Scheme: CommitmentScheme,
         TranscriptWrite: TranscriptWriterBuffer<Vec<u8>, Scheme::Curve, Ch>,
         Prover: _Prover<'params, Scheme>,
         Ch,

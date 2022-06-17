@@ -35,7 +35,7 @@ use group::prime::PrimeCurveAffine;
 /// are zero-padded internally.
 pub fn create_proof<
     'params,
-    Scheme: CommitmentScheme<'params>,
+    Scheme: CommitmentScheme,
     Prover: _Prover<'params, Scheme>,
     E: EncodedChallenge<Scheme::Curve>,
     R: RngCore,

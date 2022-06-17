@@ -29,9 +29,7 @@ pub struct GuardKZG<'params, E: MultiMillerLoop + Debug> {
 }
 
 /// Define accumulator type as `DualMSM`
-impl<'params, E: MultiMillerLoop + Debug> Guard<'params, KZGCommitmentScheme<E>>
-    for GuardKZG<'params, E>
-{
+impl<'params, E: MultiMillerLoop + Debug> Guard<KZGCommitmentScheme<E>> for GuardKZG<'params, E> {
     type MSMAccumulator = DualMSM<'params, E>;
 }
 

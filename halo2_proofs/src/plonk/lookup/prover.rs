@@ -75,7 +75,7 @@ impl<F: FieldExt> Argument<F> {
     pub(in crate::plonk) fn commit_permuted<
         'a,
         'params: 'a,
-        Scheme: CommitmentScheme<'params, Scalar = F>,
+        Scheme: CommitmentScheme<Scalar = F>,
         E: EncodedChallenge<Scheme::Curve>,
         Ev: Copy + Send + Sync,
         Ec: Copy + Send + Sync,
@@ -234,7 +234,7 @@ impl<C: CurveAffine, Ev: Copy + Send + Sync> Permuted<C, Ev> {
     /// added to the Lookup and finally returned by the method.
     pub(in crate::plonk) fn commit_product<
         'params,
-        Scheme: CommitmentScheme<'params, Curve = C, Scalar = C::Scalar>,
+        Scheme: CommitmentScheme<Curve = C, Scalar = C::Scalar>,
         E: EncodedChallenge<Scheme::Curve>,
         R: RngCore,
         T: TranscriptWrite<Scheme::Curve, E>,
@@ -574,7 +574,7 @@ type ExpressionPair<F> = (Polynomial<F, LagrangeCoeff>, Polynomial<F, LagrangeCo
 /// - the first row in a sequence of like values in A' is the row
 ///   that has the corresponding value in S'.
 /// This method returns (A', S') if no errors are encountered.
-fn permute_expression_pair<'params, Scheme: CommitmentScheme<'params>, R: RngCore>(
+fn permute_expression_pair<'params, Scheme: CommitmentScheme, R: RngCore>(
     pk: &ProvingKey<Scheme::Curve>,
     params: &'params Scheme::ParamsProver,
     domain: &EvaluationDomain<Scheme::Scalar>,

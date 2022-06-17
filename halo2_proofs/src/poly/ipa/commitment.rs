@@ -41,10 +41,9 @@ pub struct IPACommitmentScheme<C: CurveAffine> {
     _marker: PhantomData<C>,
 }
 
-impl<'params, C: CurveAffine> CommitmentScheme<'params> for IPACommitmentScheme<C> {
+impl<C: CurveAffine> CommitmentScheme for IPACommitmentScheme<C> {
     type Scalar = C::ScalarExt;
     type Curve = C;
-    type MSM = MSMIPA<'params, C>;
 
     type ParamsProver = ParamsIPA<C>;
     type ParamsVerifier = ParamsVerifierIPA<C>;
@@ -61,9 +60,11 @@ impl<'params, C: CurveAffine> CommitmentScheme<'params> for IPACommitmentScheme<
 /// Verifier parameters
 pub type ParamsVerifierIPA<C> = ParamsIPA<C>;
 
-impl<'params, C: CurveAffine> ParamsVerifier<'params, C, MSMIPA<'params, C>> for ParamsIPA<C> {}
+impl<'params, C: CurveAffine> ParamsVerifier<'params, C> for ParamsIPA<C> {}
 
-impl<'params, C: CurveAffine> Params<'params, C, MSMIPA<'params, C>> for ParamsIPA<C> {
+impl<'params, C: CurveAffine> Params<'params, C> for ParamsIPA<C> {
+    type MSM = MSMIPA<'params, C>;
+
     fn k(&self) -> u32 {
         self.k
     }
@@ -136,7 +137,7 @@ impl<'params, C: CurveAffine> Params<'params, C, MSMIPA<'params, C>> for ParamsI
     }
 }
 
-impl<'params, C: CurveAffine> ParamsProver<'params, C, MSMIPA<'params, C>> for ParamsIPA<C> {
+impl<'params, C: CurveAffine> ParamsProver<'params, C> for ParamsIPA<C> {
     type ParamsVerifier = ParamsVerifierIPA<C>;
 
     fn verifier_params(&'params self) -> &'params Self::ParamsVerifier {
@@ -336,7 +337,7 @@ mod test {
 
         let params = ParamsIPA::<EpAffine>::new(K);
         let mut params_buffer = vec![];
-        <ParamsIPA<_> as Params<_, _>>::write(&params, &mut params_buffer).unwrap();
+        <ParamsIPA<_> as Params<_>>::write(&params, &mut params_buffer).unwrap();
         let params: ParamsIPA<EpAffine> = Params::read::<_>(&mut &params_buffer[..]).unwrap();
 
         let domain = EvaluationDomain::new(1, K);

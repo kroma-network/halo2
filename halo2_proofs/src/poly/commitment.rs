@@ -16,26 +16,22 @@ use std::{
 };
 
 /// Defines components of a commitment scheme.
-pub trait CommitmentScheme<'params> {
+pub trait CommitmentScheme {
     /// Application field of this commitment scheme
     type Scalar: FieldExt + halo2curves::Group;
 
     /// Elliptic curve used to commit the application and witnesses
     type Curve: CurveAffine<ScalarExt = Self::Scalar>;
 
-    /// Multi scalar multiplication engine
-    type MSM: MSM<Self::Curve> + 'params;
-
     /// Constant prover parameters
-    type ParamsProver: ParamsProver<
+    type ParamsProver: for<'params> ParamsProver<
         'params,
         Self::Curve,
-        Self::MSM,
         ParamsVerifier = Self::ParamsVerifier,
     >;
 
     /// Constant verifier parameters
-    type ParamsVerifier: ParamsVerifier<'params, Self::Curve, Self::MSM>;
+    type ParamsVerifier: for<'params> ParamsVerifier<'params, Self::Curve>;
 
     /// Wrapper for parameter generator
     fn new_params(k: u32) -> Self::ParamsProver;
@@ -45,7 +41,10 @@ pub trait CommitmentScheme<'params> {
 }
 
 /// Parameters for circuit sysnthesis and prover parameters.
-pub trait Params<'params, C: CurveAffine, M: MSM<C> + 'params>: Sized + Clone {
+pub trait Params<'params, C: CurveAffine>: Sized + Clone {
+    /// Multi scalar multiplication engine
+    type MSM: MSM<C> + 'params;
+
     /// Logaritmic size of the circuit
     fn k(&self) -> u32;
 
@@ -54,7 +53,7 @@ pub trait Params<'params, C: CurveAffine, M: MSM<C> + 'params>: Sized + Clone {
 
     /// Generates an empty multiscalar multiplication struct using the
     /// appropriate params.
-    fn empty_msm(&'params self) -> M;
+    fn empty_msm(&'params self) -> Self::MSM;
 
     /// This commits to a polynomial using its evaluations over the $2^k$ size
     /// evaluation domain. The commitment will be blinded by the blinding factor
@@ -73,11 +72,9 @@ pub trait Params<'params, C: CurveAffine, M: MSM<C> + 'params>: Sized + Clone {
 }
 
 /// Parameters for circuit sysnthesis and prover parameters.
-pub trait ParamsProver<'params, C: CurveAffine, M: MSM<C> + 'params>:
-    Params<'params, C, M>
-{
+pub trait ParamsProver<'params, C: CurveAffine>: Params<'params, C> {
     /// Constant verifier parameters.
-    type ParamsVerifier: ParamsVerifier<'params, C, M>;
+    type ParamsVerifier: ParamsVerifier<'params, C>;
 
     /// Returns new instance of parameters
     fn new(k: u32) -> Self;
@@ -96,10 +93,7 @@ pub trait ParamsProver<'params, C: CurveAffine, M: MSM<C> + 'params>:
 }
 
 /// Verifier specific functionality with circuit constaints
-pub trait ParamsVerifier<'params, C: CurveAffine, M: MSM<C> + 'params>:
-    Params<'params, C, M>
-{
-}
+pub trait ParamsVerifier<'params, C: CurveAffine>: Params<'params, C> {}
 
 /// Multi scalar multiplication engine
 pub trait MSM<C: CurveAffine>: Clone + Debug {
@@ -128,7 +122,7 @@ pub trait MSM<C: CurveAffine>: Clone + Debug {
 }
 
 /// Common multi-open prover interface for various commitment schemes
-pub trait Prover<'params, Scheme: CommitmentScheme<'params>> {
+pub trait Prover<'params, Scheme: CommitmentScheme> {
     /// Creates new prover instance
     fn new(params: &'params Scheme::ParamsProver) -> Self;
 
@@ -151,10 +145,10 @@ pub trait Prover<'params, Scheme: CommitmentScheme<'params>> {
 }
 
 /// Common multi-open verifier interface for various commitment schemes
-pub trait Verifier<'params, Scheme: CommitmentScheme<'params>> {
+pub trait Verifier<'params, Scheme: CommitmentScheme> {
     /// Unfinalized verification result. This is returned in verification
     /// to allow developer to compress or combined verification results
-    type Guard: Guard<'params, Scheme, MSMAccumulator = Self::MSMAccumulator>;
+    type Guard: Guard<Scheme, MSMAccumulator = Self::MSMAccumulator>;
 
     /// Accumulator fot comressed verification
     type MSMAccumulator;
@@ -176,7 +170,13 @@ pub trait Verifier<'params, Scheme: CommitmentScheme<'params>> {
     ) -> Result<Self::Guard, Error>
     where
         'params: 'com,
-        I: IntoIterator<Item = VerifierQuery<'com, Scheme::Curve, Scheme::MSM>> + Clone;
+        I: IntoIterator<
+                Item = VerifierQuery<
+                    'com,
+                    Scheme::Curve,
+                    <Scheme::ParamsVerifier as Params<'params, Scheme::Curve>>::MSM,
+                >,
+            > + Clone;
 }
 
 /// Wrapper type around a blinding factor.

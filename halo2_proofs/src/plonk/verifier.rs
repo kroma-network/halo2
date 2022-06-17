@@ -70,7 +70,7 @@ use crate::poly::commitment::ParamsVerifier;
 /// Returns a boolean indicating whether or not the proof is valid
 pub fn verify_proof<
     'params,
-    Scheme: CommitmentScheme<'params>,
+    Scheme: CommitmentScheme,
     E: EncodedChallenge<Scheme::Curve>,
     T: TranscriptRead<Scheme::Curve, E>,
     V: Verifier<'params, Scheme>,

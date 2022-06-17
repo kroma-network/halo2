@@ -8,7 +8,7 @@ use crate::{
 
 /// Guards is unfinished verification result. Implement this to construct various
 /// verification strategies such as aggregation and recursion.
-pub trait Guard<'params, Scheme: CommitmentScheme<'params>> {
+pub trait Guard<Scheme: CommitmentScheme> {
     /// Multi scalar engine which is not evaluated yet.
     type MSMAccumulator;
 }
@@ -16,7 +16,7 @@ pub trait Guard<'params, Scheme: CommitmentScheme<'params>> {
 /// Trait representing a strategy for verifying Halo 2 proofs.
 pub trait VerificationStrategy<
     'params,
-    Scheme: CommitmentScheme<'params>,
+    Scheme: CommitmentScheme,
     V: Verifier<'params, Scheme>,
     R: RngCore,
 >

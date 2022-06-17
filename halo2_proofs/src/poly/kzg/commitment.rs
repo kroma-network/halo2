@@ -38,10 +38,9 @@ pub struct KZGCommitmentScheme<E: Engine> {
     _marker: PhantomData<E>,
 }
 
-impl<'params, E: Engine + Debug> CommitmentScheme<'params> for KZGCommitmentScheme<E> {
+impl<E: Engine + Debug> CommitmentScheme for KZGCommitmentScheme<E> {
     type Scalar = E::Scalar;
     type Curve = E::G1Affine;
-    type MSM = MSMKZG<E>;
 
     type ParamsProver = ParamsKZG<E>;
     type ParamsVerifier = ParamsVerifierKZG<E>;
@@ -55,12 +54,26 @@ impl<'params, E: Engine + Debug> CommitmentScheme<'params> for KZGCommitmentSche
     }
 }
 
+impl<E: Engine + Debug> ParamsKZG<E> {
+    /// Doc
+    pub fn g2(&self) -> E::G2Affine {
+        self.g2
+    }
+
+    /// Doc
+    pub fn s_g2(&self) -> E::G2Affine {
+        self.s_g2
+    }
+}
+
 // TODO: see the issue at https://github.com/appliedzkp/halo2/issues/45
 // So we probably need much smaller verifier key. However for new bases in g1 should be in verifier keys.
 /// KZG multi-open verification parameters
 pub type ParamsVerifierKZG<C> = ParamsKZG<C>;
 
-impl<'params, E: Engine + Debug> Params<'params, E::G1Affine, MSMKZG<E>> for ParamsKZG<E> {
+impl<'params, E: Engine + Debug> Params<'params, E::G1Affine> for ParamsKZG<E> {
+    type MSM = MSMKZG<E>;
+
     fn k(&self) -> u32 {
         self.k
     }
@@ -158,9 +171,9 @@ impl<'params, E: Engine + Debug> Params<'params, E::G1Affine, MSMKZG<E>> for Par
     }
 }
 
-impl<'params, E: Engine + Debug> ParamsVerifier<'params, E::G1Affine, MSMKZG<E>> for ParamsKZG<E> {}
+impl<'params, E: Engine + Debug> ParamsVerifier<'params, E::G1Affine> for ParamsKZG<E> {}
 
-impl<'params, E: Engine + Debug> ParamsProver<'params, E::G1Affine, MSMKZG<E>> for ParamsKZG<E> {
+impl<'params, E: Engine + Debug> ParamsProver<'params, E::G1Affine> for ParamsKZG<E> {
     type ParamsVerifier = ParamsVerifierKZG<E>;
 
     fn verifier_params(&'params self) -> &'params Self::ParamsVerifier {
@@ -313,7 +326,7 @@ mod test {
 
         let params0 = ParamsKZG::<Bn256>::new(K);
         let mut data = vec![];
-        <ParamsKZG<_> as Params<_, _>>::write(&params0, &mut data).unwrap();
+        <ParamsKZG<_> as Params<_>>::write(&params0, &mut data).unwrap();
         let params1: ParamsKZG<Bn256> = Params::read::<_>(&mut &data[..]).unwrap();
 
         assert_eq!(params0.k, params1.k);

@@ -97,7 +97,7 @@ impl Assembly {
         Ok(())
     }
 
-    pub(crate) fn build_vk<'params, Scheme: CommitmentScheme<'params>>(
+    pub(crate) fn build_vk<'params, Scheme: CommitmentScheme>(
         self,
         params: &'params Scheme::ParamsProver,
         domain: &EvaluationDomain<Scheme::Scalar>,
@@ -150,7 +150,7 @@ impl Assembly {
         VerifyingKey { commitments }
     }
 
-    pub(crate) fn build_pk<'params, Scheme: CommitmentScheme<'params>>(
+    pub(crate) fn build_pk<'params, Scheme: CommitmentScheme>(
         self,
         params: &'params Scheme::ParamsProver,
         domain: &EvaluationDomain<Scheme::Scalar>,

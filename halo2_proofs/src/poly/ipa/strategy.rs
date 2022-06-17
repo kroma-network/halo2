@@ -29,7 +29,7 @@ pub struct GuardIPA<'params, C: CurveAffine> {
 }
 
 /// Define accumulator type as `MSMIPA`
-impl<'params, C: CurveAffine> Guard<'params, IPACommitmentScheme<C>> for GuardIPA<'params, C> {
+impl<'params, C: CurveAffine> Guard<IPACommitmentScheme<C>> for GuardIPA<'params, C> {
     type MSMAccumulator = MSMIPA<'params, C>;
 }
 

@@ -44,7 +44,7 @@ pub(crate) struct Evaluated<C: CurveAffine> {
 impl Argument {
     pub(in crate::plonk) fn commit<
         'params,
-        Scheme: CommitmentScheme<'params>,
+        Scheme: CommitmentScheme,
         E: EncodedChallenge<Scheme::Curve>,
         Ev: Copy + Send + Sync,
         R: RngCore,

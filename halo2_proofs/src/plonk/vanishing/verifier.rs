@@ -87,17 +87,13 @@ impl<C: CurveAffine> Constructed<C> {
 }
 
 impl<C: CurveAffine> PartiallyEvaluated<C> {
-    pub(in crate::plonk) fn verify<
-        'params,
-        Scheme: CommitmentScheme<'params, Curve = C, Scalar = C::ScalarExt>,
-        I,
-    >(
+    pub(in crate::plonk) fn verify<Scheme: CommitmentScheme<Curve = C, Scalar = C::ScalarExt>, I>(
         self,
-        params: &'params Scheme::ParamsVerifier,
+        params: &Scheme::ParamsVerifier,
         expressions: I,
         y: ChallengeY<Scheme::Curve>,
         xn: Scheme::Scalar,
-    ) -> Evaluated<Scheme::Curve, Scheme::MSM>
+    ) -> Evaluated<Scheme::Curve, <Scheme::ParamsVerifier as Params<Scheme::Curve>>::MSM>
     where
         I: Iterator<Item = Scheme::Scalar>,
     {

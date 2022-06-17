@@ -186,8 +186,8 @@ impl<F: Field> Assignment<F> for Assembly<F> {
 }
 
 /// Generate a `VerifyingKey` from an instance of `Circuit`.
-pub fn keygen_vk<'params, Scheme: CommitmentScheme<'params>, ConcreteCircuit>(
-    params: &'params Scheme::ParamsProver,
+pub fn keygen_vk<Scheme: CommitmentScheme, ConcreteCircuit>(
+    params: &Scheme::ParamsProver,
     circuit: &ConcreteCircuit,
 ) -> Result<VerifyingKey<Scheme::Curve>, Error>
 where
@@ -242,8 +242,8 @@ where
 }
 
 /// Generate a `ProvingKey` from a `VerifyingKey` and an instance of `Circuit`.
-pub fn keygen_pk<'params, Scheme: CommitmentScheme<'params>, ConcreteCircuit>(
-    params: &'params Scheme::ParamsProver,
+pub fn keygen_pk<Scheme: CommitmentScheme, ConcreteCircuit>(
+    params: &Scheme::ParamsProver,
     vk: VerifyingKey<Scheme::Curve>,
     circuit: &ConcreteCircuit,
 ) -> Result<ProvingKey<Scheme::Curve>, Error>
