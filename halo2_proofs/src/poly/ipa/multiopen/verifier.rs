@@ -41,7 +41,8 @@ impl<'params, C: CurveAffine> Verifier<'params, IPACommitmentScheme<C>>
         mut msm: MSMIPA<'params, C>,
     ) -> Result<Self::Guard, Error>
     where
-        I: IntoIterator<Item = VerifierQuery<'com, C>> + Clone,
+        'params: 'com,
+        I: IntoIterator<Item = VerifierQuery<'com, C, MSMIPA<'params, C>>> + Clone,
     {
         // Sample x_1 for compressing openings at the same point sets together
         let x_1: ChallengeX1<_> = transcript.squeeze_challenge_scalar();
@@ -64,24 +65,25 @@ impl<'params, C: CurveAffine> Verifier<'params, IPACommitmentScheme<C>>
             q_eval_sets.push(vec![C::Scalar::zero(); point_set.len()]);
         }
         {
-            let mut accumulate =
-                |set_idx: usize, new_commitment: CommitmentReference<C>, evals: Vec<C::Scalar>| {
-                    q_commitments[set_idx].scale(*x_1);
+            let mut accumulate = |set_idx: usize,
+                                  new_commitment: CommitmentReference<C, MSMIPA<'params, C>>,
+                                  evals: Vec<C::Scalar>| {
+                q_commitments[set_idx].scale(*x_1);
 
-                    match new_commitment {
-                        CommitmentReference::Commitment(c) => {
-                            q_commitments[set_idx].append_term(C::Scalar::one(), (*c).into());
-                        }
-                        CommitmentReference::MSM(msm) => {
-                            MSM::add_msm(&mut q_commitments[set_idx], msm);
-                        }
+                match new_commitment {
+                    CommitmentReference::Commitment(c) => {
+                        q_commitments[set_idx].append_term(C::Scalar::one(), (*c).into());
                     }
+                    CommitmentReference::MSM(msm) => {
+                        MSM::add_msm(&mut q_commitments[set_idx], msm);
+                    }
+                }
 
-                    for (eval, set_eval) in evals.iter().zip(q_eval_sets[set_idx].iter_mut()) {
-                        *set_eval *= &(*x_1);
-                        *set_eval += eval;
-                    }
-                };
+                for (eval, set_eval) in evals.iter().zip(q_eval_sets[set_idx].iter_mut()) {
+                    *set_eval *= &(*x_1);
+                    *set_eval += eval;
+                }
+            };
 
             // Each commitment corresponds to evaluations at a set of points.
             // For each set, we collapse each commitment's evals pointwise.

@@ -55,7 +55,7 @@ impl<'params, E: MultiMillerLoop + Debug> Verifier<'params, KZGCommitmentScheme<
         mut msm_accumulator: DualMSM<'params, E>,
     ) -> Result<Self::Guard, Error>
     where
-        I: IntoIterator<Item = VerifierQuery<'com, E::G1Affine>> + Clone,
+        I: IntoIterator<Item = VerifierQuery<'com, E::G1Affine, MSMKZG<E>>> + Clone,
     {
         let intermediate_sets = construct_intermediate_sets(queries);
         let (rotation_sets, super_point_set) = (

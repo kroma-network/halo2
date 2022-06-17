@@ -52,7 +52,7 @@ impl<'params, E: MultiMillerLoop + Debug> Verifier<'params, KZGCommitmentScheme<
         mut msm_accumulator: DualMSM<'params, E>,
     ) -> Result<Self::Guard, Error>
     where
-        I: IntoIterator<Item = VerifierQuery<'com, E::G1Affine>> + Clone,
+        I: IntoIterator<Item = VerifierQuery<'com, E::G1Affine, MSMKZG<E>>> + Clone,
     {
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
 

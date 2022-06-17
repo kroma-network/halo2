@@ -24,7 +24,7 @@ pub trait CommitmentScheme<'params> {
     type Curve: CurveAffine<ScalarExt = Self::Scalar>;
 
     /// Multi scalar multiplication engine
-    type MSM: MSM<Self::Curve>;
+    type MSM: MSM<Self::Curve> + 'params;
 
     /// Constant prover parameters
     type ParamsProver: ParamsProver<
@@ -45,7 +45,7 @@ pub trait CommitmentScheme<'params> {
 }
 
 /// Parameters for circuit sysnthesis and prover parameters.
-pub trait Params<'params, C: CurveAffine, M: MSM<C>>: Sized + Clone {
+pub trait Params<'params, C: CurveAffine, M: MSM<C> + 'params>: Sized + Clone {
     /// Logaritmic size of the circuit
     fn k(&self) -> u32;
 
@@ -73,7 +73,9 @@ pub trait Params<'params, C: CurveAffine, M: MSM<C>>: Sized + Clone {
 }
 
 /// Parameters for circuit sysnthesis and prover parameters.
-pub trait ParamsProver<'params, C: CurveAffine, M: MSM<C>>: Params<'params, C, M> {
+pub trait ParamsProver<'params, C: CurveAffine, M: MSM<C> + 'params>:
+    Params<'params, C, M>
+{
     /// Constant verifier parameters.
     type ParamsVerifier: ParamsVerifier<'params, C, M>;
 
@@ -94,15 +96,20 @@ pub trait ParamsProver<'params, C: CurveAffine, M: MSM<C>>: Params<'params, C, M
 }
 
 /// Verifier specific functionality with circuit constaints
-pub trait ParamsVerifier<'params, C: CurveAffine, M: MSM<C>>: Params<'params, C, M> {}
+pub trait ParamsVerifier<'params, C: CurveAffine, M: MSM<C> + 'params>:
+    Params<'params, C, M>
+{
+}
 
 /// Multi scalar multiplication engine
-pub trait MSM<C: CurveAffine>: Debug {
+pub trait MSM<C: CurveAffine>: Clone + Debug {
     /// Add arbitrary term (the scalar and the point)
     fn append_term(&mut self, scalar: C::Scalar, point: C::CurveExt);
 
     /// Add another multiexp into this one
-    fn add_msm(&mut self, other: &dyn MSM<C>);
+    fn add_msm(&mut self, other: &Self)
+    where
+        Self: Sized;
 
     /// Scale all scalars in the MSM by some scaling factor
     fn scale(&mut self, factor: C::Scalar);
@@ -168,7 +175,8 @@ pub trait Verifier<'params, Scheme: CommitmentScheme<'params>> {
         msm: Self::MSMAccumulator,
     ) -> Result<Self::Guard, Error>
     where
-        I: IntoIterator<Item = VerifierQuery<'com, Scheme::Curve>> + Clone;
+        'params: 'com,
+        I: IntoIterator<Item = VerifierQuery<'com, Scheme::Curve, Scheme::MSM>> + Clone;
 }
 
 /// Wrapper type around a blinding factor.

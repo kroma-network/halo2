@@ -131,7 +131,7 @@ impl<C: CurveAffine, M: MSM<C>> Evaluated<C, M> {
     pub(in crate::plonk) fn queries(
         &self,
         x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<C>> + Clone {
+    ) -> impl Iterator<Item = VerifierQuery<C, M>> + Clone {
         iter::empty()
             .chain(Some(VerifierQuery::new_msm(
                 &self.h_commitment,

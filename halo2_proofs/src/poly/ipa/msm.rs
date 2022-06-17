@@ -94,7 +94,7 @@ impl<'a, C: CurveAffine> MSMIPA<'a, C> {
         }
     }
 
-    fn add_msm(&mut self, other: &dyn MSM<C>) {
+    fn add_msm(&mut self, other: &Self) {
         self.other_scalars.extend(other.scalars().iter());
         self.other_bases.extend(other.bases().iter());
     }

@@ -166,11 +166,11 @@ impl<C: CurveAffine> Evaluated<C> {
             ))
     }
 
-    pub(in crate::plonk) fn queries<'r>(
+    pub(in crate::plonk) fn queries<'r, M: MSM<C> + 'r>(
         &'r self,
         vk: &'r VerifyingKey<C>,
         x: ChallengeX<C>,
-    ) -> impl Iterator<Item = VerifierQuery<'r, C>> + Clone {
+    ) -> impl Iterator<Item = VerifierQuery<'r, C, M>> + Clone {
         let x_inv = vk.domain.rotate_omega(*x, Rotation::prev());
         let x_next = vk.domain.rotate_omega(*x, Rotation::next());
 

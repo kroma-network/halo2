@@ -43,7 +43,7 @@ impl<E: Engine + Debug> MSM<E::G1Affine> for MSMKZG<E> {
         self.bases.push(point);
     }
 
-    fn add_msm(&mut self, other: &dyn MSM<E::G1Affine>) {
+    fn add_msm(&mut self, other: &Self) {
         self.scalars.extend(other.scalars().iter());
         self.bases.extend(other.bases().iter());
     }
@@ -94,25 +94,16 @@ impl<E: Engine + Debug> PreMSM<E> {
     pub(crate) fn normalize(self) -> MSMKZG<E> {
         use group::prime::PrimeCurveAffine;
 
-        let bases: Vec<E::G1> = self
+        let (scalars, bases) = self
             .projectives_msms
-            .iter()
-            .map(|msm| msm.bases.clone())
-            .collect::<Vec<Vec<E::G1>>>()
             .into_iter()
-            .flatten()
-            .collect();
+            .map(|msm| (msm.scalars, msm.bases))
+            .unzip::<_, _, Vec<_>, Vec<_>>();
 
-        let scalars: Vec<E::Scalar> = self
-            .projectives_msms
-            .iter()
-            .map(|msm| msm.scalars.clone())
-            .collect::<Vec<Vec<E::Scalar>>>()
-            .into_iter()
-            .flatten()
-            .collect();
-
-        MSMKZG { scalars, bases }
+        MSMKZG {
+            scalars: scalars.into_iter().flatten().collect(),
+            bases: bases.into_iter().flatten().collect(),
+        }
     }
 
     pub(crate) fn add_msm(&mut self, other: MSMKZG<E>) {
