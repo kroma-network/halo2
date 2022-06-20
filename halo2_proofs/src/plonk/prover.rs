@@ -291,10 +291,13 @@ pub fn create_proof<
             let mut advice = batch_invert_assigned(witness.advice);
 
             // Add blinding factors to advice columns
-            for advice in &mut advice {
-                for cell in &mut advice[unusable_rows_start..] {
+            for advic in &mut advice {
+                //for cell in &mut advice[unusable_rows_start..] {
                     //*cell = C::Scalar::random(&mut rng);
-                }
+                    //*cell = C::Scalar::one();
+                //}
+                let idx = advic.len() - 1;
+                advic[idx] = C::Scalar::one();
             }
 
             let advice_commitments_projective: Vec<_> = advice
