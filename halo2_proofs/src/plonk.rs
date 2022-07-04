@@ -154,6 +154,11 @@ impl<C: CurveAffine> VerifyingKey<C> {
     pub fn get_domain(&self) -> &EvaluationDomain<C::Scalar> {
         &self.domain
     }
+
+    /// Get the underlying [`ConstraintSystem`].
+    pub fn get_cs(&self) -> &ConstraintSystem<C::Scalar> {
+        &self.cs
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

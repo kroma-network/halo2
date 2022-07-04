@@ -3,3 +3,5 @@
 Cargo.lock
 .vscode
 **/*.html
+output/
+run-cost-model.sh

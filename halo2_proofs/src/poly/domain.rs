@@ -141,6 +141,33 @@ impl<G: Group> EvaluationDomain<G> {
         }
     }
 
+    /// Generate a fake domain.
+    pub fn fake_new(j: u32, k: u32, rand_scalar: G::Scalar) -> Self {
+        let n = 1 << k;
+        let quotient_poly_degree = (j - 1) as i32;
+        let mut extended_k = k;
+        while (1 << extended_k) < (n * quotient_poly_degree) {
+            extended_k += 1;
+        }
+
+        EvaluationDomain {
+            n: n as u64,
+            k: k as u32,
+            extended_k: extended_k as u32,
+            omega: rand_scalar.clone(),
+            omega_inv: rand_scalar.clone(),
+            extended_omega: rand_scalar.clone(),
+            extended_omega_inv: rand_scalar.clone(),
+            g_coset: rand_scalar,
+            g_coset_inv: rand_scalar.clone(),
+            quotient_poly_degree: quotient_poly_degree as u64,
+            ifft_divisor: rand_scalar.clone(),
+            extended_ifft_divisor: rand_scalar.clone(),
+            t_evaluations: (1..(1 << (extended_k - k))).map(|_| rand_scalar.clone()).collect(),
+            barycentric_weight: rand_scalar.clone(),
+        }
+    }
+
     /// Obtains a polynomial in Lagrange form when given a vector of Lagrange
     /// coefficients of size `n`; panics if the provided vector is the wrong
     /// length.
