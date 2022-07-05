@@ -30,21 +30,19 @@ mod test {
     fn test_roundtrip_ipa() {
         use crate::poly::ipa::commitment::{IPACommitmentScheme, ParamsIPA};
         use crate::poly::ipa::multiopen::{ProverIPA, VerifierIPA};
-        use crate::poly::ipa::strategy::BatchVerifier;
+        use crate::poly::ipa::strategy::AccumulatorStrategy;
         use halo2curves::pasta::{Ep, EqAffine, Fp};
 
         const K: u32 = 4;
 
         let params = ParamsIPA::<EqAffine>::new(K);
-        let rng = OsRng;
 
         let proof = create_proof::<
             IPACommitmentScheme<EqAffine>,
             Blake2bWrite<_, _, Challenge255<_>>,
             ProverIPA<_>,
             _,
-            _,
-        >(rng, &params);
+        >(&params);
 
         let verifier_params = params.verifier_params();
 
@@ -52,42 +50,37 @@ mod test {
             IPACommitmentScheme<EqAffine>,
             Blake2bRead<_, _, Challenge255<_>>,
             VerifierIPA<_>,
-            BatchVerifier<_, _>,
+            AccumulatorStrategy<_>,
             _,
-            _,
-        >(rng, verifier_params, &proof[..], false);
+        >(verifier_params, &proof[..], false);
 
         verify::<
             IPACommitmentScheme<EqAffine>,
             Blake2bRead<_, _, Challenge255<_>>,
             VerifierIPA<_>,
-            BatchVerifier<_, _>,
+            AccumulatorStrategy<_>,
             _,
-            _,
-        >(rng, verifier_params, &proof[..], true);
+        >(verifier_params, &proof[..], true);
     }
 
     #[test]
     fn test_roundtrip_gwc() {
         use crate::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
         use crate::poly::kzg::multiopen::{ProverGWC, VerifierGWC};
-        use crate::poly::kzg::strategy::BatchVerifier;
+        use crate::poly::kzg::strategy::AccumulatorStrategy;
         use halo2curves::bn256::{Bn256, G1Affine};
         use halo2curves::pairing::Engine;
 
         const K: u32 = 4;
 
         let params = ParamsKZG::<Bn256>::new(K);
-        let rng = OsRng;
 
-        let proof = create_proof::<_, Blake2bWrite<_, _, Challenge255<_>>, ProverGWC<_>, _, _>(
-            rng, &params,
-        );
+        let proof =
+            create_proof::<_, Blake2bWrite<_, _, Challenge255<_>>, ProverGWC<_>, _>(&params);
 
         let verifier_params = params.verifier_params();
 
-        verify::<_, Blake2bRead<_, _, Challenge255<_>>, VerifierGWC<_>, BatchVerifier<_, _>, _, _>(
-            rng,
+        verify::<_, Blake2bRead<_, _, Challenge255<_>>, VerifierGWC<_>, AccumulatorStrategy<_>, _>(
             verifier_params,
             &proof[..],
             false,
@@ -97,32 +90,29 @@ mod test {
             KZGCommitmentScheme<Bn256>,
             Blake2bRead<_, _, Challenge255<_>>,
             VerifierGWC<_>,
-            BatchVerifier<_, _>,
+            AccumulatorStrategy<_>,
             _,
-            _,
-        >(rng, verifier_params, &proof[..], true);
+        >(verifier_params, &proof[..], true);
     }
 
     #[test]
     fn test_roundtrip_shplonk() {
         use crate::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
         use crate::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
-        use crate::poly::kzg::strategy::BatchVerifier;
+        use crate::poly::kzg::strategy::AccumulatorStrategy;
         use halo2curves::bn256::{Bn256, G1Affine};
         use halo2curves::pairing::Engine;
 
         const K: u32 = 4;
 
         let params = ParamsKZG::<Bn256>::new(K);
-        let rng = OsRng;
 
         let proof = create_proof::<
             KZGCommitmentScheme<Bn256>,
             Blake2bWrite<_, _, Challenge255<_>>,
             ProverSHPLONK<_>,
             _,
-            _,
-        >(rng, &params);
+        >(&params);
 
         let verifier_params = params.verifier_params();
 
@@ -130,19 +120,17 @@ mod test {
             KZGCommitmentScheme<Bn256>,
             Blake2bRead<_, _, Challenge255<_>>,
             VerifierSHPLONK<_>,
-            BatchVerifier<_, _>,
+            AccumulatorStrategy<_>,
             _,
-            _,
-        >(rng, verifier_params, &proof[..], false);
+        >(verifier_params, &proof[..], false);
 
         verify::<
             KZGCommitmentScheme<Bn256>,
             Blake2bRead<_, _, Challenge255<_>>,
             VerifierSHPLONK<_>,
-            BatchVerifier<_, _>,
+            AccumulatorStrategy<_>,
             _,
-            _,
-        >(rng, verifier_params, &proof[..], true);
+        >(verifier_params, &proof[..], true);
     }
 
     fn verify<
@@ -151,18 +139,13 @@ mod test {
         Scheme: CommitmentScheme,
         TranscriptRead: TranscriptReadBuffer<&'a [u8], Scheme::Curve, Ch>,
         Verifier: _Verifier<'params, Scheme>,
-        Strategy: VerificationStrategy<'params, Scheme, Verifier, R, Output = Strategy>,
-        Ch,
-        R,
+        Strategy: VerificationStrategy<'params, Scheme, Verifier, Output = Strategy>,
+        Ch: EncodedChallenge<Scheme::Curve>,
     >(
-        rng: R,
         params: &'params Scheme::ParamsVerifier,
         proof: &'a [u8],
         should_fail: bool,
-    ) where
-        Ch: EncodedChallenge<Scheme::Curve>,
-        R: RngCore + Copy,
-    {
+    ) {
         let verifier = Verifier::new(params);
 
         let mut transcript = TranscriptRead::init(proof);
@@ -195,7 +178,7 @@ mod test {
         };
 
         {
-            let strategy = Strategy::new(params, rng);
+            let strategy = Strategy::new(params);
             let strategy = strategy
                 .process(|msm_accumulator| {
                     verifier
@@ -214,14 +197,11 @@ mod test {
         TranscriptWrite: TranscriptWriterBuffer<Vec<u8>, Scheme::Curve, Ch>,
         Prover: _Prover<'params, Scheme>,
         Ch,
-        Rng,
     >(
-        mut rng: Rng,
         params: &'params Scheme::ParamsProver,
     ) -> Vec<u8>
     where
         Ch: EncodedChallenge<Scheme::Curve>,
-        Rng: RngCore,
     {
         let domain = EvaluationDomain::new(1, params.k());
 
@@ -248,7 +228,7 @@ mod test {
 
         let mut transcript = TranscriptWrite::init(vec![]);
 
-        let blind = Blind::new(&mut rng);
+        let blind = Blind::new(&mut OsRng);
         let a = params.commit(&ax, blind).to_affine();
         let b = params.commit(&bx, blind).to_affine();
         let c = params.commit(&cx, blind).to_affine();
@@ -288,7 +268,9 @@ mod test {
         .to_vec();
 
         let prover = Prover::new(params);
-        prover.create_proof(rng, &mut transcript, queries).unwrap();
+        prover
+            .create_proof(&mut OsRng, &mut transcript, queries)
+            .unwrap();
 
         transcript.finalize()
     }

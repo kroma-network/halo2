@@ -9,7 +9,7 @@ use crate::poly::commitment::Verifier;
 use crate::poly::commitment::MSM;
 use crate::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
 use crate::poly::kzg::msm::{DualMSM, MSMKZG};
-use crate::poly::kzg::strategy::{BatchVerifier, GuardKZG};
+use crate::poly::kzg::strategy::{AccumulatorStrategy, GuardKZG, SingleStrategy};
 use crate::poly::query::Query;
 use crate::poly::query::{CommitmentReference, VerifierQuery};
 use crate::poly::strategy::VerificationStrategy;
@@ -22,7 +22,7 @@ use crate::transcript::{EncodedChallenge, TranscriptRead};
 use ff::Field;
 use group::Group;
 use halo2curves::pairing::{Engine, MillerLoopResult, MultiMillerLoop};
-use rand_core::RngCore;
+use rand_core::OsRng;
 
 #[derive(Debug)]
 /// Concrete KZG verifier with GWC variant
@@ -115,31 +115,5 @@ impl<'params, E: MultiMillerLoop + Debug> Verifier<'params, KZGCommitmentScheme<
         msm_accumulator.right.append_term(eval_multi, -g0);
 
         Ok(Self::Guard::new(msm_accumulator))
-    }
-}
-
-impl<'params, E: MultiMillerLoop + Debug, R: RngCore>
-    VerificationStrategy<'params, KZGCommitmentScheme<E>, VerifierGWC<'params, E>, R>
-    for BatchVerifier<'params, E, R>
-{
-    type Output = Self;
-
-    fn new(params: &'params ParamsKZG<E>, rng: R) -> Self {
-        BatchVerifier::new(params, rng)
-    }
-
-    fn process(
-        mut self,
-        f: impl FnOnce(DualMSM<'params, E>) -> Result<GuardKZG<'params, E>, crate::plonk::Error>,
-    ) -> Result<Self::Output, crate::plonk::Error> {
-        self.msm_accumulator.scale(E::Scalar::random(&mut self.rng));
-
-        // Guard is updated with new msm contributions
-        let guard = f(self.msm_accumulator)?;
-        Ok(BatchVerifier::with(guard.msm_accumulator, self.rng))
-    }
-
-    fn finalize(self) -> bool {
-        self.msm_accumulator.check()
     }
 }

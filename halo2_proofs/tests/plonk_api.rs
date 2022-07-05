@@ -525,24 +525,19 @@ fn plonk_api() {
         Scheme: CommitmentScheme,
         Verifier: _Verifier<'params, Scheme>,
         TranscriptRead: TranscriptReadBuffer<&'a [u8], Scheme::Curve, Ch>,
-        Strategy: VerificationStrategy<'params, Scheme, Verifier, Rng, Output = Strategy>,
-        Ch,
-        Rng,
+        Strategy: VerificationStrategy<'params, Scheme, Verifier, Output = Strategy>,
+        Ch: EncodedChallenge<Scheme::Curve>,
     >(
-        rng: Rng,
         params_verifier: &'params Scheme::ParamsVerifier,
         vk: &VerifyingKey<Scheme::Curve>,
         proof: &'a [u8],
-    ) where
-        Ch: EncodedChallenge<Scheme::Curve>,
-        Rng: RngCore + Copy,
-    {
+    ) {
         let (_, instance, _) = common!(Scheme);
         let pubinputs = vec![instance];
 
         let mut transcript = TranscriptRead::init(proof);
 
-        let strategy = Strategy::new(params_verifier, rng);
+        let strategy = Strategy::new(params_verifier);
         let strategy = verify_plonk_proof(
             params_verifier,
             vk,
@@ -558,7 +553,7 @@ fn plonk_api() {
     fn test_plonk_api_gwc() {
         use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
         use halo2_proofs::poly::kzg::multiopen::{ProverGWC, VerifierGWC};
-        use halo2_proofs::poly::kzg::strategy::BatchVerifier;
+        use halo2_proofs::poly::kzg::strategy::AccumulatorStrategy;
         use halo2curves::bn256::Bn256;
 
         type Scheme = KZGCommitmentScheme<Bn256>;
@@ -579,16 +574,15 @@ fn plonk_api() {
             _,
             VerifierGWC<_>,
             Blake2bRead<_, _, Challenge255<_>>,
-            BatchVerifier<_, _>,
+            AccumulatorStrategy<_>,
             _,
-            _,
-        >(rng, verifier_params, pk.get_vk(), &proof[..]);
+        >(verifier_params, pk.get_vk(), &proof[..]);
     }
 
     fn test_plonk_api_shplonk() {
         use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
         use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
-        use halo2_proofs::poly::kzg::strategy::BatchVerifier;
+        use halo2_proofs::poly::kzg::strategy::AccumulatorStrategy;
         use halo2curves::bn256::Bn256;
 
         type Scheme = KZGCommitmentScheme<Bn256>;
@@ -609,16 +603,15 @@ fn plonk_api() {
             _,
             VerifierSHPLONK<_>,
             Blake2bRead<_, _, Challenge255<_>>,
-            BatchVerifier<_, _>,
+            AccumulatorStrategy<_>,
             _,
-            _,
-        >(rng, verifier_params, pk.get_vk(), &proof[..]);
+        >(verifier_params, pk.get_vk(), &proof[..]);
     }
 
     fn test_plonk_api_ipa() {
         use halo2_proofs::poly::ipa::commitment::{IPACommitmentScheme, ParamsIPA};
         use halo2_proofs::poly::ipa::multiopen::{ProverIPA, VerifierIPA};
-        use halo2_proofs::poly::ipa::strategy::BatchVerifier;
+        use halo2_proofs::poly::ipa::strategy::AccumulatorStrategy;
         use halo2curves::pasta::EqAffine;
 
         type Scheme = IPACommitmentScheme<EqAffine>;
@@ -639,10 +632,9 @@ fn plonk_api() {
             _,
             VerifierIPA<_>,
             Blake2bRead<_, _, Challenge255<_>>,
-            BatchVerifier<_, _>,
+            AccumulatorStrategy<_>,
             _,
-            _,
-        >(rng, verifier_params, pk.get_vk(), &proof[..]);
+        >(verifier_params, pk.get_vk(), &proof[..]);
 
         // Check that the verification key has not changed unexpectedly
         {

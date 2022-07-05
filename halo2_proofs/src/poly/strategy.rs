@@ -1,3 +1,4 @@
+use halo2curves::CurveAffine;
 use rand_core::RngCore;
 
 use super::commitment::{CommitmentScheme, Verifier, MSM};
@@ -10,22 +11,17 @@ use crate::{
 /// verification strategies such as aggregation and recursion.
 pub trait Guard<Scheme: CommitmentScheme> {
     /// Multi scalar engine which is not evaluated yet.
+
     type MSMAccumulator;
 }
 
 /// Trait representing a strategy for verifying Halo 2 proofs.
-pub trait VerificationStrategy<
-    'params,
-    Scheme: CommitmentScheme,
-    V: Verifier<'params, Scheme>,
-    R: RngCore,
->
-{
+pub trait VerificationStrategy<'params, Scheme: CommitmentScheme, V: Verifier<'params, Scheme>> {
     /// The output type of this verification strategy after processing a proof.
     type Output;
 
     /// Creates new verification strategy instance
-    fn new(params: &'params Scheme::ParamsVerifier, rng: R) -> Self;
+    fn new(params: &'params Scheme::ParamsVerifier) -> Self;
 
     /// Obtains an MSM from the verifier strategy and yields back the strategy's
     /// output.

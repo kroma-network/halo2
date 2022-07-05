@@ -17,7 +17,7 @@ use crate::{
 use ff::Field;
 use group::Curve;
 use halo2curves::CurveAffine;
-use rand_core::RngCore;
+use rand_core::{OsRng, RngCore};
 
 /// Wrapper for verification accumulator
 #[derive(Debug, Clone)]
@@ -68,21 +68,19 @@ impl<'params, C: CurveAffine> GuardIPA<'params, C> {
 
 /// A verifier that checks multiple proofs in a batch.
 #[derive(Debug)]
-pub struct BatchVerifier<'params, C: CurveAffine, R: RngCore> {
+pub struct AccumulatorStrategy<'params, C: CurveAffine> {
     msm_accumulator: MSMIPA<'params, C>,
-    rng: R,
 }
 
-impl<'params, C: CurveAffine, R: RngCore>
-    VerificationStrategy<'params, IPACommitmentScheme<C>, VerifierIPA<'params, C>, R>
-    for BatchVerifier<'params, C, R>
+impl<'params, C: CurveAffine>
+    VerificationStrategy<'params, IPACommitmentScheme<C>, VerifierIPA<'params, C>>
+    for AccumulatorStrategy<'params, C>
 {
     type Output = Self;
 
-    fn new(params: &'params ParamsIPA<C>, rng: R) -> Self {
-        BatchVerifier {
+    fn new(params: &'params ParamsIPA<C>) -> Self {
+        AccumulatorStrategy {
             msm_accumulator: MSMIPA::new(params),
-            rng,
         }
     }
 
@@ -90,12 +88,11 @@ impl<'params, C: CurveAffine, R: RngCore>
         mut self,
         f: impl FnOnce(MSMIPA<'params, C>) -> Result<GuardIPA<'params, C>, Error>,
     ) -> Result<Self::Output, Error> {
-        self.msm_accumulator.scale(C::Scalar::random(&mut self.rng));
+        self.msm_accumulator.scale(C::Scalar::random(OsRng));
         let guard = f(self.msm_accumulator)?;
 
         Ok(Self {
             msm_accumulator: guard.use_challenges(),
-            rng: self.rng,
         })
     }
 
@@ -106,6 +103,47 @@ impl<'params, C: CurveAffine, R: RngCore>
     #[must_use]
     fn finalize(self) -> bool {
         self.msm_accumulator.check()
+    }
+}
+
+/// A verifier that checks single proof
+#[derive(Debug)]
+pub struct SingleStrategy<'params, C: CurveAffine> {
+    msm: MSMIPA<'params, C>,
+}
+
+impl<'params, C: CurveAffine>
+    VerificationStrategy<'params, IPACommitmentScheme<C>, VerifierIPA<'params, C>>
+    for SingleStrategy<'params, C>
+{
+    type Output = ();
+
+    fn new(params: &'params ParamsIPA<C>) -> Self {
+        SingleStrategy {
+            msm: MSMIPA::new(params),
+        }
+    }
+
+    fn process(
+        self,
+        f: impl FnOnce(MSMIPA<'params, C>) -> Result<GuardIPA<'params, C>, Error>,
+    ) -> Result<Self::Output, Error> {
+        let guard = f(self.msm)?;
+        let msm = guard.use_challenges();
+        if msm.check() {
+            Ok(())
+        } else {
+            Err(Error::ConstraintSystemFailure)
+        }
+    }
+
+    /// Finalizes the batch and checks its validity.
+    ///
+    /// Returns `false` if *some* proof was invalid. If the caller needs to identify
+    /// specific failing proofs, it must re-process the proofs separately.
+    #[must_use]
+    fn finalize(self) -> bool {
+        unreachable!()
     }
 }
 

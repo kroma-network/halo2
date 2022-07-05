@@ -9,7 +9,7 @@ use super::{
 };
 use crate::arithmetic::{CurveAffine, FieldExt};
 use crate::poly::commitment::{CommitmentScheme, Verifier};
-// use crate::poly::VerificationStrategy;
+use crate::poly::VerificationStrategy;
 use crate::poly::{
     commitment::{Blind, Params, MSM},
     Guard, VerifierQuery,
@@ -21,50 +21,6 @@ mod batch;
 #[cfg(feature = "batch")]
 pub use batch::BatchVerifier;
 
-/// Trait representing a strategy for verifying Halo 2 proofs.
-pub trait VerificationStrategy<'params, C: CurveAffine> {
-    /// The output type of this verification strategy after processing a proof.
-    type Output;
-
-    /// Obtains an MSM from the verifier strategy and yields back the strategy's
-    /// output.
-    fn process<E: EncodedChallenge<C>>(
-        self,
-        f: impl FnOnce(MSM<'params, C>) -> Result<Guard<'params, C, E>, Error>,
-    ) -> Result<Self::Output, Error>;
-}
-
-/// A verifier that checks a single proof at a time.
-#[derive(Debug)]
-pub struct SingleVerifier<'params, C: CurveAffine> {
-    msm: MSM<'params, C>,
-}
-
-impl<'params, C: CurveAffine> SingleVerifier<'params, C> {
-    /// Constructs a new single proof verifier.
-    pub fn new(params: &'params Params<C>) -> Self {
-        SingleVerifier {
-            msm: MSM::new(params),
-        }
-    }
-}
-
-impl<'params, C: CurveAffine> VerificationStrategy<'params, C> for SingleVerifier<'params, C> {
-    type Output = ();
-
-    fn process<E: EncodedChallenge<C>>(
-        self,
-        f: impl FnOnce(MSM<'params, C>) -> Result<Guard<'params, C, E>, Error>,
-    ) -> Result<Self::Output, Error> {
-        let guard = f(self.msm)?;
-        let msm = guard.use_challenges();
-        if msm.eval() {
-            Ok(())
-        } else {
-            Err(Error::ConstraintSystemFailure)
-        }
-    }
-}
 use crate::poly::commitment::ParamsVerifier;
 
 /// Returns a boolean indicating whether or not the proof is valid
@@ -74,8 +30,7 @@ pub fn verify_proof<
     E: EncodedChallenge<Scheme::Curve>,
     T: TranscriptRead<Scheme::Curve, E>,
     V: Verifier<'params, Scheme>,
-    Strategy: VerificationStrategy<'params, Scheme, V, R>,
-    R: RngCore,
+    Strategy: VerificationStrategy<'params, Scheme, V>,
 >(
     params: &'params Scheme::ParamsVerifier,
     vk: &VerifyingKey<Scheme::Curve>,

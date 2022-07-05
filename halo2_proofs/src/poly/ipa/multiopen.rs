@@ -11,10 +11,7 @@ use crate::{
     plonk::Error,
     poly::{
         commitment::{Blind, Params, Verifier, MSM},
-        ipa::{
-            commitment::ParamsIPA,
-            strategy::{BatchVerifier, GuardIPA},
-        },
+        ipa::{commitment::ParamsIPA, strategy::GuardIPA},
         query::Query,
         Coeff, Polynomial,
     },

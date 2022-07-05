@@ -7,7 +7,7 @@ use halo2_proofs::circuit::{Cell, Layouter, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::*;
 use halo2_proofs::poly::ipa::commitment::{IPACommitmentScheme, ParamsIPA};
 use halo2_proofs::poly::ipa::multiopen::ProverIPA;
-use halo2_proofs::poly::ipa::strategy::BatchVerifier;
+use halo2_proofs::poly::ipa::strategy::SingleStrategy;
 use halo2_proofs::poly::Rotation;
 use halo2_proofs::transcript::TranscriptReadBuffer;
 use halo2_proofs::transcript::TranscriptWriterBuffer;
@@ -295,8 +295,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     fn verifier(params: &ParamsIPA<EqAffine>, vk: &VerifyingKey<EqAffine>, proof: &[u8]) {
         use halo2_proofs::poly::VerificationStrategy;
-        let strategy = BatchVerifier::new(params, OsRng);
-
+        let strategy = SingleStrategy::new(&params);
         let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(proof);
         assert!(verify_proof(params, vk, strategy, &[&[]], &mut transcript).is_ok());
     }

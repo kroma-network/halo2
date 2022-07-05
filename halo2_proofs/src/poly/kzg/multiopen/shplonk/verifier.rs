@@ -11,7 +11,7 @@ use crate::poly::commitment::MSM;
 use crate::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
 use crate::poly::kzg::msm::DualMSM;
 use crate::poly::kzg::msm::{PreMSM, MSMKZG};
-use crate::poly::kzg::strategy::{BatchVerifier, GuardKZG};
+use crate::poly::kzg::strategy::{AccumulatorStrategy, GuardKZG, SingleStrategy};
 use crate::poly::query::Query;
 use crate::poly::query::{CommitmentReference, VerifierQuery};
 use crate::poly::strategy::VerificationStrategy;
@@ -23,7 +23,7 @@ use crate::transcript::{EncodedChallenge, TranscriptRead};
 use ff::Field;
 use group::Group;
 use halo2curves::pairing::{Engine, MillerLoopResult, MultiMillerLoop};
-use rand_core::RngCore;
+use rand_core::OsRng;
 use std::ops::MulAssign;
 
 /// Concrete KZG multiopen verifier with SHPLONK variant
@@ -100,7 +100,8 @@ impl<'params, E: MultiMillerLoop + Debug> Verifier<'params, KZGCommitmentScheme<
                 let inner_contrib = match commitment_data.get() {
                     CommitmentReference::Commitment(c) => (*c).into(),
                     // TODO: we should support one more nested degree to append
-                    // folded commitments to the inner_msm
+                    // folded commitments to the inner_msm.
+                    // Then remove MSM::check function
                     CommitmentReference::MSM(msm) => msm.eval(),
                 };
                 inner_msm.append_term(E::Scalar::one(), inner_contrib);
@@ -125,33 +126,5 @@ impl<'params, E: MultiMillerLoop + Debug> Verifier<'params, KZGCommitmentScheme<
         msm_accumulator.right.add_msm(&outer_msm);
 
         Ok(Self::Guard::new(msm_accumulator))
-    }
-}
-
-impl<'params, E: MultiMillerLoop + Debug, R: RngCore>
-    VerificationStrategy<'params, KZGCommitmentScheme<E>, VerifierSHPLONK<'params, E>, R>
-    for BatchVerifier<'params, E, R>
-{
-    type Output = Self;
-
-    /// Constructs a new batch verifier.
-    fn new(params: &'params ParamsKZG<E>, rng: R) -> Self {
-        BatchVerifier::new(params, rng)
-    }
-
-    fn process(
-        mut self,
-
-        f: impl FnOnce(DualMSM<'params, E>) -> Result<GuardKZG<'params, E>, crate::plonk::Error>,
-    ) -> Result<Self::Output, crate::plonk::Error> {
-        self.msm_accumulator.scale(E::Scalar::random(&mut self.rng));
-
-        // Guard is updated with new msm contributions
-        let guard = f(self.msm_accumulator)?;
-        Ok(BatchVerifier::with(guard.msm_accumulator, self.rng))
-    }
-
-    fn finalize(self) -> bool {
-        self.msm_accumulator.check()
     }
 }

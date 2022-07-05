@@ -5,7 +5,8 @@ use halo2_gadgets::poseidon::{
 };
 use halo2_proofs::poly::{
     commitment::ParamsProver,
-    ipa::{commitment::IPACommitmentScheme, multiopen::ProverIPA, strategy::BatchVerifier},
+
+    ipa::{commitment::IPACommitmentScheme, multiopen::ProverIPA, strategy::SingleStrategy},
 };
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
@@ -252,11 +253,10 @@ fn bench_poseidon<S, const WIDTH: usize, const RATE: usize, const L: usize>(
     c.bench_function(&verifier_name, |b| {
         b.iter(|| {
             use halo2_proofs::poly::VerificationStrategy;
-            let strategy = BatchVerifier::new(&params, OsRng);
+            let strategy = SingleStrategy::new(&params);
             let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
-            let strategy =
-                verify_proof(&params, pk.get_vk(), strategy, &[&[]], &mut transcript).unwrap();
-            assert!(strategy.finalize());
+            assert!(verify_proof(&params, pk.get_vk(), strategy, &[&[]], &mut transcript).is_ok());
+
         });
     });
 }
