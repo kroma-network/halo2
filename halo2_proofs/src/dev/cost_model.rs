@@ -111,7 +111,7 @@ pub fn estimate<
         println!("num_fft = {}, time_fft = {}", num_fft, time_fft);
         println!("num_extended_fft = {}, time_extended_fft = {}", num_extended_fft, time_extended_fft);
         println!("num_msm = {}, time_msm = {}", num_msm, time_msm);
-        println!("num_btree = {}, time_btree = {}", num_fft, time_fft);
+        println!("num_btree = {}, time_btree = {}", num_btree, time_btree);
         
         let pt_non_linear = (num_fft as f64) * time_fft +
                              (num_extended_fft as f64) * time_extended_fft +
@@ -199,7 +199,7 @@ pub fn simulate_circuit<
     );
 
     // NOTE(liutainyi): output prover_time
-    println!("{}\n{}", k, prover_time);
+    // println!("{}\n{}", k, prover_time);
 
     let proof = transcript.finalize();
 
@@ -330,12 +330,12 @@ macro_rules! cost_model_main {
             if mode.eq(&String::from("simulate")) {
                 simulate_circuit::<Bn256, _>(circuit, k);
             } else if mode.eq(&String::from("estimate")) {
-                // let res_path_1 = std::env::args().nth(3).expect("no circuit size given").parse().unwrap();
-                // let res_path_2 = std::env::args().nth(4).expect("no circuit size given").parse().unwrap();
-                // let res_1 = SimLinearResult::read(res_path_1);
-                // let res_2 = SimLinearResult::read(res_path_2);
-                let res_1 = SimLinearResult::new(10, 6292.0);
-                let res_2 = SimLinearResult::new(14, 50092.0);
+                let k1 = std::env::args().nth(3).expect("no k1 given").parse().unwrap();
+                let mem1: u64 = std::env::args().nth(4).expect("no mem1 given").parse().unwrap();
+                let k2 = std::env::args().nth(5).expect("no k2 given").parse().unwrap();
+                let mem2: u64 = std::env::args().nth(6).expect("no mem2 given").parse().unwrap();
+                let res_1 = SimLinearResult::new(k1, mem1 as f64);
+                let res_2 = SimLinearResult::new(k2, mem2 as f64);
                 let res = estimate::<Bn256, _>(circuit, res_1, res_2, k);
                 res.print();
             } else {

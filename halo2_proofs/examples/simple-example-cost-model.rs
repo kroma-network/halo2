@@ -2,11 +2,9 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Cell, Layouter, SimpleFloorPlanner},
     plonk::*,
-    poly::{commitment::Params, commitment::ParamsVerifier, Rotation},
-    transcript::{Blake2bRead, Blake2bWrite, Challenge255}, cost_model_main,
+    poly::Rotation, cost_model_main,
 };
-use pairing::bn256::{Bn256, Fr as Fp, G1Affine};
-use rand_core::OsRng;
+use pairing::bn256::{Bn256, Fr as Fp};
 
 use std::marker::PhantomData;
 
