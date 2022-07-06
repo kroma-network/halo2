@@ -43,19 +43,19 @@ impl<C: CurveAffine> Argument<C> {
     >(
         params: &P,
         domain: &EvaluationDomain<C::Scalar>,
-        mut rng: R,
+        mut _rng: R,
         transcript: &mut T,
     ) -> Result<Committed<C>, Error> {
         // Sample a random polynomial of degree n - 1
-        let mut random_poly = domain.empty_coeff();
-        for coeff in random_poly.iter_mut() {
-            *coeff = C::Scalar::random(&mut rng);
-        }
-        // Sample a random blinding factor
-        let random_blind = Blind(C::Scalar::random(rng));
+        let random_poly = domain.empty_coeff();
+        //for coeff in random_poly.iter_mut() {
+        //    *coeff = C::Scalar::random(&mut rng);
+        //}
 
+        let random_blind = Blind(C::Scalar::zero());
         // Commit
-        let c = params.commit(&random_poly, random_blind).to_affine();
+        //let c = params.commit(&random_poly).to_affine();
+        let c = C::identity();
         transcript.write_point(c)?;
 
         Ok(Committed {
