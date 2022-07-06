@@ -34,19 +34,20 @@ pub(in crate::plonk) struct Evaluated<C: CurveAffine> {
 
 impl<C: CurveAffine> Argument<C> {
     pub(in crate::plonk) fn commit<E: EncodedChallenge<C>, R: RngCore, T: TranscriptWrite<C, E>>(
-        params: &Params<C>,
+        _params: &Params<C>,
         domain: &EvaluationDomain<C::Scalar>,
-        mut rng: R,
+        mut _rng: R,
         transcript: &mut T,
     ) -> Result<Committed<C>, Error> {
         // Sample a random polynomial of degree n - 1
-        let mut random_poly = domain.empty_coeff();
-        for coeff in random_poly.iter_mut() {
-            *coeff = C::Scalar::random(&mut rng);
-        }
+        let random_poly = domain.empty_coeff();
+        //for coeff in random_poly.iter_mut() {
+        //    *coeff = C::Scalar::random(&mut rng);
+        //}
 
         // Commit
-        let c = params.commit(&random_poly).to_affine();
+        //let c = params.commit(&random_poly).to_affine();
+        let c = C::identity();
         transcript.write_point(c)?;
 
         Ok(Committed { random_poly })
