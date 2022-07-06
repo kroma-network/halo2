@@ -33,10 +33,11 @@ pub use error::*;
 pub use keygen::*;
 pub use prover::*;
 pub use verifier::*;
+pub use evaluation::*;
 
 use std::io;
 
-use self::evaluation::Evaluator;
+pub use self::evaluation::Evaluator;
 
 /// This is a verifying key which allows for the verification of proofs for a
 /// particular circuit.
@@ -146,6 +147,11 @@ impl<C: CurveAffine> ProvingKey<C> {
     /// Get the underlying [`VerifyingKey`].
     pub fn get_vk(&self) -> &VerifyingKey<C> {
         &self.vk
+    }
+    
+    /// Get the underlying [`Evaluator`].
+    pub fn get_ev(&self) -> &Evaluator<C> {
+        &self.ev
     }
 }
 
