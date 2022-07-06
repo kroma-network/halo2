@@ -53,6 +53,13 @@ impl<C: CurveAffine> Params<C> {
     /// Initializes parameters for the curve, Draws random toxic point inside of the function
     /// MUST NOT be used in production
     pub fn unsafe_setup<E: Engine>(k: u32) -> Params<E::G1Affine> {
+        let s = E::Scalar::random(OsRng);
+        Self::unsafe_setup_with_s::<E>(k, s)
+    }
+
+    /// Initializes parameters for the curve, using given random `s`
+    /// MUST NOT be used in production
+    pub fn unsafe_setup_with_s<E: Engine>(k: u32, s: <E as Engine>::Scalar) -> Params<E::G1Affine> {
         // TODO: Make this function only available in test mod
         // Largest root of unity exponent of the Engine is `2^E::Scalar::S`, so we can
         // only support FFTs of polynomials below degree `2^E::Scalar::S`.
@@ -61,7 +68,6 @@ impl<C: CurveAffine> Params<C> {
 
         // Calculate g = [G1, [s] G1, [s^2] G1, ..., [s^(n-1)] G1] in parallel.
         let g1 = <E::G1Affine as PrimeCurveAffine>::generator();
-        let s = E::Scalar::random(OsRng);
 
         let mut g_projective = vec![E::G1::group_zero(); n as usize];
         parallelize(&mut g_projective, |g, start| {
