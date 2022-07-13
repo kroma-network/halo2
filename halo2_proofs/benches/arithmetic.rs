@@ -32,6 +32,15 @@ fn criterion_benchmark(c: &mut Criterion) {
             })
         });
     }
+    {
+        c.bench_function("sample random poly", |b| {
+            b.iter(|| {
+                let N = 1 << 18;
+                let rand_poly = (0..N).into_iter().map(|_| Fp::random(rng)).collect::<Vec<_>>();
+                assert_eq!(rand_poly.len(), N);
+            })
+        });
+    }
 }
 
 criterion_group!(benches, criterion_benchmark);
