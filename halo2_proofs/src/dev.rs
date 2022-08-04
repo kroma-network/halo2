@@ -6,10 +6,12 @@ use std::iter;
 use std::ops::{Add, Mul, Neg, Range};
 
 use ff::Field;
+use rand_core::OsRng;
 use rayon::iter::IndexedParallelIterator;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
+use rayon::prelude::ParallelSliceMut;
 
 use crate::plonk::Assigned;
 use crate::{
@@ -1030,7 +1032,7 @@ impl<F: FieldExt> MockProver<F> {
                     // In the real prover, the lookup expressions are never enforced on
                     // unusable rows, due to the (1 - (l_last(X) + l_blind(X))) term.
                     let usable_row_vec: Vec<_> = self.usable_rows.clone().into_iter().collect();
-                    let table =
+                    let mut table =
                         home_made_par_iter_map::<_, _, ISPAR>(&usable_row_vec, |table_row| {
                             lookup
                                 .table_expressions
@@ -1038,6 +1040,7 @@ impl<F: FieldExt> MockProver<F> {
                                 .map(move |c| load(c, table_row))
                                 .collect::<Vec<_>>()
                         });
+                    table.par_sort();
                     let lookup_input_row_id_vec: Vec<_> = lookup_input_row_ids.clone().collect();
                     home_made_par_iter_map::<_, _, ISPAR>(&lookup_input_row_id_vec, |input_row| {
                         let inputs: Vec<_> = lookup
@@ -1045,7 +1048,7 @@ impl<F: FieldExt> MockProver<F> {
                             .iter()
                             .map(|c| load(c, input_row))
                             .collect();
-                        let lookup_passes = table.contains(&inputs);
+                        let lookup_passes = table.binary_search(&inputs).is_ok();
                         if lookup_passes {
                             None
                         } else {
