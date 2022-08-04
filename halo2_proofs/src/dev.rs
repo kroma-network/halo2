@@ -7,10 +7,12 @@ use std::ops::{Add, Mul, Neg, Range};
 use std::time::{Duration, Instant};
 
 use ff::Field;
+use rand_core::OsRng;
 use rayon::iter::IndexedParallelIterator;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
+use rayon::prelude::ParallelSliceMut;
 
 use crate::plonk::Assigned;
 use crate::{
@@ -21,9 +23,6 @@ use crate::{
         Expression, Fixed, FloorPlanner, Instance, Selector, VirtualCell,
     },
     poly::Rotation,
-};
-use rayon::{
-    slice::ParallelSliceMut,
 };
 
 pub mod metadata;
