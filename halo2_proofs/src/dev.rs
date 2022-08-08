@@ -4,8 +4,10 @@ use std::collections::HashSet;
 use std::fmt;
 use std::iter;
 use std::ops::{Add, Mul, Neg, Range};
+use std::time::Instant;
 
 use ff::Field;
+use log::debug;
 use rand_core::OsRng;
 use rayon::iter::IndexedParallelIterator;
 use rayon::iter::IntoParallelIterator;
@@ -13,7 +15,7 @@ use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelSliceMut;
 
-use crate::plonk::Assigned;
+use crate::plonk::{Assigned, GraphEvaluator};
 use crate::{
     arithmetic::{FieldExt, Group},
     plonk::{
@@ -305,6 +307,12 @@ enum Value<F: Group + Field> {
     Poison,
 }
 
+impl<F: Group + Field> Default for Value<F> {
+    fn default() -> Self {
+        Value::Real(F::zero())
+    }
+}
+
 impl<F: Group + Field> From<CellValue<F>> for Value<F> {
     fn from(value: CellValue<F>) -> Self {
         match value {
@@ -351,6 +359,15 @@ impl<F: Group + Field> Mul for Value<F> {
             {
                 Value::Real(F::zero())
             }
+            _ => Value::Poison,
+        }
+    }
+}
+
+impl<F: Group + Field> Value<F> {
+    pub fn square(&self) -> Self {
+        match self {
+            Value::Real(a) => Value::Real(a.square()),
             _ => Value::Poison,
         }
     }
@@ -504,6 +521,8 @@ pub struct MockProver<F: Group + Field> {
     // The instance cells in the circuit, arranged as [column][row].
     instance: Vec<Vec<F>>,
 
+    custom_gates_executor: crate::plonk::GraphEvaluator<F>,
+    custom_gates: Vec<crate::plonk::ValueSource>,
     selectors: Vec<Vec<bool>>,
 
     permutation: permutation::keygen::Assembly,
@@ -769,6 +788,8 @@ impl<F: FieldExt> MockProver<F> {
             fixed,
             advice,
             instance,
+            custom_gates_executor: GraphEvaluator::<F>::default(),
+            custom_gates: vec![],
             selectors,
             permutation,
             usable_rows: 0..usable_rows,
@@ -778,6 +799,23 @@ impl<F: FieldExt> MockProver<F> {
 
         let (cs, selector_polys) = prover.cs.compress_selectors(prover.selectors.clone());
         prover.cs = cs;
+        let mut parts = Vec::new();
+        let gates = prover.cs.gates.clone();
+        for gate in gates {
+            parts.extend(
+                gate.polynomials()
+                    .iter()
+                    .map(|poly| prover.custom_gates_executor.add_expression(poly))
+            );
+        }
+        parts.iter()
+            .enumerate()
+            .for_each(|(i, part)| {
+                if !part.is_intermediate() {
+                    debug!("custom_gate_{}: {:?}", i, part);
+                }
+            });
+        prover.custom_gates = parts;
         prover.fixed.extend(selector_polys.into_iter().map(|poly| {
             let mut v = vec![CellValue::Unassigned; n];
             for (v, p) in v.iter_mut().zip(&poly[..]) {
@@ -847,6 +885,7 @@ impl<F: FieldExt> MockProver<F> {
 
         // Check that within each region, all cells used in instantiated gates have been
         // assigned to.
+        let selector_time = Instant::now();
         let selector_errors = self.regions.iter().enumerate().flat_map(|(r_i, r)| {
             r.enabled_selectors.iter().flat_map(move |(selector, at)| {
                 // Find the gates enabled by this selector
@@ -889,104 +928,162 @@ impl<F: FieldExt> MockProver<F> {
                         })
                     })
             })
-        });
+        })
+            .collect::<Vec<_>>()
+            .into_iter();
+        debug!("selector checks took {:?}", selector_time.elapsed());
 
         // Check that all gates are satisfied for all rows.
         let blinding_rows = (self.n as usize - (self.cs.blinding_factors() + 1))..(self.n as usize);
         let indexes: Vec<usize> =
             (gate_row_ids.into_iter().chain(blinding_rows.into_iter())).collect();
-        let gate_errors = self
-            .cs
-            .gates
+        let create_gate_time = Instant::now();
+        let gates = self.cs.gates
             .iter()
             .enumerate()
             .flat_map(|(gate_index, gate)| {
-                fn load_instance<'a, F: FieldExt, T: ColumnType>(
-                    n: i32,
-                    row: i32,
-                    queries: &'a [(Column<T>, Rotation)],
-                    cells: &'a [Vec<F>],
-                ) -> impl Fn(usize, usize, Rotation) -> Value<F> + 'a {
-                    move |index, _, _| {
-                        let (column, at) = &queries[index];
-                        let resolved_row = (row + n + at.0) % n;
-                        Value::Real(cells[column.index()][resolved_row as usize])
-                    }
+                let mut gates = vec![];
+                for poly in gate.polynomials() {
+                    gates.push((gate_index, poly))
                 }
+                gates.into_iter()
+            })
+            .collect::<Vec<_>>();
+        debug!("create gate took {:?}", create_gate_time.elapsed());
 
-                fn load<'a, F: FieldExt, T: ColumnType>(
-                    n: i32,
-                    row: i32,
-                    queries: &'a [(Column<T>, Rotation)],
-                    cells: &'a [Vec<CellValue<F>>],
-                ) -> impl Fn(usize, usize, Rotation) -> Value<F> + 'a {
-                    move |index, _, _| {
-                        let (column, at) = &queries[index];
-                        let resolved_row = (row + n + at.0) % n;
-                        cells[column.index()][resolved_row as usize].into()
-                    }
+        let gate_time = Instant::now();
+        let gate_errors = {
+            fn load_instance_column<'a, F: FieldExt>(
+                rotations: &'a [usize],
+                cells: &'a [Vec<F>],
+            ) -> impl Fn(usize, usize) -> Value<F> + 'a {
+                move |column_idx, rotation| {
+                    let resolved_row = rotations[rotation];
+                    Value::Real(cells[column_idx][resolved_row])
                 }
-                home_made_par_iter_flat_map::<_, _, ISPAR>(&indexes, |row| {
-                    let ret: Vec<VerifyFailure> = gate
-                        .polynomials()
-                        .iter()
-                        .enumerate()
-                        .filter_map(move |(poly_index, poly)| {
-                            match poly.evaluate_lazy(
-                                &|scalar| Value::Real(scalar),
-                                &|_| panic!("virtual selectors are removed during optimization"),
-                                &load(n, row, &self.cs.fixed_queries, &self.fixed),
-                                &load(n, row, &self.cs.advice_queries, &self.advice),
-                                &load_instance(n, row, &self.cs.instance_queries, &self.instance),
-                                &|a| -a,
-                                &|a, b| a + b,
-                                &|a, b| a * b,
-                                &|a, scalar| a * scalar,
-                                &Value::Real(F::zero()),
-                            ) {
-                                Value::Real(x) if x.is_zero_vartime() => None,
-                                Value::Real(_) => Some(VerifyFailure::ConstraintNotSatisfied {
-                                    constraint: (
-                                        (gate_index, gate.name()).into(),
-                                        poly_index,
-                                        gate.constraint_name(poly_index),
-                                    )
-                                        .into(),
-                                    location: FailureLocation::find_expressions(
-                                        &self.cs,
-                                        &self.regions,
-                                        row as usize,
-                                        Some(poly).into_iter(),
+            }
+
+            fn load_column<'a, F: FieldExt>(
+                rotations: &'a [usize],
+                cells: &'a [Vec<CellValue<F>>],
+            ) -> impl Fn(usize, usize) -> Value<F> + 'a {
+                move |column_idx, rotation| {
+                    let resolved_row = rotations[rotation];
+                    cells[column_idx][resolved_row].into()
+                }
+            }
+
+            fn load_instance<'a, F: FieldExt, T: ColumnType>(
+                n: i32,
+                row: i32,
+                queries: &'a [(Column<T>, Rotation)],
+                cells: &'a [Vec<F>],
+            ) -> impl Fn(usize, usize, Rotation) -> Value<F> + 'a {
+                move |index, _, _| {
+                    let (column, at) = &queries[index];
+                    let resolved_row = (row + n + at.0) % n;
+                    Value::Real(cells[column.index()][resolved_row as usize])
+                }
+            }
+
+            fn load<'a, F: FieldExt, T: ColumnType>(
+                n: i32,
+                row: i32,
+                queries: &'a [(Column<T>, Rotation)],
+                cells: &'a [Vec<CellValue<F>>],
+            ) -> impl Fn(usize, usize, Rotation) -> Value<F> + 'a {
+                move |index, _, _| {
+                    let (column, at) = &queries[index];
+                    let resolved_row = (row + n + at.0) % n;
+                    cells[column.index()][resolved_row as usize].into()
+                }
+            }
+
+            fn load_constant<'a, F: FieldExt>(
+                constants: &'a [F],
+            ) -> impl Fn(usize) -> Value<F> + 'a {
+                move |constant_idx: usize| {
+                    Value::Real(constants[constant_idx])
+                }
+            }
+
+            home_made_par_iter_flat_map::<_, _, ISPAR>(&indexes, |row| {
+                let mut intermediates = vec![Value::Real(F::zero()); self.custom_gates_executor.num_intermediates];
+                let rotations = self.custom_gates_executor.get_rotations(row as usize, 1, self.n as i32);
+                self.custom_gates_executor.evaluate_for_mock(
+                    &mut intermediates,
+                    &load_constant(&self.custom_gates_executor.constants),
+                    &load_column(&rotations, &self.fixed),
+                    &load_column(&rotations, &self.advice),
+                    &load_instance_column(&rotations, &self.instance),
+                    &|a| -a,
+                    &|a, b| a + b,
+                    &|a, b| a * b,
+                    &|a| a*a,
+                    &|a| a+a,
+                    &Value::Real(F::zero()),
+                );
+
+                let ret: Vec<VerifyFailure> = self.custom_gates
+                    .iter()
+                    .zip(gates.iter())
+                    .enumerate()
+                    .filter_map(move |(poly_index, (poly_source, (gate_index, poly)))| {
+                        let gate = &self.cs.gates[*gate_index];
+                        match poly_source.get_value(
+                            &load_constant(&self.custom_gates_executor.constants),
+                            &intermediates,
+                            &load_column(&rotations, &self.fixed),
+                            &load_column(&rotations, &self.advice),
+                            &load_instance_column(&rotations, &self.instance),
+                        ) {
+                            Value::Real(x) if x.is_zero_vartime() => None,
+                            Value::Real(_) => Some(VerifyFailure::ConstraintNotSatisfied {
+                                constraint: (
+                                    (*gate_index, gate.name()).into(),
+                                    poly_index,
+                                    gate.constraint_name(poly_index),
+                                )
+                                    .into(),
+                                location: FailureLocation::find_expressions(
+                                    &self.cs,
+                                    &self.regions,
+                                    row as usize,
+                                    Some(*poly).into_iter(),
+                                ),
+                                cell_values: util::cell_values(
+                                    gate,
+                                    poly,
+                                    &load(n, row, &self.cs.fixed_queries, &self.fixed),
+                                    &load(n, row, &self.cs.advice_queries, &self.advice),
+                                    &load_instance(
+                                        n,
+                                        row,
+                                        &self.cs.instance_queries,
+                                        &self.instance,
                                     ),
-                                    cell_values: util::cell_values(
-                                        gate,
-                                        poly,
-                                        &load(n, row, &self.cs.fixed_queries, &self.fixed),
-                                        &load(n, row, &self.cs.advice_queries, &self.advice),
-                                        &load_instance(
-                                            n,
-                                            row,
-                                            &self.cs.instance_queries,
-                                            &self.instance,
-                                        ),
-                                    ),
-                                }),
-                                Value::Poison => Some(VerifyFailure::ConstraintPoisoned {
-                                    constraint: (
-                                        (gate_index, gate.name()).into(),
-                                        poly_index,
-                                        gate.constraint_name(poly_index),
-                                    )
-                                        .into(),
-                                }),
-                            }
-                        })
-                        .collect();
-                    ret
-                })
-            });
+                                ),
+                            }),
+                            Value::Poison => Some(VerifyFailure::ConstraintPoisoned {
+                                constraint: (
+                                    (*gate_index, gate.name()).into(),
+                                    poly_index,
+                                    gate.constraint_name(poly_index),
+                                )
+                                    .into(),
+                            }),
+                        }
+                    })
+                    .collect();
+                ret
+            })
+                .into_iter()
+        };
+        debug!("custom gates checks took {:?}", gate_time.elapsed());
 
         // Check that all lookups exist in their respective tables.
+        let lookup_time = Instant::now();
+        let rr = F::random(&mut OsRng);
         let lookup_errors =
             self.cs
                 .lookups
@@ -1039,15 +1136,22 @@ impl<F: FieldExt> MockProver<F> {
                                 .iter()
                                 .map(move |c| load(c, table_row))
                                 .collect::<Vec<_>>()
+                                // TODO: fold over vec lost information
+                                // e.g. [Poison, F(32), F(2)] => Poison
+                                // e.g. [F(2), Poison, F(11)] => Poison
+                                // obviously, they are not equal
+                                // .fold(Value::Real(F::zero()), |acc, item| item + (acc * rr))
                         });
                     table.par_sort();
                     let lookup_input_row_id_vec: Vec<_> = lookup_input_row_ids.clone().collect();
                     home_made_par_iter_map::<_, _, ISPAR>(&lookup_input_row_id_vec, |input_row| {
-                        let inputs: Vec<_> = lookup
+                        let inputs = lookup
                             .input_expressions
                             .iter()
                             .map(|c| load(c, input_row))
                             .collect();
+                            // TODO: use the fold function can reduce the binary_search time
+                            // .fold(Value::Real(F::zero()), |acc, item| item + (acc * rr));
                         let lookup_passes = table.binary_search(&inputs).is_ok();
                         if lookup_passes {
                             None
@@ -1066,9 +1170,13 @@ impl<F: FieldExt> MockProver<F> {
                     })
                     .into_iter()
                     .flatten()
-                });
+                })
+                .collect::<Vec<_>>()
+                .into_iter();
+        debug!("lookup checks took {:?}", lookup_time.elapsed());
 
         // Check that permutations preserve the original values of the cells.
+        let perm_time = Instant::now();
         let perm_errors = {
             // Original values of columns involved in the permutation.
             let original = |column, row| {
@@ -1115,7 +1223,10 @@ impl<F: FieldExt> MockProver<F> {
                         .collect();
                     ret
                 })
+                .collect::<Vec<_>>()
+                .into_iter()
         };
+        debug!("permutation checks took {:?}", perm_time.elapsed());
 
         let mut errors: Vec<_> = iter::empty()
             .chain(selector_errors)

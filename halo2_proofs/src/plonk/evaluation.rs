@@ -1,7 +1,7 @@
 use crate::multicore;
 use crate::plonk::lookup::prover::Committed;
 use crate::plonk::permutation::Argument;
-use crate::plonk::{lookup, permutation, Any, ProvingKey};
+use crate::plonk::{lookup, permutation, Any, ProvingKey, Selector};
 use crate::poly::Basis;
 use crate::{
     arithmetic::{eval_polynomial, parallelize, BaseExt, CurveAffine, FieldExt},
@@ -25,6 +25,7 @@ use std::{
     iter,
     ops::{Index, Mul, MulAssign},
 };
+use pairing::arithmetic::Group;
 
 use super::{ConstraintSystem, Expression};
 
@@ -99,6 +100,31 @@ impl ValueSource {
             ValueSource::PreviousValue() => *previous_value,
         }
     }
+
+    pub fn get_value<T: PartialEq + Clone>(
+        &self,
+        constants: &impl Fn(usize) -> T,
+        intermediates: &[T],
+        fixed_values: &impl Fn(usize, usize) -> T,
+        advice_values: &impl Fn(usize, usize) -> T,
+        instance_values: &impl Fn(usize, usize) -> T,
+    ) -> T {
+        match self {
+            ValueSource::Constant(idx) => constants(*idx),
+            ValueSource::Intermediate(idx) => intermediates[*idx].clone(),
+            ValueSource::Fixed(column_idx, rotation) => fixed_values(*column_idx, *rotation),
+            ValueSource::Advice(column_idx, rotation) => advice_values(*column_idx, *rotation),
+            ValueSource::Instance(column_idx, rotation) => instance_values(*column_idx, *rotation),
+            _ => unimplemented!()
+        }
+    }
+
+    pub fn is_intermediate(&self) -> bool {
+        match *self {
+            ValueSource::Intermediate(_) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Calculation
@@ -171,22 +197,69 @@ impl Calculation {
             Calculation::Store(v) => get_value(v),
         }
     }
+
+    pub fn evaluate_for_mock<T: PartialEq + Clone>(
+        &self,
+        constants: &impl Fn(usize) -> T,
+        intermediates: &[T],
+        fixed_values: &impl Fn(usize, usize) -> T,
+        advice_values: &impl Fn(usize, usize) -> T,
+        instance_values: &impl Fn(usize, usize) -> T,
+        negated: &impl Fn(T) -> T,
+        sum: &impl Fn(T, T) -> T,
+        product: &impl Fn(T, T) -> T,
+        square: &impl Fn(T) -> T,
+        double: &impl Fn(T) -> T,
+        // scaled: &impl Fn(T, F) -> T,
+        zero: &T,
+    ) -> T {
+        let get_value = |val: &ValueSource| {
+            val.get_value(constants, intermediates, fixed_values, advice_values, instance_values)
+        };
+        match self {
+            Calculation::Add(a, b) => sum(get_value(a), get_value(b)),
+            Calculation::Sub(a, b) => sum(get_value(a), negated(get_value(b))),
+            Calculation::Mul(a, b) => {
+                let a = get_value(a);
+                if a == *zero {
+                    a
+                } else {
+                    product(a, get_value(b))
+                }
+            },
+            Calculation::Square(a) => {
+                let a = get_value(a);
+                if a == *zero {
+                    a
+                } else {
+                    square(a)
+                }
+            }
+            Calculation::Double(a) => {
+                let a = get_value(a);
+                double(a)
+            }
+            Calculation::Negate(a) => negated(get_value(a)),
+            Calculation::Horner(_, _, _) => unimplemented!(),
+            Calculation::Store(a) => get_value(a),
+        }
+    }
 }
 
 /// Evaluator
 #[derive(Default, Debug)]
 pub struct Evaluator<C: CurveAffine> {
     ///  Custom gates evalution
-    pub custom_gates: GraphEvaluator<C>,
+    pub custom_gates: GraphEvaluator<C::ScalarExt>,
     ///  Lookups evalution
-    pub lookups: Vec<GraphEvaluator<C>>,
+    pub lookups: Vec<GraphEvaluator<C::ScalarExt>>,
 }
 
 /// GraphEvaluator
 #[derive(Debug)]
-pub struct GraphEvaluator<C: CurveAffine> {
+pub struct GraphEvaluator<F: Group + Field> {
     /// Constants
-    pub constants: Vec<C::ScalarExt>,
+    pub constants: Vec<F>,
     /// Rotations
     pub rotations: Vec<i32>,
     /// Calculations
@@ -197,9 +270,9 @@ pub struct GraphEvaluator<C: CurveAffine> {
 
 /// EvaluationData
 #[derive(Default, Debug)]
-pub struct EvaluationData<C: CurveAffine> {
+pub struct EvaluationData<F: Group + Field> {
     /// Intermediates
-    pub intermediates: Vec<C::ScalarExt>,
+    pub intermediates: Vec<F>,
     /// Rotations
     pub rotations: Vec<usize>,
 }
@@ -493,14 +566,15 @@ impl<C: CurveAffine> Evaluator<C> {
     }
 }
 
-impl<C: CurveAffine> Default for GraphEvaluator<C> {
+impl<F: Group + Field> Default for GraphEvaluator<F> {
     fn default() -> Self {
+        let two = F::one() + F::one();
         Self {
             // Fixed positions to allow easy access
             constants: vec![
-                C::ScalarExt::zero(),
-                C::ScalarExt::one(),
-                C::ScalarExt::from(2u64),
+                F::zero(),
+                F::one(),
+                two,
             ],
             rotations: Vec::new(),
             calculations: Vec::new(),
@@ -509,7 +583,7 @@ impl<C: CurveAffine> Default for GraphEvaluator<C> {
     }
 }
 
-impl<C: CurveAffine> GraphEvaluator<C> {
+impl<F: Group + Field> GraphEvaluator<F> {
     /// Adds a rotation
     fn add_rotation(&mut self, rotation: &Rotation) -> usize {
         let position = self.rotations.iter().position(|&c| c == rotation.0);
@@ -523,7 +597,7 @@ impl<C: CurveAffine> GraphEvaluator<C> {
     }
 
     /// Adds a constant
-    fn add_constant(&mut self, constant: &C::ScalarExt) -> ValueSource {
+    fn add_constant(&mut self, constant: &F) -> ValueSource {
         let position = self.constants.iter().position(|&c| c == *constant);
         ValueSource::Constant(match position {
             Some(pos) => pos,
@@ -558,7 +632,7 @@ impl<C: CurveAffine> GraphEvaluator<C> {
     }
 
     /// Generates an optimized evaluation for the expression
-    fn add_expression(&mut self, expr: &Expression<C::ScalarExt>) -> ValueSource {
+    pub(crate) fn add_expression(&mut self, expr: &Expression<F>) -> ValueSource {
         match expr {
             Expression::Constant(scalar) => self.add_constant(scalar),
             Expression::Selector(_selector) => unreachable!(),
@@ -656,9 +730,9 @@ impl<C: CurveAffine> GraphEvaluator<C> {
                 }
             }
             Expression::Scaled(a, f) => {
-                if *f == C::ScalarExt::zero() {
+                if *f == F::zero() {
                     ValueSource::Constant(0)
-                } else if *f == C::ScalarExt::one() {
+                } else if *f == F::one() {
                     self.add_expression(a)
                 } else {
                     let cst = self.add_constant(f);
@@ -670,28 +744,69 @@ impl<C: CurveAffine> GraphEvaluator<C> {
     }
 
     /// Creates a new evaluation structure
-    pub fn instance(&self) -> EvaluationData<C> {
+    pub fn instance(&self) -> EvaluationData<F> {
         EvaluationData {
-            intermediates: vec![C::ScalarExt::zero(); self.num_intermediates],
+            intermediates: vec![F::zero(); self.num_intermediates],
             rotations: vec![0usize; self.rotations.len()],
+        }
+    }
+
+    pub fn get_rotations(&self, row: usize, rot_scale: i32, isize: i32) -> Vec<usize> {
+        let mut rotations = vec![0; self.rotations.len()];
+        for (rot_idx, rot) in self.rotations.iter().enumerate() {
+            rotations[rot_idx] = get_rotation_idx(row, *rot, rot_scale, isize);
+        }
+
+        rotations
+    }
+
+    pub fn evaluate_for_mock<T: PartialEq + Clone>(
+        &self,
+        intermediates: &mut Vec<T>,
+        constant: &impl Fn(usize) -> T,
+        fixed_column: &impl Fn(usize, usize) -> T,
+        advice_column: &impl Fn(usize, usize) -> T,
+        instance_column: &impl Fn(usize, usize) -> T,
+        negated: &impl Fn(T) -> T,
+        sum: &impl Fn(T, T) -> T,
+        product: &impl Fn(T, T) -> T,
+        square: &impl Fn(T) -> T,
+        double: &impl Fn(T) -> T,
+        zero: &T,
+    ) {
+        // All calculations, with cached intermediate results
+        for calc in self.calculations.iter() {
+            intermediates[calc.target] = calc.calculation.evaluate_for_mock(
+                &constant,
+                &intermediates,
+                fixed_column,
+                advice_column,
+                instance_column,
+                negated,
+                sum,
+                product,
+                square,
+                double,
+                zero,
+            );
         }
     }
 
     pub fn evaluate<B: Basis>(
         &self,
-        data: &mut EvaluationData<C>,
-        fixed: &[Polynomial<C::ScalarExt, B>],
-        advice: &[Polynomial<C::ScalarExt, B>],
-        instance: &[Polynomial<C::ScalarExt, B>],
-        beta: &C::ScalarExt,
-        gamma: &C::ScalarExt,
-        theta: &C::ScalarExt,
-        y: &C::ScalarExt,
-        previous_value: &C::ScalarExt,
+        data: &mut EvaluationData<F>,
+        fixed: &[Polynomial<F, B>],
+        advice: &[Polynomial<F, B>],
+        instance: &[Polynomial<F, B>],
+        beta: &F,
+        gamma: &F,
+        theta: &F,
+        y: &F,
+        previous_value: &F,
         idx: usize,
         rot_scale: i32,
         isize: i32,
-    ) -> C::ScalarExt {
+    ) -> F {
         // All rotation index values
         for (rot_idx, rot) in self.rotations.iter().enumerate() {
             data.rotations[rot_idx] = get_rotation_idx(idx, *rot, rot_scale, isize);
@@ -718,7 +833,7 @@ impl<C: CurveAffine> GraphEvaluator<C> {
         if let Some(calc) = self.calculations.last() {
             data.intermediates[calc.target]
         } else {
-            C::ScalarExt::zero()
+            F::zero()
         }
     }
 }

@@ -42,6 +42,7 @@ cfg-if = "0.1"
 poseidon = { git = 'https://github.com/appliedzkp/poseidon.git', branch = 'circuit' }
 num-integer = "0.1"
 num-bigint = { version = "0.4", features = ["rand"] }
+log = "0.4.0"
 
 # Developer tooling dependencies
 plotters = { version = "0.3.0", optional = true }
