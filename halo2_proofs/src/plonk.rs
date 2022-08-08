@@ -27,12 +27,12 @@ mod vanishing;
 mod prover;
 mod verifier;
 
-pub use evaluation::GraphEvaluator;
-pub use evaluation::Calculation;
-pub use evaluation::ValueSource;
 pub use assigned::*;
 pub use circuit::*;
 pub use error::*;
+pub use evaluation::Calculation;
+pub use evaluation::GraphEvaluator;
+pub use evaluation::ValueSource;
 pub use keygen::*;
 pub use prover::*;
 pub use verifier::*;

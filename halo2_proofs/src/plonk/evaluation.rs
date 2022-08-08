@@ -16,6 +16,7 @@ use group::{
     ff::{BatchInvert, Field},
     Curve,
 };
+use pairing::arithmetic::Group;
 use std::any::TypeId;
 use std::convert::TryInto;
 use std::num::ParseIntError;
@@ -25,7 +26,6 @@ use std::{
     iter,
     ops::{Index, Mul, MulAssign},
 };
-use pairing::arithmetic::Group;
 
 use super::{ConstraintSystem, Expression};
 
@@ -115,7 +115,7 @@ impl ValueSource {
             ValueSource::Fixed(column_idx, rotation) => fixed_values(*column_idx, *rotation),
             ValueSource::Advice(column_idx, rotation) => advice_values(*column_idx, *rotation),
             ValueSource::Instance(column_idx, rotation) => instance_values(*column_idx, *rotation),
-            _ => unimplemented!()
+            _ => unimplemented!(),
         }
     }
 
@@ -214,7 +214,13 @@ impl Calculation {
         zero: &T,
     ) -> T {
         let get_value = |val: &ValueSource| {
-            val.get_value(constants, intermediates, fixed_values, advice_values, instance_values)
+            val.get_value(
+                constants,
+                intermediates,
+                fixed_values,
+                advice_values,
+                instance_values,
+            )
         };
         match self {
             Calculation::Add(a, b) => sum(get_value(a), get_value(b)),
@@ -226,7 +232,7 @@ impl Calculation {
                 } else {
                     product(a, get_value(b))
                 }
-            },
+            }
             Calculation::Square(a) => {
                 let a = get_value(a);
                 if a == *zero {
@@ -571,11 +577,7 @@ impl<F: Group + Field> Default for GraphEvaluator<F> {
         let two = F::one() + F::one();
         Self {
             // Fixed positions to allow easy access
-            constants: vec![
-                F::zero(),
-                F::one(),
-                two,
-            ],
+            constants: vec![F::zero(), F::one(), two],
             rotations: Vec::new(),
             calculations: Vec::new(),
             num_intermediates: 0,

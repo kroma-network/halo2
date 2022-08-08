@@ -805,16 +805,14 @@ impl<F: FieldExt> MockProver<F> {
             parts.extend(
                 gate.polynomials()
                     .iter()
-                    .map(|poly| prover.custom_gates_executor.add_expression(poly))
+                    .map(|poly| prover.custom_gates_executor.add_expression(poly)),
             );
         }
-        parts.iter()
-            .enumerate()
-            .for_each(|(i, part)| {
-                if !part.is_intermediate() {
-                    debug!("custom_gate_{}: {:?}", i, part);
-                }
-            });
+        parts.iter().enumerate().for_each(|(i, part)| {
+            if !part.is_intermediate() {
+                debug!("custom_gate_{}: {:?}", i, part);
+            }
+        });
         prover.custom_gates = parts;
         prover.fixed.extend(selector_polys.into_iter().map(|poly| {
             let mut v = vec![CellValue::Unassigned; n];
@@ -886,49 +884,55 @@ impl<F: FieldExt> MockProver<F> {
         // Check that within each region, all cells used in instantiated gates have been
         // assigned to.
         let selector_time = Instant::now();
-        let selector_errors = self.regions.iter().enumerate().flat_map(|(r_i, r)| {
-            r.enabled_selectors.iter().flat_map(move |(selector, at)| {
-                // Find the gates enabled by this selector
-                self.cs
-                    .gates
-                    .iter()
-                    // Assume that if a queried selector is enabled, the user wants to use the
-                    // corresponding gate in some way.
-                    //
-                    // TODO: This will trip up on the reverse case, where leaving a selector
-                    // un-enabled keeps a gate enabled. We could alternatively require that
-                    // every selector is explicitly enabled or disabled on every row? But that
-                    // seems messy and confusing.
-                    .enumerate()
-                    .filter(move |(_, g)| g.queried_selectors().contains(selector))
-                    .flat_map(move |(gate_index, gate)| {
-                        home_made_par_iter_flat_map::<_, _, ISPAR>(at, |gate_row| {
-                            let ret: Vec<VerifyFailure> = gate
-                                .queried_cells()
-                                .iter()
-                                .filter_map(move |cell| {
-                                    // Determine where this cell should have been assigned.
-                                    let cell_row = ((gate_row + n + cell.rotation.0) % n) as usize;
+        let selector_errors = self
+            .regions
+            .iter()
+            .enumerate()
+            .flat_map(|(r_i, r)| {
+                r.enabled_selectors.iter().flat_map(move |(selector, at)| {
+                    // Find the gates enabled by this selector
+                    self.cs
+                        .gates
+                        .iter()
+                        // Assume that if a queried selector is enabled, the user wants to use the
+                        // corresponding gate in some way.
+                        //
+                        // TODO: This will trip up on the reverse case, where leaving a selector
+                        // un-enabled keeps a gate enabled. We could alternatively require that
+                        // every selector is explicitly enabled or disabled on every row? But that
+                        // seems messy and confusing.
+                        .enumerate()
+                        .filter(move |(_, g)| g.queried_selectors().contains(selector))
+                        .flat_map(move |(gate_index, gate)| {
+                            home_made_par_iter_flat_map::<_, _, ISPAR>(at, |gate_row| {
+                                let ret: Vec<VerifyFailure> = gate
+                                    .queried_cells()
+                                    .iter()
+                                    .filter_map(move |cell| {
+                                        // Determine where this cell should have been assigned.
+                                        let cell_row =
+                                            ((gate_row + n + cell.rotation.0) % n) as usize;
 
-                                    // Check that it was assigned!
-                                    if r.is_assigned(cell.column, cell_row) {
-                                        None
-                                    } else {
-                                        // None
-                                        Some(VerifyFailure::CellNotAssigned {
-                                            gate: (gate_index, gate.name()).into(),
-                                            region: (r_i, r.name.clone()).into(),
-                                            column: cell.column,
-                                            offset: cell_row as isize - r.rows.unwrap().0 as isize,
-                                        })
-                                    }
-                                })
-                                .collect();
-                            ret
+                                        // Check that it was assigned!
+                                        if r.is_assigned(cell.column, cell_row) {
+                                            None
+                                        } else {
+                                            // None
+                                            Some(VerifyFailure::CellNotAssigned {
+                                                gate: (gate_index, gate.name()).into(),
+                                                region: (r_i, r.name.clone()).into(),
+                                                column: cell.column,
+                                                offset: cell_row as isize
+                                                    - r.rows.unwrap().0 as isize,
+                                            })
+                                        }
+                                    })
+                                    .collect();
+                                ret
+                            })
                         })
-                    })
+                })
             })
-        })
             .collect::<Vec<_>>()
             .into_iter();
         debug!("selector checks took {:?}", selector_time.elapsed());
@@ -938,7 +942,9 @@ impl<F: FieldExt> MockProver<F> {
         let indexes: Vec<usize> =
             (gate_row_ids.into_iter().chain(blinding_rows.into_iter())).collect();
         let create_gate_time = Instant::now();
-        let gates = self.cs.gates
+        let gates = self
+            .cs
+            .gates
             .iter()
             .enumerate()
             .flat_map(|(gate_index, gate)| {
@@ -1002,14 +1008,15 @@ impl<F: FieldExt> MockProver<F> {
             fn load_constant<'a, F: FieldExt>(
                 constants: &'a [F],
             ) -> impl Fn(usize) -> Value<F> + 'a {
-                move |constant_idx: usize| {
-                    Value::Real(constants[constant_idx])
-                }
+                move |constant_idx: usize| Value::Real(constants[constant_idx])
             }
 
             home_made_par_iter_flat_map::<_, _, ISPAR>(&indexes, |row| {
-                let mut intermediates = vec![Value::Real(F::zero()); self.custom_gates_executor.num_intermediates];
-                let rotations = self.custom_gates_executor.get_rotations(row as usize, 1, self.n as i32);
+                let mut intermediates =
+                    vec![Value::Real(F::zero()); self.custom_gates_executor.num_intermediates];
+                let rotations =
+                    self.custom_gates_executor
+                        .get_rotations(row as usize, 1, self.n as i32);
                 self.custom_gates_executor.evaluate_for_mock(
                     &mut intermediates,
                     &load_constant(&self.custom_gates_executor.constants),
@@ -1019,12 +1026,13 @@ impl<F: FieldExt> MockProver<F> {
                     &|a| -a,
                     &|a, b| a + b,
                     &|a, b| a * b,
-                    &|a| a*a,
-                    &|a| a+a,
+                    &|a| a * a,
+                    &|a| a + a,
                     &Value::Real(F::zero()),
                 );
 
-                let ret: Vec<VerifyFailure> = self.custom_gates
+                let ret: Vec<VerifyFailure> = self
+                    .custom_gates
                     .iter()
                     .zip(gates.iter())
                     .enumerate()
@@ -1077,102 +1085,101 @@ impl<F: FieldExt> MockProver<F> {
                     .collect();
                 ret
             })
-                .into_iter()
+            .into_iter()
         };
         debug!("custom gates checks took {:?}", gate_time.elapsed());
 
         // Check that all lookups exist in their respective tables.
         let lookup_time = Instant::now();
         let rr = F::random(&mut OsRng);
-        let lookup_errors =
-            self.cs
-                .lookups
-                .iter()
-                .enumerate()
-                .flat_map(|(lookup_index, lookup)| {
-                    let load = |expression: &Expression<F>, row: i32| {
-                        expression.evaluate_lazy(
-                            &|scalar| Value::Real(scalar),
-                            &|_| panic!("virtual selectors are removed during optimization"),
-                            &|index, _, _| {
-                                let query = self.cs.fixed_queries[index];
-                                let column_index = query.0.index();
-                                let rotation = query.1 .0;
-                                self.fixed[column_index][(row + n + rotation) as usize % n as usize]
-                                    .into()
-                            },
-                            &|index, _, _| {
-                                let query = self.cs.advice_queries[index];
-                                let column_index = query.0.index();
-                                let rotation = query.1 .0;
-                                self.advice[column_index]
-                                    [(row + n + rotation) as usize % n as usize]
-                                    .into()
-                            },
-                            &|index, _, _| {
-                                let query = self.cs.instance_queries[index];
-                                let column_index = query.0.index();
-                                let rotation = query.1 .0;
-                                Value::Real(
-                                    self.instance[column_index]
-                                        [(row as i32 + n + rotation) as usize % n as usize],
-                                )
-                            },
-                            &|a| -a,
-                            &|a, b| a + b,
-                            &|a, b| a * b,
-                            &|a, scalar| a * scalar,
-                            &Value::Real(F::zero()),
-                        )
-                    };
+        let lookup_errors = self
+            .cs
+            .lookups
+            .iter()
+            .enumerate()
+            .flat_map(|(lookup_index, lookup)| {
+                let load = |expression: &Expression<F>, row: i32| {
+                    expression.evaluate_lazy(
+                        &|scalar| Value::Real(scalar),
+                        &|_| panic!("virtual selectors are removed during optimization"),
+                        &|index, _, _| {
+                            let query = self.cs.fixed_queries[index];
+                            let column_index = query.0.index();
+                            let rotation = query.1 .0;
+                            self.fixed[column_index][(row + n + rotation) as usize % n as usize]
+                                .into()
+                        },
+                        &|index, _, _| {
+                            let query = self.cs.advice_queries[index];
+                            let column_index = query.0.index();
+                            let rotation = query.1 .0;
+                            self.advice[column_index][(row + n + rotation) as usize % n as usize]
+                                .into()
+                        },
+                        &|index, _, _| {
+                            let query = self.cs.instance_queries[index];
+                            let column_index = query.0.index();
+                            let rotation = query.1 .0;
+                            Value::Real(
+                                self.instance[column_index]
+                                    [(row as i32 + n + rotation) as usize % n as usize],
+                            )
+                        },
+                        &|a| -a,
+                        &|a, b| a + b,
+                        &|a, b| a * b,
+                        &|a, scalar| a * scalar,
+                        &Value::Real(F::zero()),
+                    )
+                };
 
-                    // In the real prover, the lookup expressions are never enforced on
-                    // unusable rows, due to the (1 - (l_last(X) + l_blind(X))) term.
-                    let usable_row_vec: Vec<_> = self.usable_rows.clone().into_iter().collect();
-                    let mut table =
-                        home_made_par_iter_map::<_, _, ISPAR>(&usable_row_vec, |table_row| {
-                            lookup
-                                .table_expressions
-                                .iter()
-                                .map(move |c| load(c, table_row))
-                                .collect::<Vec<_>>()
-                                // TODO: fold over vec lost information
-                                // e.g. [Poison, F(32), F(2)] => Poison
-                                // e.g. [F(2), Poison, F(11)] => Poison
-                                // obviously, they are not equal
-                                // .fold(Value::Real(F::zero()), |acc, item| item + (acc * rr))
-                        });
-                    table.par_sort();
-                    let lookup_input_row_id_vec: Vec<_> = lookup_input_row_ids.clone().collect();
-                    home_made_par_iter_map::<_, _, ISPAR>(&lookup_input_row_id_vec, |input_row| {
-                        let inputs = lookup
-                            .input_expressions
+                // In the real prover, the lookup expressions are never enforced on
+                // unusable rows, due to the (1 - (l_last(X) + l_blind(X))) term.
+                let usable_row_vec: Vec<_> = self.usable_rows.clone().into_iter().collect();
+                let mut table =
+                    home_made_par_iter_map::<_, _, ISPAR>(&usable_row_vec, |table_row| {
+                        lookup
+                            .table_expressions
                             .iter()
-                            .map(|c| load(c, input_row))
-                            .collect();
-                            // TODO: use the fold function can reduce the binary_search time
-                            // .fold(Value::Real(F::zero()), |acc, item| item + (acc * rr));
-                        let lookup_passes = table.binary_search(&inputs).is_ok();
-                        if lookup_passes {
-                            None
-                        } else {
-                            Some(VerifyFailure::Lookup {
-                                name: lookup.name,
-                                lookup_index,
-                                location: FailureLocation::find_expressions(
-                                    &self.cs,
-                                    &self.regions,
-                                    input_row as usize,
-                                    lookup.input_expressions.iter(),
-                                ),
-                            })
-                        }
-                    })
-                    .into_iter()
-                    .flatten()
+                            .map(move |c| load(c, table_row))
+                            .collect::<Vec<_>>()
+                        // TODO: fold over vec lost information
+                        // e.g. [Poison, F(32), F(2)] => Poison
+                        // e.g. [F(2), Poison, F(11)] => Poison
+                        // obviously, they are not equal
+                        // .fold(Value::Real(F::zero()), |acc, item| item + (acc * rr))
+                    });
+                table.par_sort();
+                let lookup_input_row_id_vec: Vec<_> = lookup_input_row_ids.clone().collect();
+                home_made_par_iter_map::<_, _, ISPAR>(&lookup_input_row_id_vec, |input_row| {
+                    let inputs = lookup
+                        .input_expressions
+                        .iter()
+                        .map(|c| load(c, input_row))
+                        .collect();
+                    // TODO: use the fold function can reduce the binary_search time
+                    // .fold(Value::Real(F::zero()), |acc, item| item + (acc * rr));
+                    let lookup_passes = table.binary_search(&inputs).is_ok();
+                    if lookup_passes {
+                        None
+                    } else {
+                        Some(VerifyFailure::Lookup {
+                            name: lookup.name,
+                            lookup_index,
+                            location: FailureLocation::find_expressions(
+                                &self.cs,
+                                &self.regions,
+                                input_row as usize,
+                                lookup.input_expressions.iter(),
+                            ),
+                        })
+                    }
                 })
-                .collect::<Vec<_>>()
-                .into_iter();
+                .into_iter()
+                .flatten()
+            })
+            .collect::<Vec<_>>()
+            .into_iter();
         debug!("lookup checks took {:?}", lookup_time.elapsed());
 
         // Check that permutations preserve the original values of the cells.
