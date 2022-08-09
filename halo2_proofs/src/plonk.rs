@@ -30,10 +30,10 @@ mod verifier;
 pub use assigned::*;
 pub use circuit::*;
 pub use error::*;
+pub use evaluation::*;
 pub use keygen::*;
 pub use prover::*;
 pub use verifier::*;
-pub use evaluation::*;
 
 use std::io;
 
@@ -148,7 +148,7 @@ impl<C: CurveAffine> ProvingKey<C> {
     pub fn get_vk(&self) -> &VerifyingKey<C> {
         &self.vk
     }
-    
+
     /// Get the underlying [`Evaluator`].
     pub fn get_ev(&self) -> &Evaluator<C> {
         &self.ev

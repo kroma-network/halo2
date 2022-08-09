@@ -1,8 +1,9 @@
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Cell, Layouter, SimpleFloorPlanner},
+    cost_model_main,
     plonk::*,
-    poly::Rotation, cost_model_main,
+    poly::Rotation,
 };
 use pairing::bn256::{Bn256, Fr as Fp};
 
@@ -236,4 +237,7 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
     }
 }
 
-cost_model_main!(MyCircuit::<Fp>{a: Some(Fp::from(5)), k: 8});
+cost_model_main!(MyCircuit::<Fp> {
+    a: Some(Fp::from(5)),
+    k: 8
+});

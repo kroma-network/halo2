@@ -1,14 +1,13 @@
 //! Circuit cost model.
-use std::{
-    time::Instant, io, fs, collections::BTreeMap, mem,
-};
+use std::{collections::BTreeMap, fs, io, mem, time::Instant};
 
 use crate::{
-    arithmetic::{Field, CurveAffine, Engine, eval_polynomial},
+    arithmetic::{eval_polynomial, CurveAffine, Engine, Field},
     circuit::{Cell, Layouter, SimpleFloorPlanner},
+    multicore,
     plonk::*,
     poly::{commitment::Params, commitment::ParamsVerifier, EvaluationDomain, Rotation},
-    transcript::{Blake2bRead, Blake2bWrite, Challenge255}, multicore,
+    transcript::{Blake2bRead, Blake2bWrite, Challenge255},
 };
 use group::{prime::PrimeCurveAffine, GroupEncoding};
 use pairing::bn256::{Bn256, Fr as Fp, G1Affine};
@@ -41,12 +40,10 @@ impl EstimateResult {
 }
 
 impl Calculation {
-    fn fake_evaluate<F: Field>(
-        &self,
-    ) -> usize {
+    fn fake_evaluate<F: Field>(&self) -> usize {
         match self {
             Calculation::Add(_, _) => 0,
-            Calculation::Sub(_, _) => 0, 
+            Calculation::Sub(_, _) => 0,
             Calculation::Mul(_, _) => 1,
             Calculation::Negate(_) => 0,
             Calculation::LcBeta(_, _) => 1,
@@ -58,11 +55,7 @@ impl Calculation {
 }
 
 impl<C: CurveAffine> Evaluator<C> {
-    fn fake_evaluate_h(
-        &self,
-        pk: &ProvingKey<C>,
-        l: usize,
-    ) -> usize {
+    fn fake_evaluate_h(&self, pk: &ProvingKey<C>, l: usize) -> usize {
         let cs = pk.get_vk().get_cs();
         let mut num_mul = 0;
         // All calculations, with cached intermediate results
@@ -96,7 +89,7 @@ impl<C: CurveAffine> Evaluator<C> {
         if num_perm_slices > 0 {
             num_mul += 2 * (num_perm_slices - 1);
         }
-            
+
         // delta_start * beta_start
         num_mul += 1;
         // And for all the sets we enforce:
@@ -156,15 +149,12 @@ impl<C: CurveAffine> Evaluator<C> {
 }
 
 /// estimate is to estimate the prover time, peek memory usage and aggregate circuit size.
-pub fn estimate<
-    E: Engine,
-    ConcreteCircuit: Circuit<E::Scalar>,
->(
+pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
     circuit: ConcreteCircuit,
     k: usize,
 ) -> EstimateResult {
     // Generate small vk & pk
-    let params: Params<E::G1Affine> = Params::<E::G1Affine>::unsafe_setup::<E>(15 as u32);
+    let params: Params<E::G1Affine> = Params::<E::G1Affine>::unsafe_setup::<E>(k as u32);
     let vk = keygen_vk(&params, &circuit).expect("keygen_vk should not fail");
     let pk = keygen_pk(&params, vk, &circuit).expect("keygen_pk should not fail");
 
@@ -183,20 +173,20 @@ pub fn estimate<
         Params {
             k: k as u32,
             n: n as u64,
-            g: (0..n).map(|_| rand_c1.clone()).collect(),
-            g_lagrange: (0..n).map(|_| rand_c1.clone()).collect(),
+            g: (0..n).map(|_| rand_c1).collect(),
+            g_lagrange: (0..n).map(|_| rand_c1).collect(),
             additional_data: Vec::from(rand_c2.to_bytes().as_ref()),
         }
     };
 
     let params = generate_fake_params(k);
-    
+
     // Initialize the domain
     let domain = EvaluationDomain::fake_new(cs.degree() as u32, params.k, E::Scalar::random(OsRng));
-    
+
     let n = 1 << k as usize;
     let rand_ele = E::Scalar::random(&mut OsRng);
-    let rand_vec: Vec::<E::Scalar> = (0..n).map(|_| rand_ele.clone()).collect();
+    let rand_vec: Vec<E::Scalar> = (0..n).map(|_| rand_ele).collect();
     let rand_vec2 = rand_vec.clone();
     let rand_values = domain.lagrange_from_vec(rand_vec);
 
@@ -209,12 +199,14 @@ pub fn estimate<
     let (time_extended_fft, _) = measure_elapsed_time(|| domain.coeff_to_extended(rand_poly));
     //      BTree time cost in lookup argument
     let (time_btree, _) = measure_elapsed_time(|| {
-        let mut leftover_table_map: BTreeMap<E::Scalar, u32> = rand_vec2
-        .iter().take(n)
-        .fold(BTreeMap::new(), |mut acc, coeff| {
-            *acc.entry(*coeff).or_insert(0) += 1;
-            acc
-        });
+        let mut leftover_table_map: BTreeMap<E::Scalar, u32> =
+            rand_vec2
+                .iter()
+                .take(n)
+                .fold(BTreeMap::new(), |mut acc, coeff| {
+                    *acc.entry(*coeff).or_insert(0) += 1;
+                    acc
+                });
         for item in &rand_vec2 {
             if let Some(count) = leftover_table_map.get_mut(item) {
                 *count -= 1;
@@ -225,17 +217,19 @@ pub fn estimate<
     let num_threads = multicore::current_num_threads();
 
     // NOTE(sphere): estimate op count
-    let FuncCount { num_fft, num_extended_fft, num_msm, num_btree, num_mul, mem_usage} = dummy_proof(
-        &params,
-        &pk,
-        &domain,
-        l,
-    );
+    let FuncCount {
+        num_fft,
+        num_extended_fft,
+        num_msm,
+        num_btree,
+        num_mul,
+        mem_usage,
+    } = dummy_proof(&params, &pk, &domain, l);
 
     let estimate_add_mul_field_op_time = || {
         let m = (domain.extended_len() + num_threads - 1) / num_threads;
-        let a = rand_ele.clone();
-        let mut b = rand_ele.clone();
+        let a = rand_ele;
+        let mut b = rand_ele;
         //      m mul field ops
         let (time_mul, _) = measure_elapsed_time(|| {
             for _ in 0..m {
@@ -248,15 +242,17 @@ pub fn estimate<
     };
 
     println!("num_fft = {}, time_fft = {}", num_fft, time_fft);
-    println!("num_extended_fft = {}, time_extended_fft = {}", num_extended_fft, time_extended_fft);
+    println!(
+        "num_extended_fft = {}, time_extended_fft = {}",
+        num_extended_fft, time_extended_fft
+    );
     println!("num_msm = {}, time_msm = {}", num_msm, time_msm);
     println!("num_btree = {}, time_btree = {}", num_btree, time_btree);
-    
 
-    let pt_non_linear = (num_fft as f64) * time_fft +
-                            (num_extended_fft as f64) * time_extended_fft +
-                            (num_msm as f64) * time_msm +
-                            (num_btree as f64) * time_btree;
+    let pt_non_linear = (num_fft as f64) * time_fft
+        + (num_extended_fft as f64) * time_extended_fft
+        + (num_msm as f64) * time_msm
+        + (num_btree as f64) * time_btree;
     println!("pt_non_linear = {}", pt_non_linear);
 
     let pt_linear = estimate_add_mul_field_op_time();
@@ -270,7 +266,7 @@ pub fn estimate<
         random_poly
     });
     println!("pt_random = {}", pt_random);
-    println!("");
+    println!();
 
     let prover_time = pt_non_linear + pt_linear + pt_random;
 
@@ -286,7 +282,7 @@ pub fn estimate<
     // println!("mem_usage by linear regression = {}", mem_usage2);
 
     // NOTE(sphere): calculate aggregate_circuit_size
-    
+
     EstimateResult {
         prover_time,
         mem_usage: (mem_usage as f64) / 1024.0, // to KB
@@ -294,10 +290,10 @@ pub fn estimate<
 }
 
 /// simulate_circuit is to run a circuit proving process.
-pub fn simulate_circuit<
-    E: Engine,
-    ConcreteCircuit: Circuit<E::Scalar>,
->(circuit: ConcreteCircuit, k: usize) {
+pub fn simulate_circuit<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
+    circuit: ConcreteCircuit,
+    k: usize,
+) {
     // let public_inputs_size = 0;
 
     // Initialize the polynomial commitment parameters
@@ -310,17 +306,17 @@ pub fn simulate_circuit<
     // Create a proof
     let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
 
-    let (prover_time, _) = measure_elapsed_time(|| 
+    let (prover_time, _) = measure_elapsed_time(|| {
         create_proof(&params, &pk, &[circuit], &[&[]], OsRng, &mut transcript)
-        .expect("proof generation should not fail")
-    );
+            .expect("proof generation should not fail")
+    });
 
     // NOTE(liutainyi): output prover_time
     println!("k = {}, prover_time = {}", k, prover_time);
 }
 
 struct FuncCount {
-    num_fft: usize, 
+    num_fft: usize,
     num_extended_fft: usize,
     num_msm: usize,
     num_btree: usize,
@@ -334,10 +330,10 @@ fn dummy_proof<C: CurveAffine>(
     domain: &EvaluationDomain<C::Scalar>,
     l: usize, // The number of input.
 ) -> FuncCount {
-    let mut num_fft = 0 as usize;
-    let mut num_extended_fft = 0 as usize;
-    let mut num_msm = 0 as usize;
-    let mut num_btree = 0 as usize;
+    let mut num_fft = 0_usize;
+    let mut num_extended_fft = 0_usize;
+    let mut num_msm = 0_usize;
+    let mut num_btree = 0_usize;
 
     let cs = pk.get_vk().get_cs();
 
@@ -364,13 +360,14 @@ fn dummy_proof<C: CurveAffine>(
     // Commit to permutations.
     // NOTE(sphere): l * perm_commit_t
     //      commit_lagrange: z
-    let num_perm_slices = (cs.permutation.get_columns().len() + (cs.degree() - 3)) / (cs.degree() - 2);
+    let num_perm_slices =
+        (cs.permutation.get_columns().len() + (cs.degree() - 3)) / (cs.degree() - 2);
     num_msm += num_perm_slices;
     //      lagrange_to_coeff: z
     num_fft += num_perm_slices;
     //      coeff_to_extended: z
     num_extended_fft += num_perm_slices;
-    
+
     // NOTE(sphere): pt += lookup_commit_product
     //      commit_lagrange: z, a', s'
     num_msm += 3 * num_lookups;
@@ -389,21 +386,21 @@ fn dummy_proof<C: CurveAffine>(
     // Construct the vanishing argument's h(X) commitments
     // NOTE(sphere): pt += vanishing_construct
     //      extended_to_coeff: h_poly
-    num_extended_fft +=  1;
+    num_extended_fft += 1;
     //      commit: h_poly_i
     let num_h_pieces = ((domain.extended_len() as u64 + params.n - 1) / params.n) as usize;
     num_msm += num_h_pieces;
 
     // NOTE(sphere): evaluate h.
-    let num_mul = pk.get_ev().fake_evaluate_h(&pk, l);
+    let num_mul = pk.get_ev().fake_evaluate_h(pk, l);
 
-    // NOTE(sphere): multiopen(shplonk).
+    // TODO(sphere): multiopen(shplonk). There should be a more detailed evaluation.
     //      commit: h_x, h_x
     //      The evaluations in multiopen is too small.
     num_msm += 2;
 
-    // TODO(sphere): Memory 
-    let mut mem_usage = 0 as usize;
+    // NOTE(sphere): Memory
+    let mut mem_usage = 0_usize;
     //      instance / advice / fixed as value poly, and coset:
     let n = 1 << params.k as usize;
     let ext_n = domain.extended_len();
@@ -437,7 +434,7 @@ fn dummy_proof<C: CurveAffine>(
     mem_usage *= mem::size_of::<C::Scalar>();
 
     FuncCount {
-        num_fft, 
+        num_fft,
         num_extended_fft,
         num_msm,
         num_btree,
@@ -446,20 +443,20 @@ fn dummy_proof<C: CurveAffine>(
     }
 }
 
-
 /// cost_model_main is to generate a main function to run the cost model for a circuit.
 #[macro_export]
 macro_rules! cost_model_main {
     ($cir:expr) => {
-        use halo2_proofs::dev::{
-            simulate_circuit,
-            estimate,
-        };
+        use halo2_proofs::dev::{estimate, simulate_circuit};
 
         fn main() {
             // NOTE(sphere): get k from args
             let mode = std::env::args().nth(1).expect("no running-mode given");
-            let k = std::env::args().nth(2).expect("no circuit size given").parse().unwrap();
+            let k = std::env::args()
+                .nth(2)
+                .expect("no circuit size given")
+                .parse()
+                .unwrap();
             // NOTE(sphere): estimate linear cost (cfg == simulate)
             let circuit = $cir;
             if mode.eq(&String::from("simulate")) {
@@ -471,5 +468,5 @@ macro_rules! cost_model_main {
                 panic!("unrecognized format");
             }
         }
-    }
+    };
 }
