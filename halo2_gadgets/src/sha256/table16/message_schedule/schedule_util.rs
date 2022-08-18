@@ -1,10 +1,6 @@
 use super::super::AssignedBits;
 use super::MessageScheduleConfig;
-use halo2_proofs::{
-    circuit::{Region, Value},
-    pasta::pallas,
-    plonk::Error,
-};
+use halo2_proofs::{circuit::{Region, Value}, pairing::bn256::Fr, plonk::Error};
 
 #[cfg(test)]
 use super::super::{super::BLOCK_SIZE, BlockWord, ROUNDS};
@@ -152,7 +148,7 @@ impl MessageScheduleConfig {
     // Assign a word and its hi and lo halves
     pub fn assign_word_and_halves(
         &self,
-        region: &mut Region<'_, pallas::Base>,
+        region: &mut Region<'_, Fr>,
         word: Value<u32>,
         word_idx: usize,
     ) -> Result<(AssignedBits<32>, (AssignedBits<16>, AssignedBits<16>)), Error> {

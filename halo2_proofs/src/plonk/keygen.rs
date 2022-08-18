@@ -10,15 +10,16 @@ use super::{
         Advice, Any, Assignment, Circuit, Column, ConstraintSystem, Fixed, FloorPlanner, Instance,
         Selector,
     },
+    evaluation::Evaluator,
     permutation, Assigned, Error, LagrangeCoeff, Polynomial, ProvingKey, VerifyingKey,
 };
 use crate::{
-    arithmetic::CurveAffine,
+    arithmetic::{CurveAffine, parallelize},
     circuit::Value,
     poly::{
         batch_invert_assigned,
         commitment::{Blind, Params},
-        EvaluationDomain,
+        EvaluationDomain, Rotation,
     },
 };
 
@@ -231,7 +232,7 @@ where
 
     let fixed_commitments = fixed
         .iter()
-        .map(|poly| params.commit_lagrange(poly, Blind::default()).to_affine())
+        .map(|poly| params.commit_lagrange(poly).to_affine())
         .collect();
 
     Ok(VerifyingKey::from_parts(
@@ -323,14 +324,28 @@ where
     let l_last = vk.domain.lagrange_to_coeff(l_last);
     let l_last = vk.domain.coeff_to_extended(l_last);
 
+    // Compute l_active_row(X)
+    let one = C::Scalar::one();
+    let mut l_active_row = vk.domain.empty_extended();
+    parallelize(&mut l_active_row, |values, start| {
+        for (i, value) in values.iter_mut().enumerate() {
+            let idx = i + start;
+            *value = one - (l_last[idx] + l_blind[idx]);
+        }
+    });
+
+    // Compute the optimized evaluation data structure
+    let ev = Evaluator::new(&vk.cs);
+
     Ok(ProvingKey {
         vk,
         l0,
-        l_blind,
         l_last,
+        l_active_row,
         fixed_values: fixed,
         fixed_polys,
         fixed_cosets,
         permutation: permutation_pk,
+        ev,
     })
 }

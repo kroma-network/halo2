@@ -28,7 +28,6 @@ ff = "0.12"
 group = "0.12"
 halo2_proofs = { version = "0.2", path = "../halo2_proofs" }
 lazy_static = "1"
-pasta_curves = "0.4"
 proptest = { version = "1.0.0", optional = true }
 rand = "0.8"
 subtle = "2.3"
@@ -51,16 +50,3 @@ bench = false
 dev-graph = ["halo2_proofs/dev-graph", "plotters"]
 test-dependencies = ["proptest"]
 unstable = []
-
-[[bench]]
-name = "primitives"
-harness = false
-
-[[bench]]
-name = "poseidon"
-harness = false
-
-[[bench]]
-name = "sha256"
-harness = false
-required-features = ["unstable"]

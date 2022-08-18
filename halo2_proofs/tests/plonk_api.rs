@@ -5,27 +5,34 @@ use assert_matches::assert_matches;
 use halo2_proofs::arithmetic::{CurveAffine, FieldExt};
 use halo2_proofs::circuit::{Cell, Layouter, SimpleFloorPlanner, Value};
 use halo2_proofs::dev::MockProver;
-use halo2_proofs::pasta::{Eq, EqAffine, Fp};
 use halo2_proofs::plonk::{
-    create_proof, keygen_pk, keygen_vk, verify_proof, Advice, Assigned, BatchVerifier, Circuit,
-    Column, ConstraintSystem, Error, Fixed, SingleVerifier, TableColumn, VerificationStrategy,
+    create_proof, keygen_pk, keygen_vk, verify_proof, Advice, BatchVerifier, Circuit, Column,
+    ConstraintSystem, Error, Fixed, SingleVerifier, TableColumn, VerifyingKey,
 };
-use halo2_proofs::poly::commitment::{Guard, MSM};
-use halo2_proofs::poly::{commitment::Params, Rotation};
-use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255, EncodedChallenge};
+
+use halo2_proofs::poly::{
+    commitment::{Params, ParamsVerifier},
+    Rotation,
+};
+use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
 use rand_core::OsRng;
 use std::marker::PhantomData;
+
+use pairing::bn256::Fr as Fp;
+use pairing::bn256::{Bn256, G1Affine};
 
 #[test]
 fn plonk_api() {
     const K: u32 = 5;
+    let public_inputs_size = 1;
 
     /// This represents an advice column at a certain row in the ConstraintSystem
     #[derive(Copy, Clone, Debug)]
     pub struct Variable(Column<Advice>, usize);
 
     // Initialize the polynomial commitment parameters
-    let params: Params<EqAffine> = Params::new(K);
+    let params: Params<G1Affine> = Params::<G1Affine>::unsafe_setup::<Bn256>(K);
+    let params_verifier: ParamsVerifier<Bn256> = params.verifier(public_inputs_size).unwrap();
 
     #[derive(Clone)]
     struct PlonkConfig {
@@ -312,7 +319,7 @@ fn plonk_api() {
              * ]
              */
 
-            meta.lookup(|meta| {
+            meta.lookup("lookup", |meta| {
                 let a_ = meta.query_any(a, Rotation::cur());
                 vec![(a_, sl)]
             });
@@ -414,7 +421,7 @@ fn plonk_api() {
 
     // Check that we get an error if we try to initialize the proving key with a value of
     // k that is too small for the minimum required number of rows.
-    let much_too_small_params: Params<EqAffine> = Params::new(1);
+    let much_too_small_params: Params<G1Affine> = Params::<G1Affine>::unsafe_setup::<Bn256>(1);
     assert_matches!(
         keygen_vk(&much_too_small_params, &empty_circuit),
         Err(Error::NotEnoughRowsAvailable {
@@ -424,7 +431,8 @@ fn plonk_api() {
 
     // Check that we get an error if we try to initialize the proving key with a value of
     // k that is too small for the number of rows the circuit uses.
-    let slightly_too_small_params: Params<EqAffine> = Params::new(K - 1);
+    let slightly_too_small_params: Params<G1Affine> =
+        Params::<G1Affine>::unsafe_setup::<Bn256>(K - 1);
     assert_matches!(
         keygen_vk(&slightly_too_small_params, &empty_circuit),
         Err(Error::NotEnoughRowsAvailable {
@@ -491,68 +499,13 @@ fn plonk_api() {
         )
         .expect("proof generation should not fail");
         let proof: Vec<u8> = transcript.finalize();
-        assert_eq!(
-            proof.len(),
-            halo2_proofs::dev::CircuitCost::<Eq, MyCircuit<_>>::measure(K as usize, &circuit)
-                .proof_size(2)
-                .into(),
-        );
 
         // Test single-verifier strategy.
         {
-            let strategy = SingleVerifier::new(&params);
+            let strategy = SingleVerifier::new(&params_verifier);
             let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
             assert!(verify_proof(
-                &params,
-                pk.get_vk(),
-                strategy,
-                &[&[&pubinputs[..]], &[&pubinputs[..]]],
-                &mut transcript,
-            )
-            .is_ok());
-        }
-
-        //
-        // Test accumulation-based strategy.
-        //
-
-        struct AccumulationVerifier<'params, C: CurveAffine> {
-            msm: MSM<'params, C>,
-        }
-
-        impl<'params, C: CurveAffine> AccumulationVerifier<'params, C> {
-            fn new(params: &'params Params<C>) -> Self {
-                AccumulationVerifier {
-                    msm: MSM::new(params),
-                }
-            }
-        }
-
-        impl<'params, C: CurveAffine> VerificationStrategy<'params, C>
-            for AccumulationVerifier<'params, C>
-        {
-            type Output = ();
-
-            fn process<E: EncodedChallenge<C>>(
-                self,
-                f: impl FnOnce(MSM<'params, C>) -> Result<Guard<'params, C, E>, Error>,
-            ) -> Result<Self::Output, Error> {
-                let guard = f(self.msm)?;
-                let g = guard.compute_g();
-                let (msm, _) = guard.use_g(g);
-                if msm.eval() {
-                    Ok(())
-                } else {
-                    Err(Error::ConstraintSystemFailure)
-                }
-            }
-        }
-
-        {
-            let strategy = AccumulationVerifier::new(&params);
-            let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
-            assert!(verify_proof(
-                &params,
+                &params_verifier,
                 pk.get_vk(),
                 strategy,
                 &[&[&pubinputs[..]], &[&pubinputs[..]]],

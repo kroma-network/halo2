@@ -2,7 +2,7 @@ use ff::Field;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Cell, Layouter, Region, SimpleFloorPlanner, Value},
-    pasta::Fp,
+    pairing::bn256::Fr as Fp,
     plonk::{Advice, Assigned, Circuit, Column, ConstraintSystem, Error, Fixed, TableColumn},
     poly::Rotation,
 };
@@ -204,7 +204,7 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
          *   ...       ...    ...  0
          * ]
          */
-        meta.lookup(|meta| {
+        meta.lookup("lookup", |meta| {
             let a_ = meta.query_any(a, Rotation::cur());
             vec![(a_, sl)]
         });
