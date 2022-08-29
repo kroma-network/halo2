@@ -25,6 +25,7 @@ use std::{
     iter,
     ops::{Index, Mul, MulAssign},
 };
+use ark_std::{end_timer, start_timer};
 
 use super::{ConstraintSystem, Expression};
 
@@ -306,6 +307,7 @@ impl<C: CurveAffine> Evaluator<C> {
             .zip(permutations.iter())
         {
             // Custom gates
+            let custom_gate_h_time = start_timer!(|| "custom gates h");
             multicore::scope(|scope| {
                 let chunk_size = (size + num_threads - 1) / num_threads;
                 for (thread_idx, values) in values.chunks_mut(chunk_size).enumerate() {
@@ -333,6 +335,7 @@ impl<C: CurveAffine> Evaluator<C> {
                 }
             });
 
+            end_timer!(custom_gate_h_time);
             // Permutations
             let sets = &permutation.sets;
             if !sets.is_empty() {
@@ -415,11 +418,13 @@ impl<C: CurveAffine> Evaluator<C> {
                 });
             }
 
+            let lookup_h_time = start_timer!(|| "lookup h");
             // Lookups
             for (n, lookup) in lookups.iter().enumerate() {
                 // Polynomials required for this lookup.
                 // Calculated here so these only have to be kept in memory for the short time
                 // they are actually needed.
+                let lookup_coset_time = start_timer!(|| "lookup coset FFTs");
                 let product_coset = pk.vk.domain.coeff_to_extended(lookup.product_poly.clone());
                 let permuted_input_coset = pk
                     .vk
@@ -429,6 +434,7 @@ impl<C: CurveAffine> Evaluator<C> {
                     .vk
                     .domain
                     .coeff_to_extended(lookup.permuted_table_poly.clone());
+                end_timer!(lookup_coset_time);
 
                 // Lookup constraints
                 parallelize(&mut values, |values, start| {

@@ -27,6 +27,7 @@ use std::{
     iter,
     ops::{Mul, MulAssign},
 };
+use ark_std::{end_timer, start_timer};
 
 #[derive(Debug)]
 pub(in crate::plonk) struct Permuted<C: CurveAffine> {
@@ -108,12 +109,17 @@ impl<F: FieldExt> Argument<F> {
             (poly, commitment)
         };
 
+        let get_a_time = start_timer!(|| "get A time");
         // Get values of input expressions involved in the lookup and compress them
         let compressed_input_expression = compress_expressions(&self.input_expressions);
+        end_timer!(get_a_time);
 
+        let get_s_time = start_timer!(|| "get S time");
         // Get values of table expressions involved in the lookup and compress them
         let compressed_table_expression = compress_expressions(&self.table_expressions);
+        end_timer!(get_s_time);
 
+        let get_ap_sp_time = start_timer!(|| "get (A', S') time");
         // Permute compressed (InputExpression, TableExpression) pair
         let (permuted_input_expression, permuted_table_expression) = permute_expression_pair::<C, _>(
             pk,
@@ -123,14 +129,19 @@ impl<F: FieldExt> Argument<F> {
             &compressed_input_expression,
             &compressed_table_expression,
         )?;
+        end_timer!(get_ap_sp_time);
 
+        let ap_msm_ifft_time = start_timer!(|| "get A' msm and ifft");
         // Commit to permuted input expression
         let (permuted_input_poly, permuted_input_commitment) =
             commit_values(&permuted_input_expression);
+        end_timer!(ap_msm_ifft_time);
 
+        let sp_msm_ifft_time = start_timer!(|| "get S' msm and ifft");
         // Commit to permuted table expression
         let (permuted_table_poly, permuted_table_commitment) =
             commit_values(&permuted_table_expression);
+        end_timer!(sp_msm_ifft_time);
 
         // Hash permuted input commitment
         transcript.write_point(permuted_input_commitment)?;
@@ -169,6 +180,7 @@ impl<C: CurveAffine> Permuted<C> {
         mut rng: R,
     ) -> Result<Committed<C>, Error> {
         let blinding_factors = pk.vk.cs.blinding_factors();
+        let z_coeff_time = start_timer!(|| "z coeff time");
         // Goal is to compute the products of fractions
         //
         // Numerator: (\theta^{m-1} a_0(\omega^i) + \theta^{m-2} a_1(\omega^i) + ... + \theta a_{m-2}(\omega^i) + a_{m-1}(\omega^i) + \beta)
@@ -207,6 +219,7 @@ impl<C: CurveAffine> Permuted<C> {
                 *product *= &(self.compressed_table_expression[i] + &*gamma);
             }
         });
+        end_timer!(z_coeff_time);
 
         // The product vector is a vector of products of fractions of the form
         //
@@ -221,6 +234,7 @@ impl<C: CurveAffine> Permuted<C> {
         // s'(\omega^i) is the permuted table expression,
         // and i is the ith row of the expression.
 
+        let z_coeff_acc_time = start_timer!(|| "z coeff acc");
         // Compute the evaluations of the lookup product polynomial
         // over our domain, starting with z[0] = 1
         let z = iter::once(C::Scalar::one())
@@ -236,6 +250,7 @@ impl<C: CurveAffine> Permuted<C> {
             .chain((0..blinding_factors).map(|_| C::Scalar::random(&mut rng)))
             .collect::<Vec<_>>();
         assert_eq!(z.len(), params.n as usize);
+        end_timer!(z_coeff_acc_time);
         let z = pk.vk.domain.lagrange_from_vec(z);
 
         #[cfg(feature = "sanity-checks")]
@@ -275,12 +290,16 @@ impl<C: CurveAffine> Permuted<C> {
             // case this z[u] value will be zero. (bad!)
             assert_eq!(z[u], C::Scalar::one());
         }
+        let z_msm_time = start_timer!(|| "z msm");
         let product_commitment = params.commit_lagrange(&z).to_affine();
 
         // Hash product commitment
         transcript.write_point(product_commitment)?;
+        end_timer!(z_msm_time);
 
+        let z_ifft_time = start_timer!(|| "z ifft");
         let z = pk.vk.domain.lagrange_to_coeff(z);
+        end_timer!(z_ifft_time);
 
         Ok(Committed::<C> {
             permuted_input_poly: self.permuted_input_poly,

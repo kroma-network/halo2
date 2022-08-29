@@ -6,6 +6,7 @@ use std::ops::RangeTo;
 use std::sync::atomic::AtomicUsize;
 use std::time::Instant;
 use std::{iter, sync::atomic::Ordering};
+use ark_std::{end_timer, start_timer};
 
 use super::{
     circuit::{
@@ -68,6 +69,7 @@ pub fn create_proof<
     // from the verification key.
     let meta = &pk.vk.cs;
 
+    let phase1_time = start_timer!(|| "phase1");
     struct InstanceSingle<C: CurveAffine> {
         pub instance_values: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
         pub instance_polys: Vec<Polynomial<C::Scalar, Coeff>>,
@@ -268,6 +270,7 @@ pub fn create_proof<
 
             let unusable_rows_start = params.n as usize - (meta.blinding_factors() + 1);
 
+            let time = ark_std::start_timer!(|| "witness assignment");
             let mut witness = WitnessCollection {
                 k: params.k,
                 advice: vec![domain.empty_lagrange_assigned(); meta.num_advice_columns],
@@ -287,8 +290,11 @@ pub fn create_proof<
                 config.clone(),
                 meta.constants.clone(),
             )?;
+            end_timer!(time);
 
+            let advice_invert_time = ark_std::start_timer!(|| "batch invert advices");
             let mut advice = batch_invert_assigned(witness.advice);
+            end_timer!(advice_invert_time);
 
             // Add blinding factors to advice columns
             for advic in &mut advice {
@@ -300,6 +306,7 @@ pub fn create_proof<
                 advic[idx] = C::Scalar::one();
             }
 
+            let adv_msm_time = start_timer!(|| "advice MSMs");
             let advice_commitments_projective: Vec<_> = advice
                 .iter()
                 .map(|poly| params.commit_lagrange(poly))
@@ -312,18 +319,22 @@ pub fn create_proof<
             for commitment in &advice_commitments {
                 transcript.write_point(*commitment)?;
             }
+            end_timer!(adv_msm_time);
 
+            let ifft_time = start_timer!(|| "advice ifft time");
             let advice_polys: Vec<_> = advice
                 .clone()
                 .into_iter()
                 .map(|poly| domain.lagrange_to_coeff(poly))
                 .collect();
+            end_timer!(ifft_time);
 
+            let coset_time = start_timer!(|| "advice coset time");
             let advice_cosets: Vec<_> = advice_polys
                 .iter()
                 .map(|poly| domain.coeff_to_extended(poly.clone()))
                 .collect();
-
+            end_timer!(coset_time);
             Ok(AdviceSingle {
                 advice_values: advice,
                 advice_polys,
@@ -332,9 +343,12 @@ pub fn create_proof<
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    end_timer!(phase1_time);
+    println!("#(advices): {}", advice[0].advice_polys.len());
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
 
+    let phase2_time = start_timer!(|| "phase2 lookup arg");
     let lookups: Vec<Vec<lookup::prover::Permuted<C>>> = instance
         .iter()
         .zip(advice.iter())
@@ -361,12 +375,14 @@ pub fn create_proof<
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    end_timer!(phase2_time);
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
 
     // Sample gamma challenge
     let gamma: ChallengeGamma<_> = transcript.squeeze_challenge_scalar();
 
+    let phase3_time = start_timer!(|| "phase3 Z(X)");
     // Commit to permutations.
     let permutations: Vec<permutation::prover::Committed<C>> = instance
         .iter()
@@ -398,12 +414,17 @@ pub fn create_proof<
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    end_timer!(phase3_time);
     // Commit to the vanishing argument's random polynomial for blinding h(x_3)
     let vanishing = vanishing::Argument::commit(params, domain, rng, transcript)?;
 
     // Obtain challenge for keeping all separate gates linearly independent
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
 
+    println!("k: {}, extended_k: {}", domain.k(), domain.extended_k());
+    println!("num lookups: {}", lookups[0].len());
+    println!("num custom gate intermediates: {}", pk.ev.custom_gates.num_intermediates);
+    let phase4_time = start_timer!(|| "phase4 quotient");
     // Evaluate the h(X) polynomial
     let h_poly = pk.ev.evaluate_h(
         pk,
@@ -416,13 +437,18 @@ pub fn create_proof<
         &lookups,
         &permutations,
     );
+    end_timer!(phase4_time);
 
+    let vanish_time = start_timer!(|| "vanish i-coset-fft / msm");
     // Construct the vanishing argument's h(X) commitments
     let vanishing = vanishing.construct(params, domain, h_poly, transcript)?;
+    end_timer!(vanish_time);
 
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
     let xn = x.pow(&[params.n as u64, 0, 0, 0]);
 
+    let phase5_time = start_timer!(|| "phase5 eval polys");
+    let mut num_evals = 0;
     // Compute and hash instance evals for each circuit instance
     for instance in instance.iter() {
         // Evaluate polynomials at omega^i x
@@ -436,6 +462,7 @@ pub fn create_proof<
                 )
             })
             .collect();
+        num_evals += instance_evals.len();
 
         // Hash each instance column evaluation
         for eval in instance_evals.iter() {
@@ -456,6 +483,7 @@ pub fn create_proof<
                 )
             })
             .collect();
+        num_evals += advice_evals.len();
 
         // Hash each advice column evaluation
         for eval in advice_evals.iter() {
@@ -471,6 +499,7 @@ pub fn create_proof<
             eval_polynomial(&pk.fixed_polys[column.index()], domain.rotate_omega(*x, at))
         })
         .collect();
+    num_evals += fixed_evals.len();
 
     // Hash each fixed column evaluation
     for eval in fixed_evals.iter() {
@@ -498,6 +527,7 @@ pub fn create_proof<
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
+    end_timer!(phase5_time);
 
     let instances = instance
         .iter()

@@ -9,6 +9,7 @@ use ff::Field;
 use group::Curve;
 use std::io;
 use std::marker::PhantomData;
+use ark_std::end_timer;
 
 /// Create a multi-opening proof
 pub fn create_proof<'a, I, C: CurveAffine, E: EncodedChallenge<C>, T: TranscriptWrite<C, E>>(
@@ -19,6 +20,7 @@ pub fn create_proof<'a, I, C: CurveAffine, E: EncodedChallenge<C>, T: Transcript
 where
     I: IntoIterator<Item = ProverQuery<'a, C>> + Clone,
 {
+    let phase6_time = ark_std::start_timer!(|| "phase6 gwc multiopen");
     let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
     let commitment_data = construct_intermediate_sets(queries);
 
@@ -45,9 +47,12 @@ where
             values: kate_division(&poly_batch.values, z),
             _marker: PhantomData,
         };
+        let w_msm_time = ark_std::start_timer!(|| "gwc W msm");
         let w = params.commit(&witness_poly).to_affine();
         transcript.write_point(w)?;
+        ark_std::end_timer!(w_msm_time);
     }
+    ark_std::end_timer!(phase6_time);
     Ok(())
 }
 

@@ -4,6 +4,7 @@ use group::{
 };
 use rand_core::RngCore;
 use std::iter::{self, ExactSizeIterator};
+use ark_std::{end_timer, start_timer};
 
 use super::super::{circuit::Any, ChallengeBeta, ChallengeGamma, ChallengeX};
 use super::{Argument, ProvingKey};
@@ -88,6 +89,7 @@ impl Argument {
             // where p_j(X) is the jth column in this permutation,
             // and i is the ith row of the column.
 
+            let z_coeff_time = start_timer!(|| "get z lagrange coeff");
             let mut modified_values = vec![C::Scalar::one(); params.n as usize];
 
             // Iterate over each column of the permutation
@@ -143,6 +145,8 @@ impl Argument {
             // where i is the index into modified_values, for the jth column in
             // the permutation
 
+            end_timer!(z_coeff_time);
+            let z_coeff_acc_time = start_timer!(|| "acc z coeff");
             // Compute the evaluations of the permutation product polynomial
             // over our domain, starting with z[0] = 1
             let mut z = vec![last_z];
@@ -152,6 +156,8 @@ impl Argument {
                 tmp *= &modified_values[row - 1];
                 z.push(tmp);
             }
+            end_timer!(z_coeff_acc_time);
+            let z_ifft_coset_msm_time = start_timer!(|| "msm/ifft/coset");
             let mut z = domain.lagrange_from_vec(z);
             // Set blinding factors
             for z in &mut z[params.n as usize - blinding_factors..] {
@@ -171,6 +177,7 @@ impl Argument {
 
             // Hash the permutation product commitment
             transcript.write_point(permutation_product_commitment)?;
+            end_timer!(z_ifft_coset_msm_time);
 
             sets.push(CommittedSet {
                 permutation_product_poly,
