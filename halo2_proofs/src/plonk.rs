@@ -40,12 +40,12 @@ use self::evaluation::Evaluator;
 
 /// This is a verifying key which allows for the verification of proofs for a
 /// particular circuit.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VerifyingKey<C: CurveAffine> {
-    domain: EvaluationDomain<C::Scalar>,
-    fixed_commitments: Vec<C>,
-    permutation: permutation::VerifyingKey<C>,
-    cs: ConstraintSystem<C::Scalar>,
+    pub domain: EvaluationDomain<C::Scalar>,
+    pub fixed_commitments: Vec<C>,
+    pub permutation: permutation::VerifyingKey<C>,
+    pub cs: ConstraintSystem<C::Scalar>,
 }
 
 impl<C: CurveAffine> VerifyingKey<C> {
