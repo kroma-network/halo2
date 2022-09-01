@@ -15,7 +15,7 @@ use std::io;
 #[derive(Debug, Clone)]
 pub struct Argument {
     /// A sequence of columns involved in the argument.
-    pub(super) columns: Vec<Column<Any>>,
+    pub columns: Vec<Column<Any>>,
 }
 
 impl Argument {
@@ -73,9 +73,9 @@ impl Argument {
 }
 
 /// The verifying key for a single permutation argument.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct VerifyingKey<C: CurveAffine> {
-    commitments: Vec<C>,
+    pub commitments: Vec<C>,
 }
 
 impl<C: CurveAffine> VerifyingKey<C> {

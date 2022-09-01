@@ -23,7 +23,7 @@ pub trait ColumnType:
 /// A column with an index and type
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Column<C: ColumnType> {
-    index: usize,
+    pub index: usize,
     column_type: C,
 }
 
@@ -1096,7 +1096,7 @@ impl<F: Field, C: Into<Constraint<F>>, Iter: IntoIterator<Item = C>> IntoIterato
 pub struct Gate<F: Field> {
     name: &'static str,
     constraint_names: Vec<&'static str>,
-    polys: Vec<Expression<F>>,
+    pub polys: Vec<Expression<F>>,
     /// We track queried selectors separately from other cells, so that we can use them to
     /// trigger debug checks on gates.
     queried_selectors: Vec<Selector>,
@@ -1131,30 +1131,29 @@ impl<F: Field> Gate<F> {
 #[derive(Debug, Clone)]
 pub struct ConstraintSystem<F: Field> {
     pub(crate) num_fixed_columns: usize,
-    pub(crate) num_advice_columns: usize,
-    pub(crate) num_instance_columns: usize,
+    pub num_advice_columns: usize,
+    pub num_instance_columns: usize,
     pub(crate) num_selectors: usize,
 
     /// This is a cached vector that maps virtual selectors to the concrete
     /// fixed column that they were compressed into. This is just used by dev
     /// tooling right now.
     pub(crate) selector_map: Vec<Column<Fixed>>,
-
-    pub(crate) gates: Vec<Gate<F>>,
-    pub(crate) advice_queries: Vec<(Column<Advice>, Rotation)>,
+    pub gates: Vec<Gate<F>>,
+    pub advice_queries: Vec<(Column<Advice>, Rotation)>,
     // Contains an integer for each advice column
     // identifying how many distinct queries it has
     // so far; should be same length as num_advice_columns.
     num_advice_queries: Vec<usize>,
-    pub(crate) instance_queries: Vec<(Column<Instance>, Rotation)>,
-    pub(crate) fixed_queries: Vec<(Column<Fixed>, Rotation)>,
+    pub instance_queries: Vec<(Column<Instance>, Rotation)>,
+    pub fixed_queries: Vec<(Column<Fixed>, Rotation)>,
 
     // Permutation argument for performing equality constraints
-    pub(crate) permutation: permutation::Argument,
+    pub permutation: permutation::Argument,
 
     // Vector of lookup arguments, where each corresponds to a sequence of
     // input expressions and a sequence of table expressions involved in the lookup.
-    pub(crate) lookups: Vec<lookup::Argument<F>>,
+    pub lookups: Vec<lookup::Argument<F>>,
 
     // Vector of fixed columns, which can be used to store constant values
     // that are copied into advice columns.
@@ -1387,7 +1386,7 @@ impl<F: Field> ConstraintSystem<F> {
         panic!("get_instance_query_index called for non-existent query");
     }
 
-    pub(crate) fn get_any_query_index(&self, column: Column<Any>, at: Rotation) -> usize {
+    pub fn get_any_query_index(&self, column: Column<Any>, at: Rotation) -> usize {
         match column.column_type() {
             Any::Advice => {
                 self.get_advice_query_index(Column::<Advice>::try_from(column).unwrap(), at)

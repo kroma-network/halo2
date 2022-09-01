@@ -22,6 +22,7 @@ jobs:
           args: --verbose --release --all --all-features
 
   build:
+    if: ${{ false }}
     name: Build target ${{ matrix.target }}
     runs-on: ubuntu-latest
     strategy:
