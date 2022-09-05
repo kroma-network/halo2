@@ -39,7 +39,10 @@ impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
         let mut compressed = C::Repr::default();
         self.reader.read_exact(compressed.as_mut())?;
         let point: C = Option::from(C::from_bytes(&compressed)).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::Other, "invalid point encoding in proof")
+            io::Error::new(
+                io::ErrorKind::Other,
+                "invalid point encoding in proof for poseidon",
+            )
         })?;
         self.common_point(point)?;
 
@@ -52,7 +55,7 @@ impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
         let scalar: C::Scalar = Option::from(C::Scalar::from_repr(data)).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::Other,
-                "invalid field element encoding in proof",
+                "invalid field element encoding in proof for poseidon",
             )
         })?;
         self.common_scalar(scalar)?;

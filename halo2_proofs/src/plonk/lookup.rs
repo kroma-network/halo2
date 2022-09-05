@@ -12,7 +12,6 @@ pub struct Argument<F: Field> {
     pub table_expressions: Vec<Expression<F>>,
 }
 
-
 impl<F: Field> Debug for Argument<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Argument")

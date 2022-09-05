@@ -299,48 +299,23 @@ pub fn create_proof<
                     .iter()
                     .map(|_| Blind(Scheme::Scalar::random(&mut rng)))
                     .collect();
+                let advice_commitments_projective: Vec<_> = advice
+                    .iter()
+                    .zip(advice_blinds.iter())
+                    .map(|(poly, blind)| params.commit_lagrange(poly, *blind))
+                    .collect();
+                let mut advice_commitments =
+                    vec![Scheme::Curve::identity(); advice_commitments_projective.len()];
+                <Scheme::Curve as CurveAffine>::CurveExt::batch_normalize(
+                    &advice_commitments_projective,
+                    &mut advice_commitments,
+                );
+                let advice_commitments = advice_commitments;
+                drop(advice_commitments_projective);
 
-            let unusable_rows_start = params.n() as usize - (meta.blinding_factors() + 1);
-
-            let mut witness = WitnessCollection {
-                k: params.k(),
-                advice: vec![domain.empty_lagrange_assigned(); meta.num_advice_columns],
-                instances,
-                // The prover will not be allowed to assign values to advice
-                // cells that exist within inactive rows, which include some
-                // number of blinding factors and an extra row for use in the
-                // permutation argument.
-                usable_rows: ..unusable_rows_start,
-                _marker: std::marker::PhantomData,
-            };
-
-            // Synthesize the circuit to obtain the witness and other information.
-            ConcreteCircuit::FloorPlanner::synthesize(
-                &mut witness,
-                circuit,
-                config.clone(),
-                meta.constants.clone(),
-            )?;
-
-            let mut advice = batch_invert_assigned(witness.advice);
-
-            // Add blinding factors to advice columns
-            for advic in &mut advice {
-                //for cell in &mut advice[unusable_rows_start..] {
-                //*cell = C::Scalar::random(&mut rng);
-                //*cell = C::Scalar::one();
-                //}
-                let idx = advic.len() - 1;
-                advic[idx] = Scheme::Scalar::one();
-            }
-
-            let advice_commitments_projective: Vec<_> = advice
-                .iter().zip(advice_blinds.iter())
-                .map(|(poly, blind)| params.commit_lagrange(poly,*blind))
-                .collect();
-            let mut advice_commitments = vec![Scheme::Curve::identity(); advice_commitments_projective.len()];
-            <Scheme::Curve as CurveAffine>::CurveExt::batch_normalize(&advice_commitments_projective, &mut advice_commitments);
-            drop(advice_commitments_projective);
+                for commitment in &advice_commitments {
+                    transcript.write_point(*commitment)?;
+                }
 
                 Ok(AdviceSingle {
                     advice_polys: advice,

@@ -52,9 +52,12 @@ impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
     fn read_point(&mut self) -> io::Result<C> {
         let mut compressed = C::Repr::default();
         self.reader.read_exact(compressed.as_mut())?;
-        let point: C = Option::from(C::from_bytes(&compressed)).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::Other, "invalid point encoding in proof")
-        })?;
+        let point: C = match Option::from(C::from_bytes(&compressed)) {
+            Some(p) => p,
+            // TODO: check that this is actually safe to push an
+            // identity point to the transcript
+            None => C::identity(),
+        };
         self.common_point(point)?;
 
         Ok(point)
@@ -63,12 +66,12 @@ impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
     fn read_scalar(&mut self) -> io::Result<C::Scalar> {
         let mut data = <C::Scalar as PrimeField>::Repr::default();
         self.reader.read_exact(data.as_mut())?;
-        let scalar: C::Scalar = Option::from(C::Scalar::from_repr(data)).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                "invalid field element encoding in proof",
-            )
-        })?;
+        let scalar = match Option::from(C::Scalar::from_repr(data)) {
+            Some(p) => p,
+            // TODO: check that this is actually safe to push an
+            // identity point to the transcript
+            None => C::Scalar::zero(),
+        };
         self.common_scalar(scalar)?;
 
         Ok(scalar)
@@ -87,22 +90,21 @@ impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>>
 
     // This function is slightly modified from PSE's version.
     // In PSE's version, an error is returned if the input point is infinity.
-    // Here we want to be able to absorb infinity point because of the 
+    // Here we want to be able to absorb infinity point because of the
     // randomness we used in the polynomial commitment is 0.
     fn common_point(&mut self, point: C) -> io::Result<()> {
         self.state.update(&[BLAKE2B_PREFIX_POINT]);
 
-        let tmp:Option<Coordinates<_>> = Option::from(point.coordinates());
+        let tmp: Option<Coordinates<_>> = Option::from(point.coordinates());
         match tmp {
-
-            Some(coords)=>{
+            Some(coords) => {
                 self.state.update(coords.x().to_repr().as_ref());
                 self.state.update(coords.y().to_repr().as_ref());
-            },
-            None =>{
+            }
+            None => {
                 // Infinity point
-                self.state.update(&C::Base::zero().to_repr().as_ref());
-                self.state.update(&C::Base::from(5).to_repr().as_ref());
+                self.state.update(C::Base::zero().to_repr().as_ref());
+                self.state.update(C::Base::from(5).to_repr().as_ref());
             }
         }
         Ok(())
@@ -171,20 +173,20 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
 
     // This function is slightly modified from PSE's version.
     // In PSE's version, an error is returned if the input point is infinity.
-    // Here we want to be able to absorb infinity point because of the 
+    // Here we want to be able to absorb infinity point because of the
     // randomness we used in the polynomial commitment is 0.
     fn common_point(&mut self, point: C) -> io::Result<()> {
         self.state.update(&[BLAKE2B_PREFIX_POINT]);
-        let tmp:Option<Coordinates<_>> = Option::from(point.coordinates());
+        let tmp: Option<Coordinates<_>> = Option::from(point.coordinates());
         match tmp {
-            Some(coords)=>{
+            Some(coords) => {
                 self.state.update(coords.x().to_repr().as_ref());
                 self.state.update(coords.y().to_repr().as_ref());
-            },
-            None =>{
+            }
+            None => {
                 // Infinity point
-                self.state.update(&C::Base::zero().to_repr().as_ref());
-                self.state.update(&C::Base::from(5).to_repr().as_ref());
+                self.state.update(C::Base::zero().to_repr().as_ref());
+                self.state.update(C::Base::from(5).to_repr().as_ref());
             }
         }
 

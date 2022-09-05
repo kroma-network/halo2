@@ -478,37 +478,6 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
     }
 }
 
-fn home_made_par_iter_flat_map<U: Send, Fun: Send + Sync, const ISPAR: bool>(
-    row_indexes: &[usize],
-    f: Fun,
-) -> Vec<U>
-where
-    Fun: Fn(i32) -> Vec<U>,
-{
-    if ISPAR {
-        row_indexes
-            .par_iter()
-            .flat_map(|row| f(*row as i32))
-            .collect()
-    } else {
-        row_indexes.iter().flat_map(|row| f(*row as i32)).collect()
-    }
-}
-
-fn home_made_par_iter_map<U: Send + Default, Fun: Send + Sync, const ISPAR: bool>(
-    row_indexes: &[usize],
-    f: Fun,
-) -> Vec<U>
-where
-    Fun: Fn(i32) -> U,
-{
-    if ISPAR {
-        row_indexes.par_iter().map(|row| f(*row as i32)).collect()
-    } else {
-        row_indexes.iter().map(|row| f(*row as i32)).collect()
-    }
-}
-
 impl<F: FieldExt> MockProver<F> {
     /// Runs a synthetic keygen-and-prove operation on the given circuit, collecting data
     /// about the constraints and their assignments.
