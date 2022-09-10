@@ -54,6 +54,20 @@ impl<E: Engine + Debug> ParamsKZG<E> {
     /// Initializes parameters for the curve, draws toxic secret from given rng.
     /// MUST NOT be used in production.
     pub fn setup<R: RngCore>(k: u32, rng: R) -> Self {
+        let s = <E::Scalar>::random(rng);
+        Self::unsafe_setup_with_s(k, s)
+    }
+
+    /// Initializes parameters for the curve, Draws random toxic point inside of the function
+    /// MUST NOT be used in production
+    pub fn unsafe_setup(k: u32) -> Self {
+        let s = E::Scalar::random(OsRng);
+        Self::unsafe_setup_with_s(k, s)
+    }
+
+    /// Initializes parameters for the curve, using given random `s`
+    /// MUST NOT be used in production
+    pub fn unsafe_setup_with_s(k: u32, s: <E as Engine>::Scalar) -> Self {
         // Largest root of unity exponent of the Engine is `2^E::Scalar::S`, so we can
         // only support FFTs of polynomials below degree `2^E::Scalar::S`.
         assert!(k <= E::Scalar::S);
@@ -61,8 +75,6 @@ impl<E: Engine + Debug> ParamsKZG<E> {
 
         // Calculate g = [G1, [s] G1, [s^2] G1, ..., [s^(n-1)] G1] in parallel.
         let g1 = E::G1Affine::generator();
-        let s = <E::Scalar>::random(rng);
-
         let mut g_projective = vec![E::G1::group_zero(); n as usize];
         parallelize(&mut g_projective, |g, start| {
             let mut current_g: E::G1 = g1.into();
