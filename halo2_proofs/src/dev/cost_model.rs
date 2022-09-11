@@ -106,7 +106,7 @@ impl<C: CurveAffine> Evaluator<C> {
             //   z_i(\omega X) \prod_j (p(X) + \beta s_j(X) + \gamma)
             // - z_i(X) \prod_j (p(X) + \delta^j \beta X + \gamma)
             // )
-            
+
             // Calculate left = z_i(\omega X) \prod_j (p(X) + \beta s_j(X) + \gamma)
             let mut tmp_num_add_lag = 0;
             let mut tmp_num_mul_lag = 0;
@@ -122,7 +122,7 @@ impl<C: CurveAffine> Evaluator<C> {
             // ).
             tmp_num_add_lag += 2;
             tmp_num_mul_lag += 2;
-            
+
             num_add_lag += tmp_num_add_lag * num_perm_slices;
             num_mul_lag += tmp_num_mul_lag * num_perm_slices;
 
@@ -472,12 +472,12 @@ fn dummy_proof<C: CurveAffine>(
                 .chain(
                     cs.instance_queries
                         .iter()
-                        .map(move |&(column, at)| FakeProverQuery { rotation: at }),
+                        .map(move |&(_, at)| FakeProverQuery { rotation: at }),
                 )
                 .chain(
                     cs.advice_queries
                         .iter()
-                        .map(move |&(column, at)| FakeProverQuery { rotation: at }),
+                        .map(move |&(_, at)| FakeProverQuery { rotation: at }),
                 )
                 .chain((0..num_perm_slices).flat_map(|_| {
                     iter::empty()
