@@ -2,7 +2,7 @@
 use std::{collections::BTreeMap, fs, io, iter, mem, time::Instant};
 
 use crate::{
-    arithmetic::{eval_polynomial, kate_division, CurveAffine, Engine, Field},
+    arithmetic::{eval_polynomial, kate_division, parallelize, CurveAffine, Engine, Field},
     circuit::{Cell, Layouter, SimpleFloorPlanner},
     multicore,
     plonk::*,
@@ -198,7 +198,7 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
 
     let n = 1 << k as usize;
     let rand_ele = E::Scalar::random(&mut OsRng);
-    let rand_vec: Vec<E::Scalar> = (0..n).map(|_| rand_ele).collect();
+    let rand_vec: Vec<E::Scalar> = (0..n).map(|_| rand_ele.clone()).collect();
     let rand_vec2 = rand_vec.clone();
     let rand_values = domain.lagrange_from_vec(rand_vec.clone());
 
@@ -208,7 +208,8 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
     //      fft
     let (time_fft, rand_poly) = measure_elapsed_time(|| domain.lagrange_to_coeff(rand_values));
     //      extended fft
-    let (time_extended_fft, _) = measure_elapsed_time(|| domain.coeff_to_extended(rand_poly));
+    let (time_extended_fft, rand_coset) =
+        measure_elapsed_time(|| domain.coeff_to_extended(rand_poly));
     //      BTree time cost in lookup argument
     let (time_btree, _) = measure_elapsed_time(|| {
         let mut leftover_table_map: BTreeMap<E::Scalar, u32> =
@@ -226,8 +227,6 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
         }
     });
 
-    let num_threads = multicore::current_num_threads();
-
     // Estimate the number of each operation.
     let FuncCount {
         num_fft,
@@ -241,58 +240,6 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
         num_mul_lag,
         mem_usage,
     } = dummy_proof(&params, &pk, &domain, l);
-
-    let estimate_add_mul_lag_field_op_time = || {
-        let m = (domain.extended_len() + num_threads - 1) / num_threads;
-        let mut a = rand_ele;
-        let mut b = rand_ele;
-        //      m add field ops
-        let (time_add_lag, _) = measure_elapsed_time(|| {
-            for _ in 0..m {
-                a = a + b;
-            }
-            a
-        });
-        //      m mul field ops
-        let (time_mul_lag, _) = measure_elapsed_time(|| {
-            for _ in 0..m {
-                b = a * b;
-            }
-            b
-        });
-        println!(
-            "num_add_lag = {}, time_add_lag = {}",
-            num_add_lag, time_add_lag
-        );
-        println!(
-            "num_mul_lag = {}, time_mul_lag = {}",
-            num_mul_lag, time_mul_lag
-        );
-        (num_add_lag as f64) * time_add_lag + (num_mul_lag as f64) * time_mul_lag
-    };
-
-    let estimate_add_mul_field_op_time = || {
-        let m = ((1 << k) + num_threads - 1) / num_threads;
-        let mut a = rand_ele;
-        let mut b = rand_ele;
-        //      m add field ops
-        let (time_add, _) = measure_elapsed_time(|| {
-            for _ in 0..m {
-                a = a + b;
-            }
-            a
-        });
-        //      m mul field ops
-        let (time_mul, _) = measure_elapsed_time(|| {
-            for _ in 0..m {
-                b = a * b;
-            }
-            b
-        });
-        println!("num_add = {}, time_add = {}", num_add, time_add);
-        println!("num_mul = {}, time_mul = {}", num_mul, time_mul);
-        (num_add as f64) * time_add + (num_mul as f64) * time_mul
-    };
 
     println!("num_fft = {}, time_fft = {}", num_fft, time_fft);
     println!(
@@ -308,14 +255,62 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
         + (num_btree as f64) * time_btree;
     println!("pt_non_linear = {}\n", pt_non_linear);
 
+    let mut rand_ext_vec: Vec<E::Scalar> = (0..domain.extended_len())
+        .map(|_| rand_ele.clone())
+        .collect();
+    let (time_add_lag, _) = measure_elapsed_time(|| {
+        parallelize(&mut rand_ext_vec, |rand_ext_vec, _| {
+            for value in rand_ext_vec.iter_mut() {
+                *value + rand_ele;
+            }
+        })
+    });
+    println!(
+        "num_add_lag = {}, time_add_lag = {}",
+        num_add_lag, time_add_lag
+    );
+
+    let (time_mul_lag, _) = measure_elapsed_time(|| {
+        parallelize(&mut rand_ext_vec, |rand_ext_vec, _| {
+            for value in rand_ext_vec.iter_mut() {
+                *value * rand_ele;
+            }
+        })
+    });
+    println!(
+        "num_mul_lag = {}, time_mul_lag = {}",
+        num_mul_lag, time_mul_lag
+    );
+
+    let mut rand_vec: Vec<E::Scalar> = (0..n).map(|_| rand_ele.clone()).collect();
+    let (time_add, _) = measure_elapsed_time(|| {
+        parallelize(&mut rand_vec, |rand_vec, _| {
+            for value in rand_vec.iter_mut() {
+                *value + rand_ele;
+            }
+        })
+    });
+    println!("num_add = {}, time_add = {}", num_add, time_add);
+
+    let (time_mul, _) = measure_elapsed_time(|| {
+        parallelize(&mut rand_vec, |rand_vec, _| {
+            for value in rand_vec.iter_mut() {
+                *value * rand_ele;
+            }
+        })
+    });
+    println!("num_mul = {}, time_mul = {}", num_mul, time_mul);
+
     let (time_kate_div, _) = measure_elapsed_time(|| kate_division(&rand_vec, rand_ele));
     println!(
         "num_kate_div = {}, time_kate_div = {}",
         num_kate_div, time_kate_div
     );
 
-    let pt_linear = estimate_add_mul_lag_field_op_time()
-        + estimate_add_mul_field_op_time()
+    let pt_linear = (num_add_lag as f64) * time_add_lag
+        + (num_mul_lag as f64) * time_mul_lag
+        + (num_add as f64) * time_add
+        + (num_mul as f64) * time_mul
         + (num_kate_div as f64) * time_kate_div;
     println!("pt_linear = {}", pt_linear);
 
