@@ -7,6 +7,7 @@
 
 use blake2b_simd::Params as Blake2bParams;
 use group::ff::Field;
+use halo2curves::pairing::Engine;
 
 use crate::arithmetic::{CurveAffine, FieldExt};
 use crate::helpers::CurveRead;
@@ -53,6 +54,37 @@ pub struct VerifyingKey<C: CurveAffine> {
 }
 
 impl<C: CurveAffine> VerifyingKey<C> {
+    /// Writes a verifying key to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        for commitment in &self.fixed_commitments {
+            writer.write_all(commitment.to_bytes().as_ref())?;
+        }
+        self.permutation.write(writer)?;
+
+        Ok(())
+    }
+
+    /// Reads a verification key from a buffer.
+    pub fn read<
+        'param,
+        R: io::Read,
+        ConcreteCircuit: Circuit<C::Scalar>,
+        E: Engine<G1Affine = C>,
+        P: Params<'param, C>,
+    >(
+        reader: &mut R,
+        params: &P,
+    ) -> io::Result<Self> {
+        let (domain, cs, _) = keygen::create_domain::<C, ConcreteCircuit>(params.k());
+
+        let fixed_commitments: Vec<_> = (0..cs.num_fixed_columns)
+            .map(|_| C::read(reader))
+            .collect::<Result<_, _>>()?;
+
+        let permutation = permutation::VerifyingKey::read(reader, &cs.permutation)?;
+        Ok(Self::from_parts(domain, fixed_commitments, permutation, cs))
+    }
+
     fn from_parts(
         domain: EvaluationDomain<C::Scalar>,
         fixed_commitments: Vec<C>,
