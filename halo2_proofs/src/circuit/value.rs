@@ -42,6 +42,11 @@ impl<V> Value<V> {
         Self { inner: Some(value) }
     }
 
+    /// If the value is known or not.
+    pub const fn is_known(&self) -> bool {
+        self.inner.is_some()
+    }
+
     /// Obtains the inner value for assigning into the circuit.
     ///
     /// Returns `Error::Synthesis` if this is [`Value::unknown()`].
