@@ -6,7 +6,10 @@ use crate::{
     circuit::{Cell, Layouter, SimpleFloorPlanner},
     multicore,
     plonk::*,
-    poly::{commitment::Params, commitment::ParamsVerifier, EvaluationDomain, Rotation},
+    poly::{
+        batch_invert_assigned, commitment::Params, commitment::ParamsVerifier, EvaluationDomain,
+        Rotation,
+    },
     transcript::{Blake2bRead, Blake2bWrite, Challenge255},
 };
 use group::{prime::PrimeCurveAffine, GroupEncoding};
@@ -60,8 +63,7 @@ struct FakeProverQuery {
 
 impl<C: CurveAffine> Evaluator<C> {
     // Returns the number of hadamard addition and product operations.
-    fn fake_evaluate_h(&self, pk: &ProvingKey<C>, l: usize) -> (usize, usize) {
-        let cs = pk.get_vk().get_cs();
+    fn fake_evaluate_h(&self, cs: &ConstraintSystem<C::Scalar>, l: usize) -> (usize, usize) {
         let mut num_mul_lag = 0;
         let mut num_add_lag = 0;
         // All calculations, with cached intermediate results
@@ -131,7 +133,7 @@ impl<C: CurveAffine> Evaluator<C> {
         }
 
         // Lookups
-        let num_lookups = pk.get_vk().get_cs().lookups.len();
+        let num_lookups = cs.lookups.len();
         // a_minus_s
         num_add_lag += num_lookups;
         // value(X) = value(X) * y + l_0(X) * (1 - z(X))
@@ -166,17 +168,13 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
     circuit: ConcreteCircuit,
     k: usize,
 ) -> EstimateResult {
-    // Generate small vk & pk
-    let params: Params<E::G1Affine> = Params::<E::G1Affine>::unsafe_setup::<E>(15_u32);
-    let vk = keygen_vk(&params, &circuit).expect("keygen_vk should not fail");
-    let pk = keygen_pk(&params, vk, &circuit).expect("keygen_pk should not fail");
+    // Initialize the polynomial commitment parameters for small k
+    let small_params: Params<E::G1Affine> = Params::<E::G1Affine>::unsafe_setup::<E>(15_u32);
+    // To run synthesize and convert simple_selectors to fixed columns.
+    let vk = keygen_vk(&small_params, &circuit).expect("keygen_vk should not fail");
+    let cs = vk.get_cs();
 
-    let l = 1;
-
-    // Initialize the polynomial commitment parameters
-    let cs = pk.get_vk().get_cs();
-
-    let generate_fake_params = |k| {
+    let params = {
         let s = E::Scalar::random(OsRng);
         let rand_c1 = <E::G1Affine as PrimeCurveAffine>::generator() * s;
         let rand_c2 = <E::G2Affine as PrimeCurveAffine>::generator() * s;
@@ -191,11 +189,10 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
         }
     };
 
-    let params = generate_fake_params(k);
-
     // Initialize the domain
-    let domain = EvaluationDomain::new(cs.degree() as u32, params.k);
+    let domain = EvaluationDomain::new(cs.degree() as u32, k as u32);
 
+    let l = 1; // The number of instances
     let n = 1 << k as usize;
     let rand_ele = E::Scalar::random(&mut OsRng);
     let rand_vec: Vec<E::Scalar> = (0..n).map(|_| rand_ele.clone()).collect();
@@ -208,8 +205,7 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
     //      fft
     let (time_fft, rand_poly) = measure_elapsed_time(|| domain.lagrange_to_coeff(rand_values));
     //      extended fft
-    let (time_extended_fft, rand_coset) =
-        measure_elapsed_time(|| domain.coeff_to_extended(rand_poly));
+    let (time_extended_fft, _) = measure_elapsed_time(|| domain.coeff_to_extended(rand_poly));
     //      BTree time cost in lookup argument
     let (time_btree, _) = measure_elapsed_time(|| {
         let mut leftover_table_map: BTreeMap<E::Scalar, u32> =
@@ -239,7 +235,7 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
         num_add_lag,
         num_mul_lag,
         mem_usage,
-    } = dummy_proof(&params, &pk, &domain, l);
+    } = dummy_proof(&params, &cs, &domain, l);
 
     println!("num_fft = {}, time_fft = {}", num_fft, time_fft);
     println!(
@@ -326,19 +322,6 @@ pub fn estimate<E: Engine, ConcreteCircuit: Circuit<E::Scalar>>(
 
     let prover_time = pt_non_linear + pt_linear + pt_random;
 
-    // let calc_linear_term = |x_1: f64, y_1: f64, x_2: f64, y_2: f64, x_3 :f64| {
-    //     y_1 + (y_2 - y_1) / (x_2 - x_1) * (x_3 - x_1)
-    // };
-
-    // let mem_usage2 = calc_linear_term(
-    //     (1 << res_1.k) as f64, res_1.mem_usage,
-    //     (1 << res_2.k) as f64, res_2.mem_usage,
-    //     (1 << k) as f64,
-    // );
-    // println!("mem_usage by linear regression = {}", mem_usage2);
-
-    // calculate aggregate_circuit_size
-
     EstimateResult {
         prover_time,
         mem_usage: (mem_usage as f64) / 1024.0, // to KB
@@ -385,7 +368,7 @@ struct FuncCount {
 
 fn dummy_proof<C: CurveAffine>(
     params: &Params<C>,
-    pk: &ProvingKey<C>,
+    cs: &ConstraintSystem<C::Scalar>,
     domain: &EvaluationDomain<C::Scalar>,
     l: usize, // The number of input.
 ) -> FuncCount {
@@ -396,8 +379,6 @@ fn dummy_proof<C: CurveAffine>(
     let mut num_add = 0_usize;
     let mut num_mul = 0_usize;
     let mut num_kate_div = 0_usize;
-
-    let cs = pk.get_vk().get_cs();
 
     // (instance, advice) calculate (poly, coset, commitment)
 
@@ -454,13 +435,13 @@ fn dummy_proof<C: CurveAffine>(
     num_msm += num_h_pieces;
 
     // Evaluate h.
-    let (num_add_lag, num_mul_lag) = pk.get_ev().fake_evaluate_h(pk, l);
+    let ev = Evaluator::<C>::new(cs);
+    let (num_add_lag, num_mul_lag) = ev.fake_evaluate_h(cs, l);
 
     // Estimate multiopen(gwc).
     //      commit: h_x, h_x
     //      The evaluations in multiopen is too small.
     // Initialize the query sets.
-    let cs = pk.get_vk().get_cs();
     let queries = (0..l)
         .flat_map(|_| {
             iter::empty()
