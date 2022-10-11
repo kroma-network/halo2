@@ -62,6 +62,7 @@ num-bigint = { version = "0.4", features = ["rand"] }
 # Developer tooling dependencies
 plotters = { version = "0.3.0", optional = true }
 tabbycat = { version = "0.1", features = ["attributes"], optional = true }
+log = "0.4.17"
 
 [dev-dependencies]
 assert_matches = "1.5"
