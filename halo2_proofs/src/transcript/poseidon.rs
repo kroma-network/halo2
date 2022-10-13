@@ -25,7 +25,7 @@ impl<R: Read, C: CurveAffine, E: EncodedChallenge<C>> PoseidonRead<R, C, E> {
     /// Initialize a transcript given an input buffer.
     pub fn init(reader: R) -> Self {
         PoseidonRead {
-            state: Poseidon::new(8usize, 33usize),
+            state: Poseidon::new(8usize, 63usize),
             reader,
             _marker: PhantomData,
         }
@@ -110,7 +110,7 @@ impl<W: Write, C: CurveAffine, E: EncodedChallenge<C>> PoseidonWrite<W, C, E> {
     /// Initialize a transcript given an output buffer.
     pub fn init(writer: W) -> Self {
         PoseidonWrite {
-            state: Poseidon::new(8usize, 33usize),
+            state: Poseidon::new(8usize, 63usize),
             writer,
             _marker: PhantomData,
         }
