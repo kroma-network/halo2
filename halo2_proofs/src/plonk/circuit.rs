@@ -282,6 +282,10 @@ pub struct FixedQuery {
 }
 
 impl FixedQuery {
+    /// Index
+    pub fn index(&self) -> usize {
+        self.index
+    }
     /// Column index
     pub fn column_index(&self) -> usize {
         self.column_index
@@ -305,6 +309,10 @@ pub struct AdviceQuery {
 }
 
 impl AdviceQuery {
+    /// Index
+    pub fn index(&self) -> usize {
+        self.index
+    }
     /// Column index
     pub fn column_index(&self) -> usize {
         self.column_index
@@ -328,6 +336,10 @@ pub struct InstanceQuery {
 }
 
 impl InstanceQuery {
+    /// Index
+    pub fn index(&self) -> usize {
+        self.index
+    }
     /// Column index
     pub fn column_index(&self) -> usize {
         self.column_index
