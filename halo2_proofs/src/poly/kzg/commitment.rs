@@ -144,6 +144,11 @@ impl<E: Engine + Debug> ParamsKZG<E> {
     pub fn s_g2(&self) -> E::G2Affine {
         self.s_g2
     }
+
+    /// Returns a reference to g_lagrange bases
+    pub fn g_lagrange_ref(&self) -> &[E::G1Affine] {
+        &self.g_lagrange
+    }
 }
 
 // TODO: see the issue at https://github.com/appliedzkp/halo2/issues/45
