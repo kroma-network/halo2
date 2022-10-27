@@ -79,7 +79,9 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: tarpaulin
-          args: --all-features --timeout 600 --out Xml
+          # only tests halo2 proofs because we don't use gadgets
+          # and it takes very long time to finish
+          args: -p halo2_proofs --all-features --timeout 600 --out Xml
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3.1.0
 
