@@ -96,7 +96,7 @@ pub struct Cell {
 }
 
 /// An assigned cell.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct AssignedCell<V, F: Field> {
     value: Value<V>,
     cell: Cell,
