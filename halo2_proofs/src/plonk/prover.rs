@@ -1,3 +1,4 @@
+use ark_std::{end_timer, start_timer};
 use ff::Field;
 use group::Curve;
 use halo2curves::CurveExt;
@@ -58,6 +59,8 @@ pub fn create_proof<
         }
     }
 
+    let timer = start_timer!(|| "create proof");
+
     // Hash verification key into transcript
     pk.vk.hash_into(transcript)?;
 
@@ -74,6 +77,7 @@ pub fn create_proof<
         pub instance_polys: Vec<Polynomial<C::Scalar, Coeff>>,
     }
 
+    let instance_timer = start_timer!(|| "instnaces commitment");
     let instance: Vec<InstanceSingle<Scheme::Curve>> = instances
         .iter()
         .map(|instance| -> Result<InstanceSingle<Scheme::Curve>, Error> {
@@ -122,12 +126,14 @@ pub fn create_proof<
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
+    end_timer!(instance_timer);
 
     struct AdviceSingle<C: CurveAffine, B: Basis> {
         pub advice_polys: Vec<Polynomial<C::Scalar, B>>,
         pub advice_blinds: Vec<Blind<C::Scalar>>,
     }
 
+    let advice_timer = start_timer!(|| "advice commitment");
     let advice: Vec<AdviceSingle<Scheme::Curve, LagrangeCoeff>> = circuits
         .iter()
         .zip(instances.iter())
@@ -327,10 +333,12 @@ pub fn create_proof<
             },
         )
         .collect::<Result<Vec<_>, _>>()?;
+    end_timer!(advice_timer);
 
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
 
+    let lookup_timer = start_timer!(|| "lookup commitment");
     let lookups: Vec<Vec<lookup::prover::Permuted<Scheme::Curve>>> = instance
         .iter()
         .zip(advice.iter())
@@ -356,6 +364,7 @@ pub fn create_proof<
                 .collect()
         })
         .collect::<Result<Vec<_>, _>>()?;
+    end_timer!(lookup_timer);
 
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
@@ -364,6 +373,7 @@ pub fn create_proof<
     let gamma: ChallengeGamma<_> = transcript.squeeze_challenge_scalar();
 
     // Commit to permutations.
+    let perm_timer = start_timer!(|| "perm commitment timer");
     let permutations: Vec<permutation::prover::Committed<Scheme::Curve>> = instance
         .iter()
         .zip(advice.iter())
@@ -382,6 +392,7 @@ pub fn create_proof<
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    end_timer!(lookup_timer);
 
     let lookups: Vec<Vec<lookup::prover::Committed<Scheme::Curve>>> = lookups
         .into_iter()
@@ -568,7 +579,10 @@ pub fn create_proof<
         .chain(vanishing.open(x));
 
     let prover = P::new(params);
-    prover
+    let res = prover
         .create_proof(rng, transcript, instances)
-        .map_err(|_| Error::ConstraintSystemFailure)
+        .map_err(|_| Error::ConstraintSystemFailure);
+
+    end_timer!(timer);
+    res
 }
