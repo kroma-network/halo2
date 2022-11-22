@@ -1,6 +1,7 @@
 use core::cmp::max;
 use core::ops::{Add, Mul};
 use ff::Field;
+use std::collections::BTreeMap;
 use std::{
     convert::TryFrom,
     ops::{Neg, Sub},
@@ -24,7 +25,7 @@ pub trait ColumnType:
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Column<C: ColumnType> {
     pub index: usize,
-    column_type: C,
+    pub column_type: C,
 }
 
 impl<C: ColumnType> Column<C> {
@@ -1106,6 +1107,7 @@ impl<F: Field, C: Into<Constraint<F>>, Iter: IntoIterator<Item = C>> IntoIterato
 /// Gate
 #[derive(Clone, Debug)]
 pub struct Gate<F: Field> {
+    pub(crate) ev_group_idx: usize,
     name: &'static str,
     constraint_names: Vec<&'static str>,
     pub polys: Vec<Expression<F>>,
@@ -1172,6 +1174,7 @@ pub struct ConstraintSystem<F: Field> {
     pub(crate) constants: Vec<Column<Fixed>>,
 
     pub(crate) minimum_degree: Option<usize>,
+    pub(crate) evaluation_group_sepatators: Vec<String>,
 }
 
 /// Represents the minimal parameters that determine a `ConstraintSystem`.
@@ -1219,6 +1222,7 @@ impl<F: Field> Default for ConstraintSystem<F> {
             lookups: Vec::new(),
             constants: vec![],
             minimum_degree: None,
+            evaluation_group_sepatators: Vec::new(),
         }
     }
 }
@@ -1244,6 +1248,23 @@ impl<F: Field> ConstraintSystem<F> {
         }
     }
 
+    /// In the evalution for `h`, halo2 can control lifetime of coset polys "region-wise".
+    /// If the circuit is like super-circuit in zkevm project(padding together left to right with several "sub circuit module"),
+    /// then circuit developers can use this `evaluation_group_seperator` API to give hint to constrain system,
+    /// so constrain system can use this meta information to calculate coset polys later and release them earlier
+    /// to same memory. With this optimization, the peak number of coset polys in memory can be reduced
+    /// from the sum of each sub circuit, to about the max of each sub circuit
+    pub fn evaluation_group_seperator(&mut self, description: &str) -> usize {
+        self.evaluation_group_sepatators
+            .push(description.to_string());
+        self.evaluation_group_sepatators.len()
+    }
+    pub(crate) fn evaluation_group_num(&self) -> usize {
+        self.evaluation_group_sepatators.len() + 1
+    }
+    pub fn current_evalution_group_id(&self) -> usize {
+        self.evaluation_group_sepatators.len()
+    }
     /// Enables this fixed column to be used for global constant assignments.
     ///
     /// # Side-effects
@@ -1287,8 +1308,9 @@ impl<F: Field> ConstraintSystem<F> {
             .collect();
 
         let index = self.lookups.len();
-
-        self.lookups.push(lookup::Argument::new(name, table_map));
+        let mut lookup = lookup::Argument::new(name, table_map);
+        lookup.ev_group_idx = self.current_evalution_group_id();
+        self.lookups.push(lookup);
 
         index
     }
@@ -1307,7 +1329,9 @@ impl<F: Field> ConstraintSystem<F> {
 
         let index = self.lookups.len();
 
-        self.lookups.push(lookup::Argument::new(name, table_map));
+        let mut lookup = lookup::Argument::new(name, table_map);
+        lookup.ev_group_idx = self.current_evalution_group_id();
+        self.lookups.push(lookup);
 
         index
     }
@@ -1447,6 +1471,7 @@ impl<F: Field> ConstraintSystem<F> {
         );
 
         self.gates.push(Gate {
+            ev_group_idx: self.current_evalution_group_id(),
             name,
             constraint_names,
             polys,

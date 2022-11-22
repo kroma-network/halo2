@@ -15,7 +15,8 @@
     clippy::suspicious_arithmetic_impl,
     clippy::many_single_char_names,
     clippy::same_item_push,
-    clippy::upper_case_acronyms
+    clippy::upper_case_acronyms,
+    clippy::type_complexity
 )]
 #![deny(broken_intra_doc_links)]
 #![deny(missing_debug_implementations)]
@@ -23,6 +24,7 @@
 // Remove this once we update pasta_curves
 #![allow(unused_imports)]
 #![allow(clippy::derive_partial_eq_without_eq)]
+#![feature(slice_group_by)]
 
 pub mod arithmetic;
 pub mod circuit;

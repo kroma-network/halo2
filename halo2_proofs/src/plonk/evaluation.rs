@@ -1,7 +1,7 @@
 use crate::multicore;
 use crate::plonk::lookup::prover::Committed;
 use crate::plonk::permutation::Argument;
-use crate::plonk::{lookup, permutation, Any, ProvingKey};
+use crate::plonk::{circuit, lookup, permutation, Any, ProvingKey};
 use crate::poly::Basis;
 use crate::{
     arithmetic::{eval_polynomial, parallelize, CurveAffine, FieldExt},
@@ -11,14 +11,18 @@ use crate::{
     },
     transcript::{EncodedChallenge, TranscriptWrite},
 };
+use circuit::Column;
 use group::prime::PrimeCurve;
 use group::{
     ff::{BatchInvert, Field},
     Curve,
 };
+use itertools::Itertools;
 use std::any::TypeId;
+use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::num::ParseIntError;
+use std::ops::IndexMut;
 use std::slice;
 use std::{
     collections::BTreeMap,
@@ -72,8 +76,8 @@ impl ValueSource {
         constants: &[F],
         intermediates: &[F],
         fixed_values: &[Polynomial<F, B>],
-        advice_values: &[Polynomial<F, B>],
-        instance_values: &[Polynomial<F, B>],
+        advice_values: &[Option<Polynomial<F, B>>],
+        instance_values: &[Option<Polynomial<F, B>>],
         beta: &F,
         gamma: &F,
         theta: &F,
@@ -87,10 +91,10 @@ impl ValueSource {
                 fixed_values[*column_index][rotations[*rotation]]
             }
             ValueSource::Advice(column_index, rotation) => {
-                advice_values[*column_index][rotations[*rotation]]
+                advice_values[*column_index].as_ref().unwrap()[rotations[*rotation]]
             }
             ValueSource::Instance(column_index, rotation) => {
-                instance_values[*column_index][rotations[*rotation]]
+                instance_values[*column_index].as_ref().unwrap()[rotations[*rotation]]
             }
             ValueSource::Beta() => *beta,
             ValueSource::Gamma() => *gamma,
@@ -130,8 +134,8 @@ impl Calculation {
         constants: &[F],
         intermediates: &[F],
         fixed_values: &[Polynomial<F, B>],
-        advice_values: &[Polynomial<F, B>],
-        instance_values: &[Polynomial<F, B>],
+        advice_values: &[Option<Polynomial<F, B>>],
+        instance_values: &[Option<Polynomial<F, B>>],
         beta: &F,
         gamma: &F,
         theta: &F,
@@ -176,10 +180,12 @@ impl Calculation {
 /// Evaluator
 #[derive(Clone, Default, Debug)]
 pub struct Evaluator<C: CurveAffine> {
+    /// Used to control the alloc and release of coset polys
+    pub mem_plan: MemPlan,
     ///  Custom gates evalution
-    pub custom_gates: GraphEvaluator<C>,
-    ///  Lookups evalution
-    pub lookups: Vec<GraphEvaluator<C>>,
+    pub custom_gates: Vec<GraphEvaluator<C>>,
+    ///  Lookups evalution with evaluation group id
+    pub lookups: Vec<Vec<(GraphEvaluator<C>, usize)>>,
 }
 
 /// GraphEvaluator
@@ -213,60 +219,129 @@ pub struct CalculationInfo {
     pub target: usize,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct MemoryPlanOfEvalutionGroup {
+    pub alloc_before: Vec<circuit::Column<Any>>,
+    pub release_after: Vec<circuit::Column<Any>>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct MemPlan {
+    pub gates: Vec<MemoryPlanOfEvalutionGroup>,
+    pub lookups: Vec<MemoryPlanOfEvalutionGroup>,
+}
+
+impl MemPlan {
+    // returns (fft_num, max_coset_poly_num)
+    fn simulate_execution(&self) -> (usize, usize) {
+        // simulate the execution of this coset memory plan
+        let simulate = |plans: &[MemoryPlanOfEvalutionGroup]| {
+            let mut coset_polys: BTreeSet<circuit::Column<Any>> = Default::default();
+            let mut coset_poly_num: usize = 0;
+            let mut max_coset_poly_num: usize = 0;
+            for p in plans {
+                log::debug!(
+                    "## {}->{}",
+                    coset_poly_num,
+                    coset_poly_num + p.alloc_before.len()
+                );
+                coset_poly_num += p.alloc_before.len();
+                if coset_poly_num > max_coset_poly_num {
+                    max_coset_poly_num = coset_poly_num;
+                }
+                coset_polys.extend(p.alloc_before.iter());
+                debug_assert_eq!(coset_polys.len(), coset_poly_num);
+                log::debug!(
+                    "## {}->{}",
+                    coset_poly_num,
+                    coset_poly_num - p.release_after.len()
+                );
+                coset_poly_num -= p.release_after.len();
+                for r in &p.release_after {
+                    let is_exist = coset_polys.remove(r);
+                    assert!(is_exist);
+                }
+                debug_assert_eq!(coset_polys.len(), coset_poly_num);
+            }
+            debug_assert!(coset_polys.is_empty());
+            (
+                plans.iter().map(|p| p.alloc_before.len()).sum::<usize>(),
+                max_coset_poly_num,
+            )
+        };
+        log::debug!("simulate gates eval");
+        let gates_info = simulate(&self.gates);
+        log::debug!("simulate lookups eval");
+        let lookup_info = simulate(&self.lookups);
+        (
+            gates_info.0 + lookup_info.0,
+            std::cmp::max(gates_info.1, lookup_info.1),
+        )
+    }
+}
+
 impl<C: CurveAffine> Evaluator<C> {
     /// Creates a new evaluation structure
     pub fn new(cs: &ConstraintSystem<C::ScalarExt>) -> Self {
+        let mem_plan = Self::analyse_coset_memory_plan(cs);
         let mut ev = Evaluator::default();
 
         // Custom gates
-        let mut parts = Vec::new();
-        for gate in cs.gates.iter() {
-            parts.extend(
-                gate.polynomials()
-                    .iter()
-                    .map(|poly| ev.custom_gates.add_expression(poly)),
-            );
+        for ev_group_id in 0..cs.evaluation_group_num() {
+            let mut gev = GraphEvaluator::default();
+            let mut parts = Vec::new();
+            for gate in cs.gates.iter().filter(|g| g.ev_group_idx == ev_group_id) {
+                parts.extend(
+                    gate.polynomials()
+                        .iter()
+                        .map(|poly| gev.add_expression(poly)),
+                );
+            }
+            gev.add_calculation(Calculation::Horner(
+                ValueSource::PreviousValue(),
+                parts,
+                ValueSource::Y(),
+            ));
+            ev.custom_gates.push(gev);
         }
-        ev.custom_gates.add_calculation(Calculation::Horner(
-            ValueSource::PreviousValue(),
-            parts,
-            ValueSource::Y(),
-        ));
 
         // Lookups
-        for lookup in cs.lookups.iter() {
-            let mut graph = GraphEvaluator::default();
+        for ev_group_id in 0..cs.evaluation_group_num() {
+            let mut evs = Vec::new();
+            for lookup in cs.lookups.iter().filter(|l| l.ev_group_idx == ev_group_id) {
+                let mut graph = GraphEvaluator::default();
+                let mut evaluate_lc = |expressions: &Vec<Expression<_>>| {
+                    let parts = expressions
+                        .iter()
+                        .map(|expr| graph.add_expression(expr))
+                        .collect();
+                    graph.add_calculation(Calculation::Horner(
+                        ValueSource::Constant(0),
+                        parts,
+                        ValueSource::Theta(),
+                    ))
+                };
 
-            let mut evaluate_lc = |expressions: &Vec<Expression<_>>| {
-                let parts = expressions
-                    .iter()
-                    .map(|expr| graph.add_expression(expr))
-                    .collect();
-                graph.add_calculation(Calculation::Horner(
-                    ValueSource::Constant(0),
-                    parts,
-                    ValueSource::Theta(),
-                ))
-            };
+                // Input coset
+                let compressed_input_coset = evaluate_lc(&lookup.input_expressions);
+                // table coset
+                let compressed_table_coset = evaluate_lc(&lookup.table_expressions);
+                // z(\omega X) (a'(X) + \beta) (s'(X) + \gamma)
+                let right_gamma = graph.add_calculation(Calculation::Add(
+                    compressed_table_coset,
+                    ValueSource::Gamma(),
+                ));
+                let lc = graph.add_calculation(Calculation::Add(
+                    compressed_input_coset,
+                    ValueSource::Beta(),
+                ));
+                graph.add_calculation(Calculation::Mul(lc, right_gamma));
 
-            // Input coset
-            let compressed_input_coset = evaluate_lc(&lookup.input_expressions);
-            // table coset
-            let compressed_table_coset = evaluate_lc(&lookup.table_expressions);
-            // z(\omega X) (a'(X) + \beta) (s'(X) + \gamma)
-            let right_gamma = graph.add_calculation(Calculation::Add(
-                compressed_table_coset,
-                ValueSource::Gamma(),
-            ));
-            let lc = graph.add_calculation(Calculation::Add(
-                compressed_input_coset,
-                ValueSource::Beta(),
-            ));
-            graph.add_calculation(Calculation::Mul(lc, right_gamma));
-
-            ev.lookups.push(graph);
+                evs.push((graph, lookup.ev_group_idx));
+            }
+            ev.lookups.push(evs);
         }
-
+        ev.mem_plan = mem_plan;
         ev
     }
 
@@ -284,6 +359,11 @@ impl<C: CurveAffine> Evaluator<C> {
         permutations: &[permutation::prover::Committed<C>],
     ) -> Polynomial<C::ScalarExt, ExtendedLagrangeCoeff> {
         let domain = &pk.vk.domain;
+        log::debug!(
+            "evaluate_h domain k: {} extended_k: {}",
+            domain.k(),
+            domain.extended_k()
+        );
         let size = domain.extended_len();
         let rot_scale = 1 << (domain.extended_k() - domain.k());
         let fixed = &pk.fixed_cosets[..];
@@ -296,66 +376,108 @@ impl<C: CurveAffine> Evaluator<C> {
         let p = &pk.vk.cs.permutation;
 
         // Calculate the advice and instance cosets
-        let advice: Vec<Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>>> = advice_polys
-            .iter()
-            .map(|advice_polys| {
-                advice_polys
-                    .iter()
-                    .map(|poly| domain.coeff_to_extended(poly.clone()))
-                    .collect()
-            })
-            .collect();
-        let instance: Vec<Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>>> = instance_polys
-            .iter()
-            .map(|instance_polys| {
-                instance_polys
-                    .iter()
-                    .map(|poly| domain.coeff_to_extended(poly.clone()))
-                    .collect()
-            })
-            .collect();
+        let mut advice: Vec<Vec<Option<Polynomial<C::Scalar, ExtendedLagrangeCoeff>>>> =
+            advice_polys
+                .iter()
+                .map(|advice_polys| advice_polys.iter().map(|_poly| None).collect())
+                .collect();
+        let mut instance: Vec<Vec<Option<Polynomial<C::Scalar, ExtendedLagrangeCoeff>>>> =
+            instance_polys
+                .iter()
+                .map(|instance_polys| instance_polys.iter().map(|_poly| None).collect())
+                .collect();
 
         let mut values = domain.empty_extended();
 
         // Core expression evaluations
         let num_threads = multicore::current_num_threads();
-        for (((advice, instance), lookups), permutation) in advice
-            .iter()
-            .zip(instance.iter())
+        for (cidx, (((advice, instance), lookups), permutation)) in advice
+            .iter_mut()
+            .zip(instance.iter_mut())
             .zip(lookups.iter())
             .zip(permutations.iter())
+            .enumerate()
         {
-            // Custom gates
-            multicore::scope(|scope| {
-                let chunk_size = (size + num_threads - 1) / num_threads;
-                for (thread_idx, values) in values.chunks_mut(chunk_size).enumerate() {
-                    let start = thread_idx * chunk_size;
-                    scope.spawn(move |_| {
-                        let mut eval_data = self.custom_gates.instance();
-                        for (i, value) in values.iter_mut().enumerate() {
-                            let idx = start + i;
-                            *value = self.custom_gates.evaluate(
-                                &mut eval_data,
-                                fixed,
-                                advice,
-                                instance,
-                                &beta,
-                                &gamma,
-                                &theta,
-                                &y,
-                                value,
-                                idx,
-                                rot_scale,
-                                isize,
-                            );
+            let alloc_cosets =
+                |columns: &[circuit::Column<Any>],
+                 advice: &mut Vec<Option<Polynomial<_, _>>>,
+                 instance: &mut Vec<Option<Polynomial<_, _>>>| {
+                    for c in columns {
+                        match c.column_type {
+                            Any::Advice => {
+                                *advice.index_mut(c.index) = Some(
+                                    domain.coeff_to_extended(advice_polys[cidx][c.index].clone()),
+                                );
+                            }
+                            Any::Instance => {
+                                *instance.index_mut(c.index) = Some(
+                                    domain.coeff_to_extended(instance_polys[cidx][c.index].clone()),
+                                );
+                            }
+                            Any::Fixed => {}
                         }
-                    });
-                }
-            });
+                    }
+                };
+            let release_cosets =
+                |columns: &[circuit::Column<Any>],
+                 advice: &mut Vec<Option<Polynomial<_, _>>>,
+                 instance: &mut Vec<Option<Polynomial<_, _>>>| {
+                    for c in columns {
+                        match c.column_type {
+                            Any::Advice => {
+                                *advice.index_mut(c.index) = None;
+                            }
+                            Any::Instance => {
+                                *instance.index_mut(c.index) = None;
+                            }
+                            Any::Fixed => {}
+                        }
+                    }
+                };
+
+            // Custom gates
+            for (idx, gev) in self.custom_gates.iter().enumerate() {
+                // first release unused coset ploys and calculated needed coset polys
+                let plan = &self.mem_plan.gates[idx];
+                alloc_cosets(&plan.alloc_before, advice, instance);
+                let instance_readonly: &Vec<_> = instance;
+                let advice_readonly: &Vec<_> = advice;
+
+                multicore::scope(|scope| {
+                    let chunk_size = (size + num_threads - 1) / num_threads;
+                    for (thread_idx, values) in values.chunks_mut(chunk_size).enumerate() {
+                        let start = thread_idx * chunk_size;
+                        scope.spawn(move |_| {
+                            let mut eval_data = gev.instance();
+                            for (i, value) in values.iter_mut().enumerate() {
+                                let idx = start + i;
+                                *value = gev.evaluate(
+                                    &mut eval_data,
+                                    fixed,
+                                    advice_readonly,
+                                    instance_readonly,
+                                    &beta,
+                                    &gamma,
+                                    &theta,
+                                    &y,
+                                    value,
+                                    idx,
+                                    rot_scale,
+                                    isize,
+                                );
+                            }
+                        });
+                    }
+                });
+                release_cosets(&plan.release_after, advice, instance);
+            }
 
             // Permutations
             let sets = &permutation.sets;
             if !sets.is_empty() {
+                // TODO: optimize this
+                alloc_cosets(&p.columns, advice, instance);
+
                 let blinding_factors = pk.vk.cs.blinding_factors();
                 let last_rotation = Rotation(-((blinding_factors + 1) as i32));
                 let chunk_len = pk.vk.cs.degree() - 2;
@@ -409,9 +531,9 @@ impl<C: CurveAffine> Evaluator<C> {
                             for (values, permutation) in columns
                                 .iter()
                                 .map(|&column| match column.column_type() {
-                                    Any::Advice => &advice[column.index()],
                                     Any::Fixed => &fixed[column.index()],
-                                    Any::Instance => &instance[column.index()],
+                                    Any::Advice => advice[column.index()].as_ref().unwrap(),
+                                    Any::Instance => instance[column.index()].as_ref().unwrap(),
                                 })
                                 .zip(cosets.iter())
                             {
@@ -420,9 +542,9 @@ impl<C: CurveAffine> Evaluator<C> {
 
                             let mut right = set.permutation_product_coset[idx];
                             for values in columns.iter().map(|&column| match column.column_type() {
-                                Any::Advice => &advice[column.index()],
                                 Any::Fixed => &fixed[column.index()],
-                                Any::Instance => &instance[column.index()],
+                                Any::Advice => advice[column.index()].as_ref().unwrap(),
+                                Any::Instance => instance[column.index()].as_ref().unwrap(),
                             }) {
                                 right *= values[idx] + current_delta + gamma;
                                 current_delta *= &C::Scalar::DELTA;
@@ -433,83 +555,240 @@ impl<C: CurveAffine> Evaluator<C> {
                         beta_term *= &extended_omega;
                     }
                 });
+
+                release_cosets(&p.columns, advice, instance);
             }
 
             // Lookups
-            for (n, lookup) in lookups.iter().enumerate() {
-                // Polynomials required for this lookup.
-                // Calculated here so these only have to be kept in memory for the short time
-                // they are actually needed.
-                let product_coset = pk.vk.domain.coeff_to_extended(lookup.product_poly.clone());
-                let permuted_input_coset = pk
-                    .vk
-                    .domain
-                    .coeff_to_extended(lookup.permuted_input_poly.clone());
-                let permuted_table_coset = pk
-                    .vk
-                    .domain
-                    .coeff_to_extended(lookup.permuted_table_poly.clone());
+            for (ev_group, lookups) in &lookups
+                .iter()
+                .zip(self.lookups.iter().flatten())
+                .group_by(|(_lookup, (_lookup_evaluator, ev_group))| ev_group)
+            {
+                // first release unused coset ploys and calculated needed coset polys
+                let plan = &self.mem_plan.lookups[*ev_group];
+                alloc_cosets(&plan.alloc_before, advice, instance);
+                for (lookup, (lookup_evaluator, _ev_group)) in lookups {
+                    // Polynomials required for this lookup.
+                    // Calculated here so these only have to be kept in memory for the short time
+                    // they are actually needed.
+                    let product_coset = pk.vk.domain.coeff_to_extended(lookup.product_poly.clone());
+                    let permuted_input_coset = pk
+                        .vk
+                        .domain
+                        .coeff_to_extended(lookup.permuted_input_poly.clone());
+                    let permuted_table_coset = pk
+                        .vk
+                        .domain
+                        .coeff_to_extended(lookup.permuted_table_poly.clone());
 
-                // Lookup constraints
-                parallelize(&mut values, |values, start| {
-                    let lookup_evaluator = &self.lookups[n];
-                    let mut eval_data = lookup_evaluator.instance();
-                    for (i, value) in values.iter_mut().enumerate() {
-                        let idx = start + i;
+                    // Lookup constraints
+                    parallelize(&mut values, |values, start| {
+                        let mut eval_data = lookup_evaluator.instance();
+                        for (i, value) in values.iter_mut().enumerate() {
+                            let idx = start + i;
 
-                        let table_value = lookup_evaluator.evaluate(
-                            &mut eval_data,
-                            fixed,
-                            advice,
-                            instance,
-                            &beta,
-                            &gamma,
-                            &theta,
-                            &y,
-                            &C::ScalarExt::zero(),
-                            idx,
-                            rot_scale,
-                            isize,
-                        );
+                            let table_value = lookup_evaluator.evaluate(
+                                &mut eval_data,
+                                fixed,
+                                advice,
+                                instance,
+                                &beta,
+                                &gamma,
+                                &theta,
+                                &y,
+                                &C::ScalarExt::zero(),
+                                idx,
+                                rot_scale,
+                                isize,
+                            );
 
-                        let r_next = get_rotation_idx(idx, 1, rot_scale, isize);
-                        let r_prev = get_rotation_idx(idx, -1, rot_scale, isize);
+                            let r_next = get_rotation_idx(idx, 1, rot_scale, isize);
+                            let r_prev = get_rotation_idx(idx, -1, rot_scale, isize);
 
-                        let a_minus_s = permuted_input_coset[idx] - permuted_table_coset[idx];
-                        // l_0(X) * (1 - z(X)) = 0
-                        *value = *value * y + ((one - product_coset[idx]) * l0[idx]);
-                        // l_last(X) * (z(X)^2 - z(X)) = 0
-                        *value = *value * y
-                            + ((product_coset[idx] * product_coset[idx] - product_coset[idx])
-                                * l_last[idx]);
-                        // (1 - (l_last(X) + l_blind(X))) * (
-                        //   z(\omega X) (a'(X) + \beta) (s'(X) + \gamma)
-                        //   - z(X) (\theta^{m-1} a_0(X) + ... + a_{m-1}(X) + \beta)
-                        //          (\theta^{m-1} s_0(X) + ... + s_{m-1}(X) + \gamma)
-                        // ) = 0
-                        *value = *value * y
-                            + ((product_coset[r_next]
-                                * (permuted_input_coset[idx] + beta)
-                                * (permuted_table_coset[idx] + gamma)
-                                - product_coset[idx] * table_value)
-                                * l_active_row[idx]);
-                        // Check that the first values in the permuted input expression and permuted
-                        // fixed expression are the same.
-                        // l_0(X) * (a'(X) - s'(X)) = 0
-                        *value = *value * y + (a_minus_s * l0[idx]);
-                        // Check that each value in the permuted lookup input expression is either
-                        // equal to the value above it, or the value at the same index in the
-                        // permuted table expression.
-                        // (1 - (l_last + l_blind)) * (a′(X) − s′(X))⋅(a′(X) − a′(\omega^{-1} X)) = 0
-                        *value = *value * y
-                            + (a_minus_s
-                                * (permuted_input_coset[idx] - permuted_input_coset[r_prev])
-                                * l_active_row[idx]);
-                    }
-                });
+                            let a_minus_s = permuted_input_coset[idx] - permuted_table_coset[idx];
+                            // l_0(X) * (1 - z(X)) = 0
+                            *value = *value * y + ((one - product_coset[idx]) * l0[idx]);
+                            // l_last(X) * (z(X)^2 - z(X)) = 0
+                            *value = *value * y
+                                + ((product_coset[idx] * product_coset[idx] - product_coset[idx])
+                                    * l_last[idx]);
+                            // (1 - (l_last(X) + l_blind(X))) * (
+                            //   z(\omega X) (a'(X) + \beta) (s'(X) + \gamma)
+                            //   - z(X) (\theta^{m-1} a_0(X) + ... + a_{m-1}(X) + \beta)
+                            //          (\theta^{m-1} s_0(X) + ... + s_{m-1}(X) + \gamma)
+                            // ) = 0
+                            *value = *value * y
+                                + ((product_coset[r_next]
+                                    * (permuted_input_coset[idx] + beta)
+                                    * (permuted_table_coset[idx] + gamma)
+                                    - product_coset[idx] * table_value)
+                                    * l_active_row[idx]);
+                            // Check that the first values in the permuted input expression and permuted
+                            // fixed expression are the same.
+                            // l_0(X) * (a'(X) - s'(X)) = 0
+                            *value = *value * y + (a_minus_s * l0[idx]);
+                            // Check that each value in the permuted lookup input expression is either
+                            // equal to the value above it, or the value at the same index in the
+                            // permuted table expression.
+                            // (1 - (l_last + l_blind)) * (a′(X) − s′(X))⋅(a′(X) − a′(\omega^{-1} X)) = 0
+                            *value = *value * y
+                                + (a_minus_s
+                                    * (permuted_input_coset[idx] - permuted_input_coset[r_prev])
+                                    * l_active_row[idx]);
+                        }
+                    });
+                }
+                release_cosets(&plan.release_after, advice, instance);
             }
         }
         values
+    }
+
+    fn analyse_coset_memory_plan(cs: &ConstraintSystem<C::ScalarExt>) -> MemPlan {
+        use itertools::Itertools;
+        let mut mem_plan = MemPlan::default();
+
+        // step1: analyse gates
+        let mut col_and_ev_group_of_gates = Vec::new();
+        for gate in cs.gates.iter() {
+            for poly in gate.polynomials() {
+                let cols_used = Self::collect_columns_needed_by_expression(poly);
+                for c in cols_used {
+                    col_and_ev_group_of_gates.push((c, gate.ev_group_idx));
+                }
+            }
+        }
+        mem_plan.gates = Self::col_and_ev_group_to_mem_plan(cs, &col_and_ev_group_of_gates);
+
+        // step2: analyse lookups
+        let mut col_and_ev_group_of_lookups: Vec<(circuit::Column<Any>, usize)> = Vec::new();
+        for lookup in &cs.lookups {
+            let mut s: BTreeSet<circuit::Column<Any>> = Default::default();
+            for e in lookup
+                .input_expressions
+                .iter()
+                .chain(lookup.table_expressions.iter())
+            {
+                let cols_used = Self::collect_columns_needed_by_expression(e);
+                s.extend(cols_used.iter())
+            }
+            for c in &s {
+                col_and_ev_group_of_lookups.push((*c, lookup.ev_group_idx));
+            }
+        }
+        mem_plan.lookups = Self::col_and_ev_group_to_mem_plan(cs, &col_and_ev_group_of_lookups);
+
+        // print debug info of this plan
+        {
+            let (fft_num, max_coset_poly_num) = mem_plan.simulate_execution();
+            let permutation_column_num = cs
+                .permutation
+                .columns
+                .iter()
+                .filter(|c| matches!(c.column_type, Any::Advice | Any::Instance))
+                .count();
+
+            log::debug!(
+                "with coset mem opt: max coset poly num: {}",
+                max_coset_poly_num
+            );
+            log::debug!(
+                "with coset mem opt: total fft: {}",
+                fft_num + permutation_column_num
+            );
+
+            log::debug!(
+                "without coset mem opt: max coset poly num: {}",
+                cs.num_advice_columns + cs.num_instance_columns
+            );
+            log::debug!(
+                "without coset mem opt: total fft: {}",
+                cs.num_advice_columns + cs.num_instance_columns
+            );
+        }
+
+        mem_plan
+    }
+
+    fn collect_columns_needed_by_expression(
+        e: &Expression<C::ScalarExt>,
+    ) -> Vec<circuit::Column<Any>> {
+        e.evaluate(
+            &|_constant| Vec::new(),
+            &|_selector| Vec::new(),
+            &|_fixed| Vec::new(),
+            &|advice| {
+                vec![circuit::Column {
+                    index: advice.column_index(),
+                    column_type: Any::Advice,
+                }]
+            },
+            &|instance| {
+                vec![circuit::Column {
+                    index: instance.column_index(),
+                    column_type: Any::Instance,
+                }]
+            },
+            &|negate| negate,
+            &|sum1, sum2| sum1.into_iter().chain(sum2.into_iter()).unique().collect(),
+            &|prod1, prod2| {
+                prod1
+                    .into_iter()
+                    .chain(prod2.into_iter())
+                    .unique()
+                    .collect()
+            },
+            &|exp, _scalar| exp,
+        )
+    }
+
+    fn col_and_ev_group_to_mem_plan(
+        cs: &ConstraintSystem<C::ScalarExt>,
+        col_and_group: &[(circuit::Column<Any>, usize)],
+    ) -> Vec<MemoryPlanOfEvalutionGroup> {
+        #[derive(Debug)]
+        struct Lifetime {
+            first_group: usize,
+            last_group: usize,
+        }
+        let mut col_lifetime: Vec<(circuit::Column<Any>, Lifetime)> = Default::default();
+        for (c, g) in col_and_group {
+            let mut found: bool = false;
+            let c = *c;
+            for item in col_lifetime.iter_mut() {
+                if item.0 == c {
+                    item.1.last_group = *g;
+                    found = true;
+                }
+            }
+            if !found {
+                col_lifetime.push((
+                    c,
+                    Lifetime {
+                        first_group: *g,
+                        last_group: *g,
+                    },
+                ))
+            }
+        }
+
+        let mut plans: Vec<MemoryPlanOfEvalutionGroup> = Vec::new();
+
+        for t in 0..cs.evaluation_group_num() {
+            let mut p = MemoryPlanOfEvalutionGroup::default();
+            for (c, l) in &col_lifetime {
+                if l.first_group == t {
+                    p.alloc_before.push(*c);
+                }
+                if l.last_group == t {
+                    p.release_after.push(*c);
+                }
+            }
+            plans.push(p);
+        }
+
+        plans
     }
 }
 
@@ -689,8 +968,8 @@ impl<C: CurveAffine> GraphEvaluator<C> {
         &self,
         data: &mut EvaluationData<C>,
         fixed: &[Polynomial<C::ScalarExt, B>],
-        advice: &[Polynomial<C::ScalarExt, B>],
-        instance: &[Polynomial<C::ScalarExt, B>],
+        advice: &[Option<Polynomial<C::ScalarExt, B>>],
+        instance: &[Option<Polynomial<C::ScalarExt, B>>],
         beta: &C::ScalarExt,
         gamma: &C::ScalarExt,
         theta: &C::ScalarExt,

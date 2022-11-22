@@ -8,6 +8,7 @@ pub(crate) mod verifier;
 #[derive(Clone)]
 pub struct Argument<F: Field> {
     pub name: &'static str,
+    pub ev_group_idx: usize,
     pub input_expressions: Vec<Expression<F>>,
     pub table_expressions: Vec<Expression<F>>,
 }
@@ -29,6 +30,7 @@ impl<F: Field> Argument<F> {
         let (input_expressions, table_expressions) = table_map.into_iter().unzip();
         Argument {
             name,
+            ev_group_idx: 0,
             input_expressions,
             table_expressions,
         }
