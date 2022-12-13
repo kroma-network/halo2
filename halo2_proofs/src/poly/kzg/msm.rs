@@ -155,10 +155,7 @@ impl<'a, E: MultiMillerLoop + Debug> DualMSM<'a, E> {
         let left: <E as Engine>::G1Affine = self.left.eval().into();
         let right: <E as Engine>::G1Affine = self.right.eval().into();
 
-        let (term_1, term_2) = (
-            (&left.into(), &s_g2_prepared),
-            (&right.into(), &n_g2_prepared),
-        );
+        let (term_1, term_2) = ((&left, &s_g2_prepared), (&right, &n_g2_prepared));
         let terms = &[term_1, term_2];
 
         log::debug!(
