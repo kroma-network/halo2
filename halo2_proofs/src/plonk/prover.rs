@@ -338,8 +338,8 @@ pub fn create_proof<
                     //*cell = C::Scalar::random(&mut rng);
                     //*cell = C::Scalar::one();
                     //}
-                    let idx = advic.len() - 1;
-                    advic[idx] = Scheme::Scalar::one();
+                    let idx = advice_values.len() - 1;
+                    advice_values[idx] = Scheme::Scalar::one();
                 }
 
                 // Compute commitments to advice column polynomials
