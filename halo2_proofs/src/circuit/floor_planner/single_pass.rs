@@ -90,6 +90,8 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a
             let region: &mut dyn RegionLayouter<F> = &mut shape;
             assignment(region.into())?;
         }
+        let region_name: String = name().into();
+        log::debug!("region row_count {}: {}", region_name, shape.row_count());
 
         // Lay out this region. We implement the simplest approach here: position the
         // region starting at the earliest row for which none of the columns are in use.
