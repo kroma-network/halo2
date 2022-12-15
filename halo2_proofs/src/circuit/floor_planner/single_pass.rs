@@ -97,7 +97,16 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a
         // region starting at the earliest row for which none of the columns are in use.
         let mut region_start = 0;
         for column in &shape.columns {
-            region_start = cmp::max(region_start, self.columns.get(column).cloned().unwrap_or(0));
+            let column_start = self.columns.get(column).cloned().unwrap_or(0);
+            if column_start != 0 {
+                log::warn!(
+                    "columns {:?} reused between multi regions. Start: {}. Region: {}",
+                    column,
+                    column_start,
+                    region_name
+                );
+            }
+            region_start = cmp::max(region_start, column_start);
         }
         self.regions.push(region_start.into());
 
