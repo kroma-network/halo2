@@ -90,12 +90,23 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a
             let region: &mut dyn RegionLayouter<F> = &mut shape;
             assignment(region.into())?;
         }
+        let region_name: String = name().into();
+        log::debug!("region row_count {}: {}", region_name, shape.row_count());
 
         // Lay out this region. We implement the simplest approach here: position the
         // region starting at the earliest row for which none of the columns are in use.
         let mut region_start = 0;
         for column in &shape.columns {
-            region_start = cmp::max(region_start, self.columns.get(column).cloned().unwrap_or(0));
+            let column_start = self.columns.get(column).cloned().unwrap_or(0);
+            if column_start != 0 {
+                log::debug!(
+                    "columns {:?} reused between multi regions. Start: {}. Region: {}",
+                    column,
+                    column_start,
+                    region_name
+                );
+            }
+            region_start = cmp::max(region_start, column_start);
         }
         self.regions.push(region_start.into());
 

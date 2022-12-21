@@ -1324,10 +1324,10 @@ impl<F: Field> Gate<F> {
 /// permutation arrangements.
 #[derive(Debug, Clone)]
 pub struct ConstraintSystem<F: Field> {
-    pub(crate) num_fixed_columns: usize,
+    pub num_fixed_columns: usize,
     pub num_advice_columns: usize,
     pub num_instance_columns: usize,
-    pub(crate) num_selectors: usize,
+    pub num_selectors: usize,
     pub(crate) num_challenges: usize,
 
     /// Contains the phase for each advice column. Should have same length as num_advice_columns.
