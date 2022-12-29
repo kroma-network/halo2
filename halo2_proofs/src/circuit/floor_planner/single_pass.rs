@@ -99,7 +99,7 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a
         for column in &shape.columns {
             let column_start = self.columns.get(column).cloned().unwrap_or(0);
             if column_start != 0 {
-                log::debug!(
+                log::trace!(
                     "columns {:?} reused between multi regions. Start: {}. Region: {}",
                     column,
                     column_start,
