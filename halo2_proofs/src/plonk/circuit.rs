@@ -1899,6 +1899,15 @@ impl<F: Field> ConstraintSystem<F> {
             });
     }
 
+    /// ..
+    pub fn max_phase(&self) -> u8 {
+        self.advice_column_phase
+            .iter()
+            .max()
+            .map(|phase| phase.0)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn phases(&self) -> impl Iterator<Item = sealed::Phase> {
         let max_phase = self
             .advice_column_phase
