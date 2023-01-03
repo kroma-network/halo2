@@ -85,6 +85,7 @@ sanity-checks = []
 batch = ["rand_core/getrandom"]
 shplonk = []
 gwc = []
+profile = ["ark-std/print-trace"]
 
 [lib]
 bench = false

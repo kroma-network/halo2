@@ -249,7 +249,20 @@ where
     ))
 }
 
-/// Generate a `ProvingKey` from a `VerifyingKey` and an instance of `Circuit`.
+/// Generate a `ProvingKey` from an instance of `Circuit`.
+pub fn keygen_pk2<'params, C, P, ConcreteCircuit>(
+    params: &P,
+    circuit: &ConcreteCircuit,
+) -> Result<ProvingKey<C>, Error>
+where
+    C: CurveAffine,
+    P: Params<'params, C>,
+    ConcreteCircuit: Circuit<C::Scalar>,
+{
+    keygen_pk_impl(params, None, circuit)
+}
+
+/// Generate a `ProvingKey` from a `VerifyingKey` and an instance of `Circuit`
 pub fn keygen_pk<'params, C, P, ConcreteCircuit>(
     params: &P,
     vk: VerifyingKey<C>,
@@ -260,10 +273,21 @@ where
     P: Params<'params, C>,
     ConcreteCircuit: Circuit<C::Scalar>,
 {
-    let mut cs = ConstraintSystem::default();
-    let config = ConcreteCircuit::configure(&mut cs);
+    keygen_pk_impl(params, Some(vk), circuit)
+}
 
-    let cs = cs;
+/// Generate a `ProvingKey` from a `VerifyingKey` and an instance of `Circuit`.
+pub fn keygen_pk_impl<'params, C, P, ConcreteCircuit>(
+    params: &P,
+    vk: Option<VerifyingKey<C>>,
+    circuit: &ConcreteCircuit,
+) -> Result<ProvingKey<C>, Error>
+where
+    C: CurveAffine,
+    P: Params<'params, C>,
+    ConcreteCircuit: Circuit<C::Scalar>,
+{
+    let (domain, cs, config) = create_domain::<C, ConcreteCircuit>(params.k());
 
     if (params.n() as usize) < cs.minimum_rows() {
         return Err(Error::not_enough_rows_available(params.k()));
@@ -271,7 +295,7 @@ where
 
     let mut assembly: Assembly<C::Scalar> = Assembly {
         k: params.k(),
-        fixed: vec![vk.domain.empty_lagrange_assigned(); cs.num_fixed_columns],
+        fixed: vec![domain.empty_lagrange_assigned(); cs.num_fixed_columns],
         permutation: permutation::keygen::Assembly::new(params.n() as usize, &cs.permutation),
         selectors: vec![vec![false; params.n() as usize]; cs.num_selectors],
         usable_rows: 0..params.n() as usize - (cs.blinding_factors() + 1),
@@ -291,8 +315,23 @@ where
     fixed.extend(
         selector_polys
             .into_iter()
-            .map(|poly| vk.domain.lagrange_from_vec(poly)),
+            .map(|poly| domain.lagrange_from_vec(poly)),
     );
+
+    let vk = vk.unwrap_or_else(|| {
+        let permutation_vk =
+            assembly
+                .permutation
+                .clone()
+                .build_vk(params, &domain, &cs.permutation);
+
+        let fixed_commitments = fixed
+            .iter()
+            .map(|poly| params.commit_lagrange(poly, Blind::default()).to_affine())
+            .collect();
+
+        VerifyingKey::from_parts(domain, fixed_commitments, permutation_vk, cs.clone())
+    });
 
     let fixed_polys: Vec<_> = fixed
         .iter()
