@@ -116,6 +116,7 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a
             }
             region_start = cmp::max(region_start, column_start);
         }
+        log::debug!("region{} start: {}", self.regions.len(), region_start);
         self.regions.push(region_start.into());
 
         // Update column usage information.
