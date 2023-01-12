@@ -1331,9 +1331,9 @@ pub struct ConstraintSystem<F: Field> {
     pub(crate) num_challenges: usize,
 
     /// Contains the phase for each advice column. Should have same length as num_advice_columns.
-    pub(crate) advice_column_phase: Vec<sealed::Phase>,
+    pub advice_column_phase: Vec<sealed::Phase>,
     /// Contains the phase for each challenge. Should have same length as num_challenges.
-    pub(crate) challenge_phase: Vec<sealed::Phase>,
+    pub challenge_phase: Vec<sealed::Phase>,
 
     /// This is a cached vector that maps virtual selectors to the concrete
     /// fixed column that they were compressed into. This is just used by dev
@@ -1908,7 +1908,7 @@ impl<F: Field> ConstraintSystem<F> {
             .unwrap_or_default()
     }
 
-    pub(crate) fn phases(&self) -> impl Iterator<Item = sealed::Phase> {
+    pub fn phases(&self) -> impl Iterator<Item = sealed::Phase> {
         let max_phase = self
             .advice_column_phase
             .iter()
