@@ -190,7 +190,12 @@ pub fn create_proof<
             AR: Into<String>,
         {
             // Ignore assignment of advice column in different phase than current one.
+            #[cfg(not(feature = "phase-check"))]
             if self.current_phase != column.column_type().phase {
+                return Ok(());
+            }
+            #[cfg(feature = "phase-check")]
+            if false && self.current_phase.0 < column.column_type().phase.0 {
                 return Ok(());
             }
 
@@ -275,6 +280,9 @@ pub fn create_proof<
             };
             instances.len()
         ];
+        #[cfg(feature = "phase-check")]
+        let mut advice_assignments =
+            vec![vec![domain.empty_lagrange_assigned(); meta.num_advice_columns]; instances.len()];
         let mut challenges = HashMap::<usize, Scheme::Scalar>::with_capacity(meta.num_challenges);
 
         let unusable_rows_start = params.n() as usize - (meta.blinding_factors() + 1);
@@ -292,8 +300,11 @@ pub fn create_proof<
                 })
                 .collect::<BTreeSet<_>>();
 
-            for ((circuit, advice), instances) in
-                circuits.iter().zip(advice.iter_mut()).zip(instances)
+            for (circuit_idx, ((circuit, advice), instances)) in circuits
+                .iter()
+                .zip(advice.iter_mut())
+                .zip(instances)
+                .enumerate()
             {
                 let mut witness = WitnessCollection {
                     k: params.k(),
@@ -317,6 +328,22 @@ pub fn create_proof<
                     meta.constants.clone(),
                 )?;
 
+                #[cfg(feature = "phase-check")]
+                {
+                    for (idx, advice_col) in witness.advice.iter().enumerate() {
+                        if pk.vk.cs.advice_column_phase[idx].0 < current_phase.0 {
+                            if advice_assignments[circuit_idx][idx].values != advice_col.values {
+                                log::error!(
+                                    "advice column {}(at {:?}) changed when {:?}",
+                                    idx,
+                                    pk.vk.cs.advice_column_phase[idx],
+                                    current_phase
+                                );
+                            }
+                        }
+                    }
+                }
+
                 let mut advice_values = batch_invert_assigned::<Scheme::Scalar>(
                     witness
                         .advice
@@ -324,6 +351,10 @@ pub fn create_proof<
                         .enumerate()
                         .filter_map(|(column_index, advice)| {
                             if column_indices.contains(&column_index) {
+                                #[cfg(feature = "phase-check")]
+                                {
+                                    advice_assignments[circuit_idx][column_index] = advice.clone();
+                                }
                                 Some(advice)
                             } else {
                                 None

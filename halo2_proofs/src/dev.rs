@@ -10,6 +10,9 @@ use std::time::{Duration, Instant};
 use blake2b_simd::blake2b;
 use ff::Field;
 
+use crate::plonk::sealed::SealedPhase;
+use crate::plonk::FirstPhase;
+use crate::plonk::ThirdPhase;
 use crate::{
     arithmetic::{FieldExt, Group},
     circuit,
@@ -82,7 +85,7 @@ impl Region {
 
 /// The value of a particular cell within the circuit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CellValue<F: Group + Field> {
+pub(crate) enum CellValue<F: Group + Field> {
     // An unassigned cell.
     Unassigned,
     // A cell that has been assigned a value.
@@ -291,7 +294,8 @@ pub struct MockProver<F: Group + Field> {
     // The fixed cells in the circuit, arranged as [column][row].
     fixed: Vec<Vec<CellValue<F>>>,
     // The advice cells in the circuit, arranged as [column][row].
-    advice: Vec<Vec<CellValue<F>>>,
+    pub(crate) advice: Vec<Vec<CellValue<F>>>,
+    advice_prev: Vec<Vec<CellValue<F>>>,
     // The instance cells in the circuit, arranged as [column][row].
     instance: Vec<Vec<F>>,
 
@@ -303,6 +307,8 @@ pub struct MockProver<F: Group + Field> {
 
     // A range of available rows for assignment and copies.
     usable_rows: Range<usize>,
+
+    current_phase: crate::plonk::sealed::Phase,
 }
 
 impl<F: Field + Group> Assignment<F> for MockProver<F> {
@@ -378,6 +384,11 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
+        #[cfg(feature = "phase-check")]
+        if false && self.current_phase.0 < column.column_type().phase.0 {
+            return Ok(());
+        }
+
         if !self.usable_rows.contains(&row) {
             return Err(Error::not_enough_rows_available(self.k));
         }
@@ -391,12 +402,30 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
                 .or_default();
         }
 
+        let assigned = CellValue::Assigned(to().into_field().evaluate().assign()?);
         *self
             .advice
             .get_mut(column.index())
             .and_then(|v| v.get_mut(row))
-            .ok_or(Error::BoundsFailure)? =
-            CellValue::Assigned(to().into_field().evaluate().assign()?);
+            .ok_or(Error::BoundsFailure)? = assigned;
+
+        #[cfg(feature = "phase-check")]
+        if false && self.current_phase.0 > column.column_type().phase.0 {
+            // Some circuits assign cells more than one times with different values
+            // So this check sometimes can be false alarm
+            if !self.advice_prev.is_empty() {
+                if self.advice_prev[column.index()][row] != assigned {
+                    panic!("not same new {assigned:?} old {:?}, column idx {} row {} cur phase {:?} col phase {:?} region {:?}", 
+                    self.advice_prev[column.index()][row],
+                    column.index(),
+                    row,
+                    self.current_phase,
+                    column.column_type().phase,
+                    self.current_region
+                )
+                }
+            }
+        }
 
         Ok(())
     }
@@ -470,7 +499,10 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
     }
 
     fn get_challenge(&self, challenge: Challenge) -> circuit::Value<F> {
-        circuit::Value::known(self.challenges[challenge.index()])
+        match self.challenges.get(challenge.index()) {
+            None => circuit::Value::unknown(),
+            Some(v) => circuit::Value::known(*v),
+        }
     }
 
     fn push_namespace<NR, N>(&mut self, _: N)
@@ -541,7 +573,7 @@ impl<F: FieldExt> MockProver<F> {
         let constants = cs.constants.clone();
 
         // Use hash chain to derive deterministic challenges for testing
-        let challenges = {
+        let challenges: Vec<F> = {
             let mut hash: [u8; 64] = blake2b(b"Halo2-MockProver").as_bytes().try_into().unwrap();
             iter::repeat_with(|| {
                 hash = blake2b(&hash).as_bytes().try_into().unwrap();
@@ -551,6 +583,63 @@ impl<F: FieldExt> MockProver<F> {
             .collect()
         };
 
+        #[cfg(feature = "phase-check")]
+        {
+            // check1: phase1 should not assign expr including phase2 challenges
+            // check2: phase2 assigns same phase1 columns with phase1
+            let mut cur_challenges: Vec<F> = Vec::new();
+            let mut last_advice: Vec<Vec<CellValue<F>>> = Vec::new();
+            for current_phase in cs.phases() {
+                let mut prover = MockProver {
+                    k,
+                    n: n as u32,
+                    cs: cs.clone(),
+                    regions: vec![],
+                    current_region: None,
+                    fixed: fixed.clone(),
+                    advice: advice.clone(),
+                    advice_prev: last_advice.clone(),
+                    instance: instance.clone(),
+                    selectors: selectors.clone(),
+                    challenges: cur_challenges.clone(),
+                    permutation: permutation.clone(),
+                    usable_rows: 0..usable_rows,
+                    current_phase,
+                };
+                ConcreteCircuit::FloorPlanner::synthesize(
+                    &mut prover,
+                    circuit,
+                    config.clone(),
+                    constants.clone(),
+                )?;
+                for (index, phase) in cs.challenge_phase.iter().enumerate() {
+                    if current_phase == *phase {
+                        debug_assert_eq!(cur_challenges.len(), index);
+                        cur_challenges.push(challenges[index].clone());
+                    }
+                }
+                if !last_advice.is_empty() {
+                    let mut err = false;
+                    for (idx, advice_values) in prover.advice.iter().enumerate() {
+                        if cs.advice_column_phase[idx].0 < current_phase.0 {
+                            if advice_values != &last_advice[idx] {
+                                log::error!(
+                                    "PHASE ERR column{} not same after phase {:?}",
+                                    idx,
+                                    current_phase
+                                );
+                                err = true;
+                            }
+                        }
+                    }
+                    if err {
+                        panic!("wrong phase assignment");
+                    }
+                }
+                last_advice = prover.advice;
+            }
+        }
+
         let mut prover = MockProver {
             k,
             n: n as u32,
@@ -559,13 +648,14 @@ impl<F: FieldExt> MockProver<F> {
             current_region: None,
             fixed,
             advice,
+            advice_prev: vec![],
             instance,
             selectors,
-            challenges,
+            challenges: challenges.clone(),
             permutation,
             usable_rows: 0..usable_rows,
+            current_phase: ThirdPhase.to_sealed(),
         };
-
         ConcreteCircuit::FloorPlanner::synthesize(&mut prover, circuit, config, constants)?;
 
         let (cs, selector_polys) = prover.cs.compress_selectors(prover.selectors.clone());
