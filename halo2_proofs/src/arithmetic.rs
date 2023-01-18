@@ -227,18 +227,23 @@ fn serial_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     }
 }
 
-fn serial_split_fft<G: Group>(a: &mut [G], twiddle_lut: &[G::Scalar], twiddle_scale: usize, log_n: u32) {
+fn serial_split_fft<G: Group>(
+    a: &mut [G],
+    twiddle_lut: &[G::Scalar],
+    twiddle_scale: usize,
+    log_n: u32,
+) {
     let n = a.len() as u32;
     assert_eq!(n, 1 << log_n);
 
     let mut m = 1;
     for _ in 0..log_n {
         let omega_idx = twiddle_scale * n as usize / (2 * m as usize); // 1/2, 1/4, 1/8, ...
-        let low_idx = omega_idx%(1<<SPARSE_TWIDDLE_DEGREE);
-        let high_idx = omega_idx>>SPARSE_TWIDDLE_DEGREE;
+        let low_idx = omega_idx % (1 << SPARSE_TWIDDLE_DEGREE);
+        let high_idx = omega_idx >> SPARSE_TWIDDLE_DEGREE;
         let mut w_m = twiddle_lut[low_idx];
         if high_idx > 0 {
-            w_m = w_m*twiddle_lut[(1<<SPARSE_TWIDDLE_DEGREE) + high_idx];
+            w_m = w_m * twiddle_lut[(1 << SPARSE_TWIDDLE_DEGREE) + high_idx];
         }
 
         let mut k = 0;
@@ -260,7 +265,14 @@ fn serial_split_fft<G: Group>(a: &mut [G], twiddle_lut: &[G::Scalar], twiddle_sc
     }
 }
 
-fn split_radix_fft<G: Group>(tmp: &mut [G], a: &[G], twiddle_lut: &[G::Scalar], n: usize, sub_fft_offset: usize, log_split: usize) {
+fn split_radix_fft<G: Group>(
+    tmp: &mut [G],
+    a: &[G],
+    twiddle_lut: &[G::Scalar],
+    n: usize,
+    sub_fft_offset: usize,
+    log_split: usize,
+) {
     let split_m = 1 << log_split;
     let sub_n = n >> log_split;
 
@@ -271,33 +283,38 @@ fn split_radix_fft<G: Group>(tmp: &mut [G], a: &[G], twiddle_lut: &[G::Scalar], 
     // let mut t1: Vec<G> = Vec::with_capacity(split_m as usize);
     // unsafe{ t1.set_len(split_m as usize); }
     for i in 0..split_m {
-        t1[bitreverse(i,log_split)] = a[(i*sub_n + sub_fft_offset)];
+        t1[bitreverse(i, log_split)] = a[(i * sub_n + sub_fft_offset)];
     }
     serial_split_fft(&mut t1, twiddle_lut, sub_n, log_split as u32);
 
     let sparse_degree = SPARSE_TWIDDLE_DEGREE;
     let omega_idx = sub_fft_offset as usize;
-    let low_idx = omega_idx%(1<<sparse_degree);
-    let high_idx = omega_idx>>sparse_degree;
+    let low_idx = omega_idx % (1 << sparse_degree);
+    let high_idx = omega_idx >> sparse_degree;
     let mut omega = twiddle_lut[low_idx];
     if high_idx > 0 {
-        omega = omega*twiddle_lut[(1<<sparse_degree) + high_idx];
+        omega = omega * twiddle_lut[(1 << sparse_degree) + high_idx];
     }
     let mut w_m = G::Scalar::one();
     for i in 0..split_m {
         t1[i].group_scale(&w_m);
         tmp[i] = t1[i];
-        w_m = w_m*omega;
+        w_m = w_m * omega;
     }
 }
 
-pub fn generate_twiddle_lookup_table<F: Field>(omega: F, log_n: u32, sparse_degree: u32, with_last_level: bool) -> Vec<F> {
+pub fn generate_twiddle_lookup_table<F: Field>(
+    omega: F,
+    log_n: u32,
+    sparse_degree: u32,
+    with_last_level: bool,
+) -> Vec<F> {
     let without_last_level = !with_last_level;
     let is_lut_len_large = sparse_degree > log_n;
 
     // dense
     if is_lut_len_large {
-        let mut twiddle_lut = vec![F::zero(); (1<<log_n) as usize];
+        let mut twiddle_lut = vec![F::zero(); (1 << log_n) as usize];
         parallelize(&mut twiddle_lut, |twiddle_lut, start| {
             let mut w_n = omega.pow_vartime(&[start as u64, 0, 0, 0]);
             for twiddle_lut in twiddle_lut.iter_mut() {
@@ -309,24 +326,30 @@ pub fn generate_twiddle_lookup_table<F: Field>(omega: F, log_n: u32, sparse_degr
     }
 
     // sparse
-    let low_degree_lut_len = 1<<sparse_degree;
+    let low_degree_lut_len = 1 << sparse_degree;
     let high_degree_lut_len = 1 << (log_n - sparse_degree - without_last_level as u32);
     let mut twiddle_lut = vec![F::zero(); (low_degree_lut_len + high_degree_lut_len) as usize];
-    parallelize(&mut twiddle_lut[..low_degree_lut_len], |twiddle_lut, start| {
-        let mut w_n = omega.pow_vartime(&[start as u64, 0, 0, 0]);
-        for twiddle_lut in twiddle_lut.iter_mut() {
-            *twiddle_lut = w_n;
-            w_n = w_n * omega;
-        }
-    });
-    let high_degree_omega = omega.pow_vartime(&[(1<<sparse_degree) as u64, 0, 0, 0]);
-    parallelize(&mut twiddle_lut[low_degree_lut_len..], |twiddle_lut, start| {
-        let mut w_n = high_degree_omega.pow_vartime(&[start as u64, 0, 0, 0]);
-        for twiddle_lut in twiddle_lut.iter_mut() {
-            *twiddle_lut = w_n;
-            w_n = w_n * high_degree_omega;
-        }
-    });
+    parallelize(
+        &mut twiddle_lut[..low_degree_lut_len],
+        |twiddle_lut, start| {
+            let mut w_n = omega.pow_vartime(&[start as u64, 0, 0, 0]);
+            for twiddle_lut in twiddle_lut.iter_mut() {
+                *twiddle_lut = w_n;
+                w_n = w_n * omega;
+            }
+        },
+    );
+    let high_degree_omega = omega.pow_vartime(&[(1 << sparse_degree) as u64, 0, 0, 0]);
+    parallelize(
+        &mut twiddle_lut[low_degree_lut_len..],
+        |twiddle_lut, start| {
+            let mut w_n = high_degree_omega.pow_vartime(&[start as u64, 0, 0, 0]);
+            for twiddle_lut in twiddle_lut.iter_mut() {
+                *twiddle_lut = w_n;
+                w_n = w_n * high_degree_omega;
+            }
+        },
+    );
     twiddle_lut
 }
 
@@ -364,10 +387,10 @@ pub fn parallel_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
             let idx = start + idx;
             let i = idx / sub_n;
             let j = idx % sub_n;
-            *a = tmp[j*split_m + i];
+            *a = tmp[j * split_m + i];
         }
     });
-    
+
     // sub fft
     let new_omega = omega.pow_vartime(&[split_m as u64, 0, 0, 0]);
     multicore::scope(|scope| {
@@ -389,7 +412,7 @@ pub fn parallel_fft<G: Group>(a: &mut [G], omega: G::Scalar, log_n: u32) {
     parallelize(a, |a, start| {
         for (idx, a) in a.iter_mut().enumerate() {
             let idx = start + idx;
-            *a = tmp[sub_n*(idx & mask) + (idx >> log_split)];
+            *a = tmp[sub_n * (idx & mask) + (idx >> log_split)];
         }
     });
 }
