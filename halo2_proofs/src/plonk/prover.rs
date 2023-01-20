@@ -190,12 +190,7 @@ pub fn create_proof<
             AR: Into<String>,
         {
             // Ignore assignment of advice column in different phase than current one.
-            #[cfg(not(feature = "phase-check"))]
-            if self.current_phase != column.column_type().phase {
-                return Ok(());
-            }
-            #[cfg(feature = "phase-check")]
-            if false && self.current_phase.0 < column.column_type().phase.0 {
+            if self.current_phase.0 < column.column_type().phase.0 {
                 return Ok(());
             }
 

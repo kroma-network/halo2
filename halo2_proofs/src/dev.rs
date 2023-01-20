@@ -384,8 +384,7 @@ impl<F: Field + Group> Assignment<F> for MockProver<F> {
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
-        #[cfg(feature = "phase-check")]
-        if false && self.current_phase.0 < column.column_type().phase.0 {
+        if self.current_phase.0 < column.column_type().phase.0 {
             return Ok(());
         }
 
