@@ -106,6 +106,5 @@ impl<C: CurveAffine> VerifyingKey<C> {
 #[derive(Clone, Debug)]
 pub(crate) struct ProvingKey<C: CurveAffine> {
     permutations: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
-    polys: Vec<Polynomial<C::Scalar, Coeff>>,
-    pub(super) cosets: Vec<Vec<Polynomial<C::Scalar, LagrangeCoeff>>>,
+    pub(super) polys: Vec<Polynomial<C::Scalar, Coeff>>,
 }

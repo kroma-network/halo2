@@ -176,12 +176,11 @@ pub struct PinnedVerificationKey<'a, C: CurveAffine> {
 #[derive(Clone, Debug)]
 pub struct ProvingKey<C: CurveAffine> {
     vk: VerifyingKey<C>,
-    l0: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
-    l_last: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
-    l_active_row: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
+    l0: Polynomial<C::Scalar, Coeff>,
+    l_last: Polynomial<C::Scalar, Coeff>,
+    l_active_row: Polynomial<C::Scalar, Coeff>,
     fixed_values: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
     fixed_polys: Vec<Polynomial<C::Scalar, Coeff>>,
-    fixed_cosets: Vec<Vec<Polynomial<C::Scalar, LagrangeCoeff>>>,
     permutation: permutation::ProvingKey<C>,
     ev: Evaluator<C>,
 }

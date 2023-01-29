@@ -188,7 +188,7 @@ impl Assembly {
             }
         }
 
-        // Compute permutation polynomials, convert to coset form.
+        // Compute permutation polynomials.
         let mut permutations = vec![];
         let mut polys = vec![];
         for i in 0..p.columns.len() {
@@ -200,16 +200,14 @@ impl Assembly {
                 *p = deltaomega[permuted_i][permuted_j];
             }
 
-            // Store permutation polynomial and precompute its coset evaluation
+            // Store permutation polynomial.
             permutations.push(permutation_poly.clone());
             let poly = domain.lagrange_to_coeff(permutation_poly);
             polys.push(poly.clone());
         }
-        let cosets = domain.batched_coeff_to_extended_parts(&polys);
         ProvingKey {
             permutations,
             polys,
-            cosets,
         }
     }
 }

@@ -338,8 +338,6 @@ where
         .map(|poly| vk.domain.lagrange_to_coeff(poly.clone()))
         .collect();
 
-    let fixed_cosets = vk.domain.batched_coeff_to_extended_parts(&fixed_polys);
-
     let permutation_pk = assembly
         .permutation
         .build_pk(params, &vk.domain, &cs.permutation);
@@ -349,7 +347,6 @@ where
     let mut l0 = vk.domain.empty_lagrange();
     l0[0] = C::Scalar::one();
     let l0 = vk.domain.lagrange_to_coeff(l0);
-    let l0 = vk.domain.coeff_to_extended_parts(&l0);
 
     // Compute l_blind(X) which evaluates to 1 for each blinding factor row
     // and 0 otherwise over the domain.
@@ -357,32 +354,24 @@ where
     for evaluation in l_blind[..].iter_mut().rev().take(cs.blinding_factors()) {
         *evaluation = C::Scalar::one();
     }
-    let l_blind = vk.domain.lagrange_to_coeff(l_blind);
-    let l_blind = vk.domain.coeff_to_extended_parts(&l_blind);
 
     // Compute l_last(X) which evaluates to 1 on the first inactive row (just
     // before the blinding factors) and 0 otherwise over the domain
     let mut l_last = vk.domain.empty_lagrange();
     l_last[params.n() as usize - cs.blinding_factors() - 1] = C::Scalar::one();
-    let l_last = vk.domain.lagrange_to_coeff(l_last);
-    let l_last = vk.domain.coeff_to_extended_parts(&l_last);
 
     // Compute l_active_row(X)
     let one = C::Scalar::one();
-    let l_active_row: Vec<Polynomial<C::Scalar, LagrangeCoeff>> = l_last
-        .iter()
-        .zip(l_blind.iter())
-        .map(|(l_last, l_blind)| {
-            let mut l_active_row = vk.domain.empty_lagrange();
-            parallelize(&mut l_active_row, |values, start| {
-                for (i, value) in values.iter_mut().enumerate() {
-                    let idx = i + start;
-                    *value = one - (l_last[idx] + l_blind[idx]);
-                }
-            });
-            l_active_row
-        })
-        .collect();
+    let mut l_active_row = vk.domain.empty_lagrange();
+    parallelize(&mut l_active_row, |values, start| {
+        for (i, value) in values.iter_mut().enumerate() {
+            let idx = i + start;
+            *value = one - (l_last[idx] + l_blind[idx]);
+        }
+    });
+
+    let l_last = vk.domain.lagrange_to_coeff(l_last);
+    let l_active_row = vk.domain.lagrange_to_coeff(l_active_row);
 
     // Compute the optimized evaluation data structure
     let ev = Evaluator::new(&vk.cs);
@@ -394,7 +383,6 @@ where
         l_active_row,
         fixed_values: fixed,
         fixed_polys,
-        fixed_cosets,
         permutation: permutation_pk,
         ev,
     })
