@@ -456,7 +456,7 @@ impl<G: Group> EvaluationDomain<G> {
     ///
     fn distribute_powers(&self, a: &mut [G], c: G::Scalar) {
         parallelize(a, |a, index| {
-            let mut c_power = c.pow(&[index as u64, 0, 0, 0]);
+            let mut c_power = c.pow_vartime(&[index as u64, 0, 0, 0]);
             for a in a {
                 a.group_scale(&c_power);
                 c_power = c_power * c;
@@ -671,11 +671,10 @@ fn test_l_i() {
 }
 
 #[test]
-fn test_coeff_to_extended_slice() {
+fn test_coeff_to_extended_part() {
+    use halo2curves::pasta::pallas::Scalar;
     use rand_core::OsRng;
 
-    use crate::arithmetic::eval_polynomial;
-    use halo2curves::pasta::pallas::Scalar;
     let domain = EvaluationDomain::<Scalar>::new(1, 3);
     let rng = OsRng;
     let mut poly = domain.empty_coeff();
@@ -690,4 +689,37 @@ fn test_coeff_to_extended_slice() {
         domain.extended_from_lagrange_vec(parts)
     };
     assert_eq!(want.values, got.values);
+}
+
+#[test]
+fn bench_coeff_to_extended_parts() {
+    use halo2curves::pasta::pallas::Scalar;
+    use rand_core::OsRng;
+    use std::time::Instant;
+
+    let k = 20;
+    let domain = EvaluationDomain::<Scalar>::new(3, k);
+    let rng = OsRng;
+    let mut poly1 = domain.empty_coeff();
+    assert_eq!(poly1.len(), 1 << k);
+
+    for value in poly1.iter_mut() {
+        *value = Scalar::random(rng);
+    }
+
+    let poly2 = poly1.clone();
+
+    let coeff_to_extended_timer = Instant::now();
+    let _ = domain.coeff_to_extended(poly1);
+    println!(
+        "domain.coeff_to_extended time: {}s",
+        coeff_to_extended_timer.elapsed().as_secs_f64()
+    );
+
+    let coeff_to_extended_parts_timer = Instant::now();
+    let _ = domain.coeff_to_extended_parts(&poly2);
+    println!(
+        "domain.coeff_to_extended_parts time: {}s",
+        coeff_to_extended_parts_timer.elapsed().as_secs_f64()
+    );
 }
