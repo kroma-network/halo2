@@ -149,7 +149,7 @@ where
     ) -> io::Result<()> {
         write_polynomial_slice(&self.permutations, writer, format)?;
         write_polynomial_slice(&self.polys, writer, format)?;
-        write_polynomial_slice(&self.cosets, writer, format)?;
+        //write_polynomial_slice(&self.cosets, writer, format)?;
         Ok(())
     }
 }
@@ -157,8 +157,7 @@ where
 impl<C: CurveAffine> ProvingKey<C> {
     /// Gets the total number of bytes in the serialization of `self`
     pub(super) fn bytes_length(&self) -> usize {
-        polynomial_slice_byte_length(&self.permutations)
-            + polynomial_slice_byte_length(&self.polys)
-            + polynomial_slice_byte_length(&self.cosets)
+        polynomial_slice_byte_length(&self.permutations) + polynomial_slice_byte_length(&self.polys)
+        //    + polynomial_slice_byte_length(&self.cosets)
     }
 }
