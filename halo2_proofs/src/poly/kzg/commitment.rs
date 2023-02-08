@@ -22,7 +22,7 @@ use super::msm::MSMKZG;
 #[derive(Debug, Clone)]
 pub struct ParamsKZG<E: Engine> {
     pub(crate) k: u32,
-    pub(crate) n: u64,
+    pub n: u64,
     pub(crate) g: Vec<E::G1Affine>,
     pub g_lagrange: Vec<E::G1Affine>,
     pub(crate) g2: E::G2Affine,
