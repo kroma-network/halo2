@@ -254,7 +254,7 @@ where
         fixed_commitments,
         permutation_vk,
         cs,
-        assembly.selectors,
+//        assembly.selectors,
     ))
 }
 
@@ -346,7 +346,7 @@ where
                 fixed_commitments,
                 permutation_vk,
                 cs.clone(),
-                assembly.selectors.clone(),
+//                assembly.selectors.clone(),
             )
         }
     };
