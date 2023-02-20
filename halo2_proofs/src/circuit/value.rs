@@ -14,8 +14,7 @@ use crate::plonk::{Assigned, Error};
 ///   for improved usability.
 #[derive(Clone, Copy, Debug)]
 pub struct Value<V> {
-    /// for adhoc usage...
-    pub inner: Option<V>,
+    inner: Option<V>,
 }
 
 impl<V> Default for Value<V> {
