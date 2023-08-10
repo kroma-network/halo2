@@ -66,6 +66,19 @@ impl<E: Engine + Debug> MSM<E::G1Affine> for MSMKZG<E> {
         use group::prime::PrimeCurveAffine;
         let mut bases = vec![E::G1Affine::identity(); self.scalars.len()];
         E::G1::batch_normalize(&self.bases, &mut bases);
+        #[cfg(feature = "tachyon_msm_gpu")]
+        unsafe {
+            use crate::{ffi, CppFr, CppG1Affine};
+            use std::mem;
+
+            let bases: &[CppG1Affine] = mem::transmute(bases.as_slice());
+            let scalars: &[CppFr] = mem::transmute(self.scalars.as_slice());
+
+            let ret = ffi::msm_gpu(bases, scalars);
+            let ret: Box<E::G1> = mem::transmute(ret);
+            *ret
+        }
+        #[cfg(not(feature = "tachyon_msm_gpu"))]
         best_multiexp(&self.scalars, &bases)
     }
 

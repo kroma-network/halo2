@@ -295,11 +295,24 @@ where
         poly: &Polynomial<E::Scalar, LagrangeCoeff>,
         _: Blind<E::Scalar>,
     ) -> E::G1 {
-        let mut scalars = Vec::with_capacity(poly.len());
+        let mut scalars: Vec<E::Scalar> = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
         let bases = &self.g_lagrange;
         let size = scalars.len();
         assert!(bases.len() >= size);
+        #[cfg(feature = "tachyon_msm_gpu")]
+        unsafe {
+            use crate::{ffi, CppFr, CppG1Affine};
+            use std::mem;
+
+            let bases: &[CppG1Affine] = mem::transmute(bases.as_slice());
+            let scalars: &[CppFr] = mem::transmute(scalars.as_slice());
+
+            let ret = ffi::msm_gpu(bases, scalars);
+            let ret: Box<E::G1> = mem::transmute(ret);
+            *ret
+        }
+        #[cfg(not(feature = "tachyon_msm_gpu"))]
         best_multiexp(&scalars, &bases[0..size])
     }
 
@@ -337,11 +350,24 @@ where
     }
 
     fn commit(&self, poly: &Polynomial<E::Scalar, Coeff>, _: Blind<E::Scalar>) -> E::G1 {
-        let mut scalars = Vec::with_capacity(poly.len());
+        let mut scalars: Vec<E::Scalar> = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
         let bases = &self.g;
         let size = scalars.len();
         assert!(bases.len() >= size);
+        #[cfg(feature = "tachyon_msm_gpu")]
+        unsafe {
+            use crate::{ffi, CppFr, CppG1Affine};
+            use std::mem;
+
+            let bases: &[CppG1Affine] = mem::transmute(bases.as_slice());
+            let scalars: &[CppFr] = mem::transmute(scalars.as_slice());
+
+            let ret = ffi::msm_gpu(bases, scalars);
+            let ret: Box<E::G1> = mem::transmute(ret);
+            *ret
+        }
+        #[cfg(not(feature = "tachyon_msm_gpu"))]
         best_multiexp(&scalars, &bases[0..size])
     }
 
