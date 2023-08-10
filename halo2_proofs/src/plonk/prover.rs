@@ -47,7 +47,7 @@ pub fn create_proof<
     T: TranscriptWrite<Scheme::Curve, E>,
     ConcreteCircuit: Circuit<Scheme::Scalar>,
 >(
-    params: &'params Scheme::ParamsProver,
+    params: &'params mut Scheme::ParamsProver,
     pk: &ProvingKey<Scheme::Curve>,
     circuits: &[ConcreteCircuit],
     instances: &[&[&[Scheme::Scalar]]],
@@ -432,6 +432,7 @@ pub fn create_proof<
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
 
+    params.set_maybe_non_uniform(true);
     let lookups: Vec<Vec<lookup::prover::Permuted<Scheme::Curve>>> = instance
         .iter()
         .zip(advice.iter())
@@ -520,6 +521,7 @@ pub fn create_proof<
             },
         )
         .collect();
+    params.set_maybe_non_uniform(false);
 
     // Evaluate the h(X) polynomial
     let h_poly = pk.ev.evaluate_h(

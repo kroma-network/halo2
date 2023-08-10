@@ -5,6 +5,7 @@ use crate::{
     arithmetic::{best_multiexp, parallelize, CurveAffine},
     poly::commitment::MSM,
 };
+use ff::Field;
 use group::{Curve, Group};
 use halo2curves::pairing::{Engine, MillerLoopResult, MultiMillerLoop};
 
@@ -13,6 +14,7 @@ use halo2curves::pairing::{Engine, MillerLoopResult, MultiMillerLoop};
 pub struct MSMKZG<E: Engine> {
     pub(crate) scalars: Vec<E::Scalar>,
     pub(crate) bases: Vec<E::G1>,
+    pub(crate) maybe_non_uniform: bool,
 }
 
 impl<E: Engine> MSMKZG<E> {
@@ -21,6 +23,7 @@ impl<E: Engine> MSMKZG<E> {
         MSMKZG {
             scalars: vec![],
             bases: vec![],
+            maybe_non_uniform: false,
         }
     }
 
@@ -66,6 +69,26 @@ impl<E: Engine + Debug> MSM<E::G1Affine> for MSMKZG<E> {
         use group::prime::PrimeCurveAffine;
         let mut bases = vec![E::G1Affine::identity(); self.scalars.len()];
         E::G1::batch_normalize(&self.bases, &mut bases);
+        #[cfg(feature = "tachyon_msm_gpu")]
+        let use_gpu = !self.maybe_non_uniform;
+        #[cfg(feature = "tachyon_msm_gpu")]
+        let ret = if use_gpu {
+            use crate::{ffi, Fr as CppFr, G1MSMGpu, G1Point2 as CppG1Point2, MSM_GPU};
+            use std::mem;
+
+            unsafe {
+                let bases: &[CppG1Point2] = mem::transmute(bases.as_slice());
+                let scalars: &[CppFr] = mem::transmute(self.scalars.as_slice());
+
+                let msm = *MSM_GPU.lock().unwrap() as *mut G1MSMGpu;
+                let ret = ffi::g1_msm_gpu(msm, bases, scalars);
+                let ret: Box<E::G1> = mem::transmute(ret);
+                *ret
+            }
+        } else {
+            best_multiexp(&self.scalars, &bases)
+        };
+        #[cfg(not(feature = "tachyon_msm_gpu"))]
         best_multiexp(&self.scalars, &bases)
     }
 
@@ -103,6 +126,7 @@ impl<E: Engine + Debug> PreMSM<E> {
         MSMKZG {
             scalars: scalars.into_iter().flatten().collect(),
             bases: bases.into_iter().flatten().collect(),
+            maybe_non_uniform: false,
         }
     }
 
