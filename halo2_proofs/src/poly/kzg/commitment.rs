@@ -15,6 +15,7 @@ use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 use std::io;
+use std::time::Instant;
 
 use super::msm::MSMKZG;
 
@@ -305,6 +306,7 @@ where
         poly: &Polynomial<E::Scalar, LagrangeCoeff>,
         _: Blind<E::Scalar>,
     ) -> E::G1 {
+        let start = Instant::now();
         let mut scalars: Vec<E::Scalar> = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
         let bases = &self.g_lagrange;
@@ -312,6 +314,8 @@ where
         assert!(bases.len() >= size);
         #[cfg(feature = "tachyon_msm_gpu")]
         let use_gpu = !self.maybe_non_uniform;
+        #[cfg(not(feature = "tachyon_msm_gpu"))]
+        let use_gpu = false;
         #[cfg(feature = "tachyon_msm_gpu")]
         let ret = if use_gpu {
             use crate::{ffi, Fr as CppFr, G1MSMGpu, G1Point2 as CppG1Point2, MSM_GPU};
@@ -331,7 +335,14 @@ where
         };
 
         #[cfg(not(feature = "tachyon_msm_gpu"))]
-        best_multiexp(&scalars, &bases[0..size])
+        let ret = best_multiexp(&scalars, &bases[0..size]);
+        println!(
+            "Time elapsed in {} commit_lagrange() for {} is: {:?}",
+            if use_gpu { "gpu" } else { "cpu" },
+            size,
+            start.elapsed(),
+        );
+        ret
     }
 
     /// Writes params to a buffer.
@@ -368,6 +379,7 @@ where
     }
 
     fn commit(&self, poly: &Polynomial<E::Scalar, Coeff>, _: Blind<E::Scalar>) -> E::G1 {
+        let start = Instant::now();
         let mut scalars: Vec<E::Scalar> = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
         let bases = &self.g;
@@ -375,6 +387,8 @@ where
         assert!(bases.len() >= size);
         #[cfg(feature = "tachyon_msm_gpu")]
         let use_gpu = !self.maybe_non_uniform;
+        #[cfg(not(feature = "tachyon_msm_gpu"))]
+        let use_gpu = false;
         #[cfg(feature = "tachyon_msm_gpu")]
         let ret = if use_gpu {
             use crate::{ffi, Fr as CppFr, G1MSMGpu, G1Point2 as CppG1Point2, MSM_GPU};
@@ -394,7 +408,14 @@ where
         };
 
         #[cfg(not(feature = "tachyon_msm_gpu"))]
-        best_multiexp(&scalars, &bases[0..size])
+        let ret = best_multiexp(&scalars, &bases[0..size]);
+        println!(
+            "Time elapsed in {} commit() for {} is: {:?}",
+            if use_gpu { "gpu" } else { "cpu" },
+            size,
+            start.elapsed()
+        );
+        ret
     }
 
     fn get_g(&self) -> &[E::G1Affine] {

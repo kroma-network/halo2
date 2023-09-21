@@ -76,6 +76,8 @@ pub fn create_proof<
         pub instance_polys: Vec<Polynomial<C::Scalar, Coeff>>,
     }
 
+    log::info!("######################################### Instance Start #########################################" );
+
     let instance: Vec<InstanceSingle<Scheme::Curve>> = instances
         .iter()
         .map(|instance| -> Result<InstanceSingle<Scheme::Curve>, Error> {
@@ -130,6 +132,8 @@ pub fn create_proof<
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
+
+    log::info!("######################################### Instance End #########################################" );
 
     #[derive(Clone)]
     struct AdviceSingle<C: CurveAffine, B: Basis> {
@@ -281,6 +285,8 @@ pub fn create_proof<
         }
     }
 
+    log::info!("######################################### Assignment Start #########################################");
+
     let (advice, challenges) = {
         let mut advice = vec![
             AdviceSingle::<Scheme::Curve, LagrangeCoeff> {
@@ -296,6 +302,7 @@ pub fn create_proof<
 
         let unusable_rows_start = params.n() as usize - (meta.blinding_factors() + 1);
         for current_phase in pk.vk.cs.phases() {
+            log::info!("######################################### Assignment phase: {} #########################################", current_phase.0);
             let column_indices = meta
                 .advice_column_phase
                 .iter()
@@ -429,6 +436,8 @@ pub fn create_proof<
         (advice, challenges)
     };
 
+    log::info!("######################################### Assignment End #########################################");
+
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
 
@@ -460,11 +469,15 @@ pub fn create_proof<
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    log::info!("######################################### Lookup End #########################################");
+
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
 
     // Sample gamma challenge
     let gamma: ChallengeGamma<_> = transcript.squeeze_challenge_scalar();
+
+    log::info!("######################################### Permutation Start #########################################");
 
     // Commit to permutations.
     let permutations: Vec<permutation::prover::Committed<Scheme::Curve>> = instance
@@ -486,6 +499,10 @@ pub fn create_proof<
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    log::info!("######################################### Permutation End #########################################");
+
+    log::info!("######################################### Lookup2 Start #########################################");
+
     let lookups: Vec<Vec<lookup::prover::Committed<Scheme::Curve>>> = lookups
         .into_iter()
         .map(|lookups| -> Result<Vec<_>, _> {
@@ -496,6 +513,8 @@ pub fn create_proof<
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
+
+    log::info!("######################################### Lookup2 End #########################################");
 
     // Commit to the vanishing argument's random polynomial for blinding h(x_3)
     let vanishing = vanishing::Argument::commit(params, domain, &mut rng, transcript)?;
@@ -543,6 +562,8 @@ pub fn create_proof<
         &permutations,
     );
 
+    log::info!("######################################### H Evaluate End #########################################");
+
     // Construct the vanishing argument's h(X) commitments
     let vanishing = vanishing.construct(params, domain, h_poly, &mut rng, transcript)?;
 
@@ -550,6 +571,7 @@ pub fn create_proof<
     let xn = x.pow(&[params.n() as u64, 0, 0, 0]);
 
     if P::QUERY_INSTANCE {
+        log::info!("######################################### Instance Evaluate Start #########################################");
         // Compute and hash instance evals for each circuit instance
         for instance in instance.iter() {
             // Evaluate polynomials at omega^i x
@@ -569,8 +591,10 @@ pub fn create_proof<
                 transcript.write_scalar(*eval)?;
             }
         }
+        log::info!("######################################### Instance Evaluate End #########################################");
     }
 
+    log::info!("######################################### Advice Evaluate Start #########################################");
     // Compute and hash advice evals for each circuit instance
     for advice in advice.iter() {
         // Evaluate polynomials at omega^i x
@@ -590,6 +614,7 @@ pub fn create_proof<
             transcript.write_scalar(*eval)?;
         }
     }
+    log::info!("######################################### Advice Evaluate End #########################################");
 
     // Compute and hash fixed evals (shared across all circuit instances)
     let fixed_evals: Vec<_> = meta
@@ -605,17 +630,24 @@ pub fn create_proof<
         transcript.write_scalar(*eval)?;
     }
 
+    log::info!("######################################### Vanishing Evaluate Start #########################################");
     let vanishing = vanishing.evaluate(x, xn, domain, transcript)?;
+    log::info!("######################################### Vanishing Evaluate End #########################################");
 
+    log::info!("######################################### Permutation Evaluate Start #########################################");
     // Evaluate common permutation data
     pk.permutation.evaluate(x, transcript)?;
+    log::info!("######################################### Permutation Evaluate End #########################################");
 
+    log::info!("######################################### Permutation2 Evaluate Start #########################################");
     // Evaluate the permutations, if any, at omega^i x.
     let permutations: Vec<permutation::prover::Evaluated<Scheme::Curve>> = permutations
         .into_iter()
         .map(|permutation| -> Result<_, _> { permutation.construct().evaluate(pk, x, transcript) })
         .collect::<Result<Vec<_>, _>>()?;
+    log::info!("######################################### Permutation2 Evaluate End #########################################");
 
+    log::info!("######################################### Lookup2 Evaluate Start #########################################");
     // Evaluate the lookups, if any, at omega^i x.
     let lookups: Vec<Vec<lookup::prover::Evaluated<Scheme::Curve>>> = lookups
         .into_iter()

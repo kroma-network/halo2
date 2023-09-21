@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, time::Instant};
 
 use super::commitment::{KZGCommitmentScheme, ParamsKZG};
 use crate::{
@@ -67,10 +67,13 @@ impl<E: Engine + Debug> MSM<E::G1Affine> for MSMKZG<E> {
 
     fn eval(&self) -> E::G1 {
         use group::prime::PrimeCurveAffine;
+        let start = Instant::now();
         let mut bases = vec![E::G1Affine::identity(); self.scalars.len()];
         E::G1::batch_normalize(&self.bases, &mut bases);
         #[cfg(feature = "tachyon_msm_gpu")]
         let use_gpu = !self.maybe_non_uniform;
+        #[cfg(not(feature = "tachyon_msm_gpu"))]
+        let use_gpu = false;
         #[cfg(feature = "tachyon_msm_gpu")]
         let ret = if use_gpu {
             use crate::{ffi, Fr as CppFr, G1MSMGpu, G1Point2 as CppG1Point2, MSM_GPU};
@@ -89,7 +92,14 @@ impl<E: Engine + Debug> MSM<E::G1Affine> for MSMKZG<E> {
             best_multiexp(&self.scalars, &bases)
         };
         #[cfg(not(feature = "tachyon_msm_gpu"))]
-        best_multiexp(&self.scalars, &bases)
+        let ret = best_multiexp(&self.scalars, &bases);
+        println!(
+            "Time elapsed in {} eval() for {} is: {:?}",
+            if use_gpu { "gpu" } else { "cpu" },
+            bases.len(),
+            start.elapsed()
+        );
+        ret
     }
 
     fn bases(&self) -> Vec<E::G1> {
