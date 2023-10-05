@@ -45,6 +45,8 @@ pub trait Params<'params, C: CurveAffine>: Sized + Clone {
     /// Multi scalar multiplication engine
     type MSM: MSM<C> + 'params;
 
+    fn set_maybe_non_uniform(&mut self, value: bool);
+
     /// Logaritmic size of the circuit
     fn k(&self) -> u32;
 
