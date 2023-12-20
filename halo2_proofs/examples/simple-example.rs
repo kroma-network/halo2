@@ -1,11 +1,30 @@
 use std::marker::PhantomData;
 
+use ff::Field;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner, Value},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, Instance, Selector},
-    poly::Rotation,
+    plonk::{
+        create_proof, keygen_pk, keygen_pk2, keygen_vk, verify_proof, Advice, Circuit, Column,
+        ConstraintSystem, Error, Fixed, Instance, Selector,
+    },
+    poly::{
+        commitment::ParamsProver,
+        kzg::{
+            commitment::{KZGCommitmentScheme, ParamsKZG},
+            multiopen::{ProverSHPLONK, VerifierSHPLONK},
+            strategy::{AccumulatorStrategy, SingleStrategy},
+        },
+        Rotation,
+    },
+    transcript::{
+        Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWrite,
+        TranscriptWriterBuffer,
+    },
 };
+use halo2curves::bn256::{Bn256, G1Affine};
+use rand_core::{OsRng, SeedableRng};
+use rand_xorshift::XorShiftRng;
 
 // ANCHOR: instructions
 trait NumericInstructions<F: FieldExt>: Chip<F> {
@@ -304,7 +323,7 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
 
 fn main() {
     use halo2_proofs::dev::MockProver;
-    use halo2curves::pasta::Fp;
+    use halo2curves::bn256::Fr;
 
     // ANCHOR: test-circuit
     // The number of rows in our circuit cannot exceed 2^k. Since our example
@@ -312,9 +331,9 @@ fn main() {
     let k = 4;
 
     // Prepare the private and public inputs to the circuit!
-    let constant = Fp::from(7);
-    let a = Fp::from(2);
-    let b = Fp::from(3);
+    let constant = Fr::from(7);
+    let a = Fr::from(2);
+    let b = Fr::from(3);
     let c = constant * a.square() * b.square();
 
     // Instantiate the circuit with the private inputs.
@@ -326,15 +345,59 @@ fn main() {
 
     // Arrange the public input. We expose the multiplication result in row 0
     // of the instance column, so we position it there in our public inputs.
-    let mut public_inputs = vec![c];
+    let public_inputs = vec![c];
+    let public_inputs2 = vec![&public_inputs[..]];
+    let public_inputs3 = vec![&public_inputs2[..]];
 
     // Given the correct public input, our circuit will verify.
-    let prover = MockProver::run(k, &circuit, vec![public_inputs.clone()]).unwrap();
-    assert_eq!(prover.verify(), Ok(()));
+    let s = Fr::from(2);
+    let params = ParamsKZG::<Bn256>::unsafe_setup_with_s(k, s);
+    let pk = keygen_pk2(&params, &circuit).expect("vk should not fail");
 
-    // If we try some other public input, the proof will fail!
-    public_inputs[0] += Fp::one();
-    let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
-    assert!(prover.verify().is_err());
+    let rng = XorShiftRng::from_seed([
+        0x59, 0x62, 0xbe, 0x5d, 0x76, 0x3d, 0x31, 0x8d, 0x17, 0xdb, 0x37, 0x32, 0x54, 0x06, 0xbc,
+        0xe5,
+    ]);
+
+    let proof = {
+        let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
+
+        create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<_>, _, _, _, _>(
+            &params,
+            &pk,
+            &[circuit],
+            public_inputs3.as_slice(),
+            rng,
+            &mut transcript,
+        )
+        .expect("proof generation should not fail");
+
+        transcript.finalize()
+    };
+
+    println!("{:?}", proof);
+
+    let mut verifier_transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&proof[..]);
+
+    let verifier_params = params.verifier_params();
+    let strategy = SingleStrategy::new(&params);
+    verify_proof::<_, VerifierSHPLONK<_>, _, Blake2bRead<_, _, Challenge255<_>>, _>(
+        &verifier_params,
+        pk.get_vk(),
+        strategy,
+        public_inputs3.as_slice(),
+        &mut verifier_transcript,
+    )
+    .unwrap();
+
+    println!("Success");
+
+    // let prover = MockProver::run(k, &circuit, vec![public_inputs.clone()]).unwrap();
+    // assert_eq!(prover.verify(), Ok(()));
+
+    // // If we try some other public input, the proof will fail!
+    // public_inputs[0] += Fp::one();
+    // let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
+    // assert!(prover.verify().is_err());
     // ANCHOR_END: test-circuit
 }

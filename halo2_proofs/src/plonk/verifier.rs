@@ -14,7 +14,7 @@ use crate::poly::{
     commitment::{Blind, Params, MSM},
     Guard, VerifierQuery,
 };
-use crate::transcript::{read_n_points, read_n_scalars, EncodedChallenge, TranscriptRead};
+use crate::transcript::{self, read_n_points, read_n_scalars, EncodedChallenge, TranscriptRead};
 
 #[cfg(feature = "batch")]
 mod batch;
@@ -119,8 +119,18 @@ pub fn verify_proof<
         (advice_commitments, challenges)
     };
 
+    for advice_commitment in advice_commitments.iter() {
+        for advice_commitment in advice_commitment.iter() {
+            println!("{:?}", advice_commitment);
+        }
+    }
+    for challenge in challenges.iter() {
+        println!("{:?}", challenge);
+    }
+
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
+    println!("{:?}", *theta);
 
     let lookups_permuted = (0..num_proofs)
         .map(|_| -> Result<Vec<_>, _> {
@@ -133,11 +143,21 @@ pub fn verify_proof<
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    for lookup_permuted in lookups_permuted.iter() {
+        for lookup in lookup_permuted.iter() {
+            println!("{:?}", lookup.permuted_input_commitment);
+            println!("{:?}", lookup.permuted_table_commitment);
+        }
+    }
+
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
 
     // Sample gamma challenge
     let gamma: ChallengeGamma<_> = transcript.squeeze_challenge_scalar();
+
+    println!("{:?}", *beta);
+    println!("{:?}", *gamma);
 
     let permutations_committed = (0..num_proofs)
         .map(|_| {
@@ -145,6 +165,15 @@ pub fn verify_proof<
             vk.cs.permutation.read_product_commitments(vk, transcript)
         })
         .collect::<Result<Vec<_>, _>>()?;
+
+    for permutations_committed in permutations_committed.iter() {
+        for permutation_product_commitment in permutations_committed
+            .permutation_product_commitments
+            .iter()
+        {
+            println!("{:?}", *permutation_product_commitment);
+        }
+    }
 
     let lookups_committed = lookups_permuted
         .into_iter()
@@ -157,16 +186,31 @@ pub fn verify_proof<
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    for lookup_committed in lookups_committed.iter() {
+        for lookup_committed in lookup_committed.iter() {
+            println!("{:?}", lookup_committed.product_commitment);
+        }
+    }
+
     let vanishing = vanishing::Argument::read_commitments_before_y(transcript)?;
+
+    println!("{:?}", vanishing.random_poly_commitment);
 
     // Sample y challenge, which keeps the gates linearly independent.
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
 
+    println!("{:?}", *y);
+
     let vanishing = vanishing.read_commitments_after_y(vk, transcript)?;
+
+    for h_commitment in vanishing.h_commitments.iter() {
+        println!("{:?}", h_commitment);
+    }
 
     // Sample x challenge, which is used to ensure the circuit is
     // satisfied with high probability.
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
+    println!("{:?}", *x);
     let instance_evals = if V::QUERY_INSTANCE {
         (0..num_proofs)
             .map(|_| -> Result<Vec<_>, _> {
@@ -218,16 +262,47 @@ pub fn verify_proof<
         .map(|_| -> Result<Vec<_>, _> { read_n_scalars(transcript, vk.cs.advice_queries.len()) })
         .collect::<Result<Vec<_>, _>>()?;
 
+    for advice_evals in advice_evals.iter() {
+        for advice_eval in advice_evals.iter() {
+            println!("{:?}", advice_eval);
+        }
+    }
+
     let fixed_evals = read_n_scalars(transcript, vk.cs.fixed_queries.len())?;
+
+    for fixed_eval in fixed_evals.iter() {
+        println!("{:?}", fixed_eval);
+    }
 
     let vanishing = vanishing.evaluate_after_x(transcript)?;
 
+    println!("{:?}", vanishing.random_eval);
+
     let permutations_common = vk.permutation.evaluate(transcript)?;
+
+    for permutation_eval in permutations_common.permutation_evals.iter() {
+        println!("{:?}", permutation_eval);
+    }
 
     let permutations_evaluated = permutations_committed
         .into_iter()
         .map(|permutation| permutation.evaluate(transcript))
         .collect::<Result<Vec<_>, _>>()?;
+
+    for permutations_evaluated in permutations_evaluated.iter() {
+        for permutation_eval_set in permutations_evaluated.sets.iter() {
+            println!("eval: {:?}", permutation_eval_set.permutation_product_eval);
+            println!(
+                "next_eval: {:?}",
+                permutation_eval_set.permutation_product_next_eval
+            );
+            if let Some(last) = permutation_eval_set.permutation_product_last_eval {
+                println!("last: {:?}", last);
+            } else {
+                println!("empty");
+            }
+        }
+    }
 
     let lookups_evaluated = lookups_committed
         .into_iter()
@@ -238,6 +313,19 @@ pub fn verify_proof<
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
+
+    for lookup_evaluated in lookups_evaluated.iter() {
+        for evaluated in lookup_evaluated.iter() {
+            println!("product_eval: {:?}", evaluated.product_eval);
+            println!("product_next_eval: {:?}", evaluated.product_next_eval);
+            println!("permuted_input_eval: {:?}", evaluated.permuted_input_eval);
+            println!(
+                "permuted_input_inv_eval: {:?}",
+                evaluated.permuted_input_inv_eval
+            );
+            println!("permuted_table_eval: {:?}", evaluated.permuted_table_eval);
+        }
+    }
 
     // This check ensures the circuit is satisfied so long as the polynomial
     // commitments open to the correct values.
@@ -319,6 +407,7 @@ pub fn verify_proof<
                             .into_iter(),
                     )
             });
+
 
         vanishing.verify(params, expressions, y, xn)
     };

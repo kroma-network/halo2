@@ -12,7 +12,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Committed<C: CurveAffine> {
-    permutation_product_commitments: Vec<C>,
+    pub permutation_product_commitments: Vec<C>,
 }
 
 #[derive(Debug)]

@@ -16,18 +16,18 @@ use super::super::{ChallengeX, ChallengeY};
 use super::Argument;
 
 pub struct Committed<C: CurveAffine> {
-    random_poly_commitment: C,
+    pub random_poly_commitment: C,
 }
 
 pub struct Constructed<C: CurveAffine> {
-    h_commitments: Vec<C>,
-    random_poly_commitment: C,
+    pub h_commitments: Vec<C>,
+    pub random_poly_commitment: C,
 }
 
 pub struct PartiallyEvaluated<C: CurveAffine> {
-    h_commitments: Vec<C>,
-    random_poly_commitment: C,
-    random_eval: C::Scalar,
+    pub h_commitments: Vec<C>,
+    pub random_poly_commitment: C,
+    pub random_eval: C::Scalar,
 }
 
 pub struct Evaluated<C: CurveAffine, M: MSM<C>> {
@@ -94,8 +94,16 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
         y: ChallengeY<C>,
         xn: C::Scalar,
     ) -> Evaluated<C, P::MSM> {
-        let expected_h_eval = expressions.fold(C::Scalar::zero(), |h_eval, v| h_eval * &*y + &v);
+        let mut i = 0;
+        let expected_h_eval = expressions.fold(C::Scalar::zero(), |h_eval, v| {
+            println!("eval[{i}]: {:?}", v);
+            let ret = h_eval * &*y + &v;
+            println!("ret[{i}]: {:?}", ret);
+            i += 1;
+            ret
+        });
         let expected_h_eval = expected_h_eval * ((xn - C::Scalar::one()).invert().unwrap());
+        println!("{:?}", expected_h_eval);
 
         let h_commitment =
             self.h_commitments

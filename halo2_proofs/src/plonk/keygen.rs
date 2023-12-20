@@ -244,7 +244,7 @@ where
         .permutation
         .build_vk(params, &domain, &cs.permutation);
 
-    let fixed_commitments = fixed
+    let fixed_commitments: Vec<C> = fixed
         .iter()
         .map(|poly| params.commit_lagrange(poly, Blind::default()).to_affine())
         .collect();
@@ -254,7 +254,7 @@ where
         fixed_commitments,
         permutation_vk,
         cs,
-//        assembly.selectors,
+        //        assembly.selectors,
     ))
 }
 
@@ -346,7 +346,7 @@ where
                 fixed_commitments,
                 permutation_vk,
                 cs.clone(),
-//                assembly.selectors.clone(),
+                //                assembly.selectors.clone(),
             )
         }
     };
@@ -355,6 +355,22 @@ where
         .iter()
         .map(|poly| vk.domain.lagrange_to_coeff(poly.clone()))
         .collect();
+
+    println!("fixed_polys");
+    for poly in fixed_polys.iter() {
+        println!("fixed_poly");
+        for f in poly.iter() {
+            println!("{:?}", f);
+        }
+    }
+
+    println!("fixed_evals");
+    for poly in fixed.iter() {
+        println!("fixed_eval");
+        for f in poly.iter() {
+            println!("{:?}", f);
+        }
+    }
 
     let permutation_pk = assembly
         .permutation
@@ -365,6 +381,11 @@ where
     let mut l0 = vk.domain.empty_lagrange();
     l0[0] = C::Scalar::one();
     let l0 = vk.domain.lagrange_to_coeff(l0);
+
+    println!("l0");
+    for f in l0.iter() {
+        println!("{:?}", f);
+    }
 
     // Compute l_blind(X) which evaluates to 1 for each blinding factor row
     // and 0 otherwise over the domain.
@@ -390,6 +411,16 @@ where
 
     let l_last = vk.domain.lagrange_to_coeff(l_last);
     let l_active_row = vk.domain.lagrange_to_coeff(l_active_row);
+
+    println!("l_last");
+    for f in l_last.iter() {
+        println!("{:?}", f);
+    }
+
+    println!("l_active_row");
+    for f in l_active_row.iter() {
+        println!("{:?}", f);
+    }
 
     // Compute the optimized evaluation data structure
     let ev = Evaluator::new(&vk.cs);
