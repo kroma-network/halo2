@@ -375,7 +375,7 @@ fn main() {
         transcript.finalize()
     };
 
-    println!("{:?}", proof);
+    println!("proof: \n{:?}", proof);
 
     let mut verifier_transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&proof[..]);
 

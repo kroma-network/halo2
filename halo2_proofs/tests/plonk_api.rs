@@ -549,13 +549,15 @@ use std::marker::PhantomData;
             rng, &params, &pk,
         );
 
+        let verifier_params = params.verifier_params();
+
         verify_proof::<
             _,
             VerifierGWC<_>,
             _,
             Blake2bRead<_, _, Challenge255<_>>,
             AccumulatorStrategy<_>,
-        >(params, pk.get_vk(), &proof[..]);
+        >(verifier_params, pk.get_vk(), &proof[..]);
     }
 
     #[test]
@@ -1019,3 +1021,4 @@ use std::marker::PhantomData;
             );
         }
     }
+

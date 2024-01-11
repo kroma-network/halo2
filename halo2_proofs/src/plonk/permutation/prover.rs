@@ -18,11 +18,13 @@ use crate::{
     transcript::{EncodedChallenge, TranscriptWrite},
 };
 
+#[derive(Debug, Clone)]
 pub(crate) struct CommittedSet<C: CurveAffine> {
     pub(crate) permutation_product_poly: Polynomial<C::Scalar, Coeff>,
     permutation_product_blind: Blind<C::Scalar>,
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct Committed<C: CurveAffine> {
     pub(crate) sets: Vec<CommittedSet<C>>,
 }

@@ -356,11 +356,11 @@ where
         .map(|poly| vk.domain.lagrange_to_coeff(poly.clone()))
         .collect();
 
-    println!("fixed_polys");
+    println!("\"fixed_polys\": [");
     for poly in fixed_polys.iter() {
-        println!("fixed_poly");
+        println!("\"fixed_poly\": ");
         for f in poly.iter() {
-            println!("{:?}", f);
+            println!("\"{:?}\"", f);
         }
     }
 
