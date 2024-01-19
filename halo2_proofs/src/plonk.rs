@@ -63,6 +63,20 @@ impl<C: SerdeCurveAffine> VerifyingKey<C>
 where
     C::Scalar: SerdePrimeField,
 {
+    fn bytes_length(&self) -> usize {
+        8 + (self.fixed_commitments.len() * C::default().to_bytes().as_ref().len())
+            + self.permutation.bytes_length()
+            + self.cs.bytes_length()
+        /*
+        + self.selectors.len()
+            * (self
+                .selectors
+                .get(0)
+                .map(|selector| selector.len() / 8 + 1)
+                .unwrap_or(0))
+                */
+    }
+
     /// Writes a verifying key to a buffer.
     ///
     /// Writes a curve element according to `format`:
@@ -78,8 +92,9 @@ where
         for commitment in &self.fixed_commitments {
             commitment.write(writer, format)?;
         }
+        self.cs.write(writer)?;
         self.permutation.write(writer, format)?;
-        /* 
+        /*
         // write self.selectors
         for selector in &self.selectors {
             // since `selector` is filled with `bool`, we pack them 8 at a time into bytes and then write
@@ -160,19 +175,6 @@ where
 }
 
 impl<C: CurveAffine> VerifyingKey<C> {
-    fn bytes_length(&self) -> usize {
-        8 + (self.fixed_commitments.len() * C::default().to_bytes().as_ref().len())
-            + self.permutation.bytes_length()
-            /* 
-            + self.selectors.len()
-                * (self
-                    .selectors
-                    .get(0)
-                    .map(|selector| selector.len() / 8 + 1)
-                    .unwrap_or(0))
-                    */
-    }
-
     fn from_parts(
         domain: EvaluationDomain<C::Scalar>,
         fixed_commitments: Vec<C>,
@@ -280,7 +282,12 @@ impl<C: CurveAffine> ProvingKey<C> {
     pub fn get_vk(&self) -> &VerifyingKey<C> {
         &self.vk
     }
+}
 
+impl<C: SerdeCurveAffine> ProvingKey<C>
+where
+    C::Scalar: SerdePrimeField,
+{
     /// Gets the total number of bytes in the serialization of `self`
     fn bytes_length(&self) -> usize {
         let scalar_len = C::Scalar::default().to_repr().as_ref().len();
@@ -292,12 +299,7 @@ impl<C: CurveAffine> ProvingKey<C> {
             //+ polynomial_slice_byte_length(&self.fixed_cosets)
             + self.permutation.bytes_length()
     }
-}
 
-impl<C: SerdeCurveAffine> ProvingKey<C>
-where
-    C::Scalar: SerdePrimeField,
-{
     /// Writes a proving key to a buffer.
     ///
     /// Writes a curve element according to `format`:
