@@ -2,13 +2,18 @@ use core::cmp::max;
 use core::ops::{Add, Mul};
 use ff::Field;
 use std::collections::HashMap;
+use std::io;
 use std::{
     convert::TryFrom,
     ops::{Neg, Sub},
 };
 
+use self::sealed::{read_phases_vec, write_phases_slice};
+
 use super::{lookup, permutation, Assigned, Error};
 use crate::dev::metadata;
+use crate::helpers::SerdePrimeField;
+use crate::SerdeFormat;
 use crate::{
     circuit::{Layouter, Region, Value},
     poly::Rotation,
@@ -21,6 +26,8 @@ mod compress_selectors;
 pub trait ColumnType:
     'static + Sized + Copy + std::fmt::Debug + PartialEq + Eq + Into<Any>
 {
+    fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()>;
+    fn read<R: io::Read>(reader: &mut R) -> io::Result<Self>;
 }
 
 /// A column with an index and type
@@ -45,6 +52,54 @@ impl<C: ColumnType> Column<C> {
     pub fn column_type(&self) -> &C {
         &self.column_type
     }
+
+    /// Gets the total number of bytes in the serialization of `Column<C>`
+    pub(crate) fn bytes_length() -> usize {
+        4
+    }
+
+    /// Writes a column to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.index as u32).to_be_bytes())?;
+        self.column_type.write(writer)?;
+        Ok(())
+    }
+
+    /// Reads a column from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut index = [0u8; 4];
+        reader.read_exact(&mut index)?;
+        let index = u32::from_be_bytes(index) as usize;
+        Ok(Self {
+            index,
+            column_type: C::read(reader)?,
+        })
+    }
+}
+
+/// Writes a slice of columns to buffer
+pub(crate) fn write_columns_slice<W: io::Write, C: ColumnType>(
+    slice: &[Column<C>],
+    writer: &mut W,
+) -> io::Result<()> {
+    writer.write_all(&(slice.len() as u32).to_be_bytes())?;
+    for column in slice {
+        column.write(writer)?;
+    }
+    Ok(())
+}
+
+/// Reads a vector of columns from buffer
+pub(crate) fn read_columns_vec<R: io::Read, C: ColumnType>(
+    reader: &mut R,
+) -> io::Result<Vec<Column<C>>> {
+    let mut len = [0u8; 4];
+    reader.read_exact(&mut len)?;
+    let len = u32::from_be_bytes(len);
+
+    (0..len)
+        .map(|_| Column::<C>::read(reader))
+        .collect::<io::Result<Vec<_>>>()
 }
 
 impl<C: ColumnType> Ord for Column<C> {
@@ -66,6 +121,8 @@ impl<C: ColumnType> PartialOrd for Column<C> {
 }
 
 pub(crate) mod sealed {
+    use std::io;
+
     /// Phase of advice column
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
     pub struct Phase(pub(crate) u8);
@@ -74,6 +131,48 @@ pub(crate) mod sealed {
         pub fn prev(&self) -> Option<Phase> {
             self.0.checked_sub(1).map(Phase)
         }
+
+        /// Byte length of a phase.
+        pub(crate) fn bytes_length() -> usize {
+            1
+        }
+
+        /// Writes a phase to a buffer.
+        pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+            writer.write_all(&(self.0 as u8).to_be_bytes())?;
+            Ok(())
+        }
+
+        /// Reads a phase from a buffer.
+        pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+            let mut phase = [0u8; 1];
+            reader.read_exact(&mut phase)?;
+            let phase = u8::from_be_bytes(phase);
+            Ok(Self(phase))
+        }
+    }
+
+    /// Writes a slice of phases to buffer
+    pub(crate) fn write_phases_slice<W: io::Write>(
+        slice: &[Phase],
+        writer: &mut W,
+    ) -> io::Result<()> {
+        writer.write_all(&(slice.len() as u32).to_be_bytes())?;
+        for phase in slice {
+            phase.write(writer)?;
+        }
+        Ok(())
+    }
+
+    /// Reads a vector of phases from buffer
+    pub(crate) fn read_phases_vec<R: io::Read>(reader: &mut R) -> io::Result<Vec<Phase>> {
+        let mut len = [0u8; 4];
+        reader.read_exact(&mut len)?;
+        let len = u32::from_be_bytes(len);
+
+        (0..len)
+            .map(|_| Phase::read(reader))
+            .collect::<io::Result<Vec<_>>>()
     }
 
     /// Sealed trait to help keep `Phase` private.
@@ -228,10 +327,84 @@ impl PartialOrd for Any {
     }
 }
 
-impl ColumnType for Advice {}
-impl ColumnType for Fixed {}
-impl ColumnType for Instance {}
-impl ColumnType for Any {}
+impl ColumnType for Advice {
+    fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(2 as u8).to_be_bytes())?;
+        self.phase.write(writer)?;
+        Ok(())
+    }
+
+    fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut kind = [0u8; 1];
+        reader.read_exact(&mut kind)?;
+        let kind = u8::from_be_bytes(kind);
+        assert_eq!(kind, 2);
+        Ok(Advice {
+            phase: sealed::Phase::read(reader)?,
+        })
+    }
+}
+
+impl ColumnType for Fixed {
+    fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(3 as u8).to_be_bytes())?;
+        Ok(())
+    }
+
+    fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut kind = [0u8; 1];
+        reader.read_exact(&mut kind)?;
+        let kind = u8::from_be_bytes(kind);
+        assert_eq!(kind, 3);
+        Ok(Fixed {})
+    }
+}
+
+impl ColumnType for Instance {
+    fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(1 as u8).to_be_bytes())?;
+        Ok(())
+    }
+
+    fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut kind = [0u8; 1];
+        reader.read_exact(&mut kind)?;
+        let kind = u8::from_be_bytes(kind);
+        assert_eq!(kind, 1);
+        Ok(Instance {})
+    }
+}
+
+impl ColumnType for Any {
+    fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        match self {
+            Self::Instance => {
+                writer.write_all(&(1 as u8).to_be_bytes())?;
+                FirstPhase.to_sealed().write(writer)?;
+            }
+            Self::Advice(advice) => advice.write(writer)?,
+            Self::Fixed => {
+                writer.write_all(&(3 as u8).to_be_bytes())?;
+                FirstPhase.to_sealed().write(writer)?;
+            }
+        };
+        Ok(())
+    }
+
+    fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut kind = [0u8; 1];
+        reader.read_exact(&mut kind)?;
+        let kind = u8::from_be_bytes(kind);
+        let phase = sealed::Phase::read(reader)?;
+        Ok(match kind {
+            0 => panic!("Unexpected kind"),
+            1 => Self::Instance,
+            2 => Self::Advice(Advice { phase }),
+            3 => Self::Fixed,
+            4_u8..=u8::MAX => panic!("Unexpected kind"),
+        })
+    }
+}
 
 impl From<Advice> for Any {
     fn from(advice: Advice) -> Any {
@@ -386,6 +559,29 @@ impl Selector {
     pub fn is_simple(&self) -> bool {
         self.1
     }
+
+    /// Gets the total number of bytes in the serialization of `Selector`
+    pub(crate) fn bytes_length() -> usize {
+        5
+    }
+
+    /// Writes a selector to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.0 as u32).to_be_bytes())?;
+        writer.write_all(&(self.1 as u8).to_be_bytes())?;
+        Ok(())
+    }
+
+    /// Reads a selector from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut index = [0u8; 4];
+        reader.read_exact(&mut index)?;
+        let index = u32::from_be_bytes(index) as usize;
+        let mut is_simple = [0u8; 1];
+        reader.read_exact(&mut is_simple)?;
+        let is_simple = u8::from_be_bytes(is_simple) != 0;
+        Ok(Self(index, is_simple))
+    }
 }
 
 /// Query of fixed column at a certain relative location
@@ -412,6 +608,33 @@ impl FixedQuery {
     /// Rotation of this query
     pub fn rotation(&self) -> Rotation {
         self.rotation
+    }
+
+    /// Gets the total number of bytes in the serialization of `FixedQuery`
+    pub(crate) fn bytes_length() -> usize {
+        8 + Rotation::bytes_length()
+    }
+
+    /// Writes a fixed query to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.index as u32).to_be_bytes())?;
+        writer.write_all(&(self.column_index as u32).to_be_bytes())?;
+        self.rotation.write(writer)
+    }
+
+    /// Reads a fixed query from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut index = [0u8; 4];
+        reader.read_exact(&mut index)?;
+        let index = u32::from_be_bytes(index) as usize;
+        let mut column_index = [0u8; 4];
+        reader.read_exact(&mut column_index)?;
+        let column_index = u32::from_be_bytes(column_index) as usize;
+        Ok(Self {
+            index,
+            column_index,
+            rotation: Rotation::read(reader)?,
+        })
     }
 }
 
@@ -447,6 +670,35 @@ impl AdviceQuery {
     pub fn phase(&self) -> u8 {
         self.phase.0
     }
+
+    /// Gets the total number of bytes in the serialization of `AdviceQuery`
+    pub(crate) fn bytes_length() -> usize {
+        8 + Rotation::bytes_length() + sealed::Phase::bytes_length()
+    }
+
+    /// Writes an advice query to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.index as u32).to_be_bytes())?;
+        writer.write_all(&(self.column_index as u32).to_be_bytes())?;
+        self.rotation.write(writer)?;
+        self.phase.write(writer)
+    }
+
+    /// Reads an advice query from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut index = [0u8; 4];
+        reader.read_exact(&mut index)?;
+        let index = u32::from_be_bytes(index) as usize;
+        let mut column_index = [0u8; 4];
+        reader.read_exact(&mut column_index)?;
+        let column_index = u32::from_be_bytes(column_index) as usize;
+        Ok(Self {
+            index,
+            column_index,
+            rotation: Rotation::read(reader)?,
+            phase: sealed::Phase::read(reader)?,
+        })
+    }
 }
 
 /// Query of instance column at a certain relative location
@@ -473,6 +725,33 @@ impl InstanceQuery {
     /// Rotation of this query
     pub fn rotation(&self) -> Rotation {
         self.rotation
+    }
+
+    /// Gets the total number of bytes in the serialization of `InstanceQuery`
+    pub(crate) fn bytes_length() -> usize {
+        8 + Rotation::bytes_length()
+    }
+
+    /// Writes an instance query to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.index as u32).to_be_bytes())?;
+        writer.write_all(&(self.column_index as u32).to_be_bytes())?;
+        self.rotation.write(writer)
+    }
+
+    /// Reads an instance query from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut index = [0u8; 4];
+        reader.read_exact(&mut index)?;
+        let index = u32::from_be_bytes(index) as usize;
+        let mut column_index = [0u8; 4];
+        reader.read_exact(&mut column_index)?;
+        let column_index = u32::from_be_bytes(column_index) as usize;
+        Ok(Self {
+            index,
+            column_index,
+            rotation: Rotation::read(reader)?,
+        })
     }
 }
 
@@ -520,6 +799,29 @@ impl Challenge {
     /// Phase of this challenge.
     pub fn phase(&self) -> u8 {
         self.phase.0
+    }
+
+    /// Gets the total number of bytes in the serialization of `Challenge`
+    pub(crate) fn bytes_length() -> usize {
+        4 + sealed::Phase::bytes_length()
+    }
+
+    /// Writes a challenge to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.index as u32).to_be_bytes())?;
+        self.phase.write(writer)?;
+        Ok(())
+    }
+
+    /// Reads a challenge from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut index = [0u8; 4];
+        reader.read_exact(&mut index)?;
+        let index = u32::from_be_bytes(index) as usize;
+        Ok(Self {
+            index,
+            phase: sealed::Phase::read(reader)?,
+        })
     }
 }
 
@@ -1092,6 +1394,105 @@ impl<F: Field> Expression<F> {
     }
 }
 
+impl<F: SerdePrimeField> Expression<F> {
+    /// Gets the total number of bytes in the serialization of `self`
+    pub(crate) fn bytes_length(&self) -> usize {
+        1 + match self {
+            Expression::Constant(_) => F::default().to_repr().as_ref().len(),
+            Expression::Selector(_) => Selector::bytes_length(),
+            Expression::Fixed(_) => FixedQuery::bytes_length(),
+            Expression::Advice(_) => AdviceQuery::bytes_length(),
+            Expression::Instance(_) => InstanceQuery::bytes_length(),
+            Expression::Challenge(_) => Challenge::bytes_length(),
+            Expression::Negated(poly) => poly.bytes_length(),
+            Expression::Sum(a, b) => a.bytes_length() + b.bytes_length(),
+            Expression::Product(a, b) => a.bytes_length() + b.bytes_length(),
+            Expression::Scaled(poly, _) => {
+                poly.bytes_length() + F::default().to_repr().as_ref().len()
+            }
+        }
+    }
+
+    /// Writes an expression to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        match self {
+            Expression::Constant(scalar) => {
+                writer.write_all(&(0 as u8).to_be_bytes())?;
+                scalar.write_raw(writer)?;
+            }
+            Expression::Selector(selector) => {
+                writer.write_all(&(1 as u8).to_be_bytes())?;
+                selector.write(writer)?;
+            }
+            Expression::Fixed(query) => {
+                writer.write_all(&(2 as u8).to_be_bytes())?;
+                query.write(writer)?;
+            }
+            Expression::Advice(query) => {
+                writer.write_all(&(3 as u8).to_be_bytes())?;
+                query.write(writer)?;
+            }
+            Expression::Instance(query) => {
+                writer.write_all(&(4 as u8).to_be_bytes())?;
+                query.write(writer)?;
+            }
+            Expression::Challenge(challenge) => {
+                writer.write_all(&(5 as u8).to_be_bytes())?;
+                challenge.write(writer)?;
+            }
+            Expression::Negated(poly) => {
+                writer.write_all(&(6 as u8).to_be_bytes())?;
+                poly.write(writer)?;
+            }
+            Expression::Sum(a, b) => {
+                writer.write_all(&(7 as u8).to_be_bytes())?;
+                a.write(writer)?;
+                b.write(writer)?;
+            }
+            Expression::Product(a, b) => {
+                writer.write_all(&(8 as u8).to_be_bytes())?;
+                a.write(writer)?;
+                b.write(writer)?;
+            }
+            Expression::Scaled(poly, scalar) => {
+                writer.write_all(&(9 as u8).to_be_bytes())?;
+                poly.write(writer)?;
+                scalar.write_raw(writer)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Reads an expression from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut kind = [0u8; 1];
+        reader.read_exact(&mut kind)?;
+        let kind = u8::from_be_bytes(kind);
+        Ok(match kind {
+            0 => Expression::Constant(F::read_raw_unchecked(reader)),
+            1 => Expression::Selector(Selector::read(reader)?),
+            2 => Expression::Fixed(FixedQuery::read(reader)?),
+            3 => Expression::Advice(AdviceQuery::read(reader)?),
+            4 => Expression::Instance(InstanceQuery::read(reader)?),
+            5 => Expression::Challenge(Challenge::read(reader)?),
+            6 => Expression::Negated(Box::new(Expression::read(reader)?)),
+            7 => Expression::Sum(
+                Box::new(Expression::read(reader)?),
+                Box::new(Expression::read(reader)?),
+            ),
+            8 => Expression::Product(
+                Box::new(Expression::read(reader)?),
+                Box::new(Expression::read(reader)?),
+            ),
+            9 => Expression::Scaled(
+                Box::new(Expression::read(reader)?),
+                F::read_raw_unchecked(reader),
+            ),
+            10_u8..=u8::MAX => panic!("Unexpected kind"),
+        })
+    }
+}
+
 impl<F: std::fmt::Debug> std::fmt::Debug for Expression<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -1203,6 +1604,28 @@ pub(crate) struct PointIndex(pub usize);
 pub struct VirtualCell {
     pub(crate) column: Column<Any>,
     pub(crate) rotation: Rotation,
+}
+
+impl VirtualCell {
+    /// Gets the total number of bytes in the serialization of `VirtualCell`
+    pub(crate) fn bytes_length() -> usize {
+        Column::<Any>::bytes_length() + Rotation::bytes_length()
+    }
+
+    /// Writes a virtual cell to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.column.write(writer)?;
+        self.rotation.write(writer)?;
+        Ok(())
+    }
+
+    /// Reads a virtual cell from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        Ok(Self {
+            column: Column::<Any>::read(reader)?,
+            rotation: Rotation::read(reader)?,
+        })
+    }
 }
 
 impl<Col: Into<Column<Any>>> From<(Col, Rotation)> for VirtualCell {
@@ -1356,6 +1779,59 @@ impl<F: Field> Gate<F> {
 
     pub(crate) fn queried_cells(&self) -> &[VirtualCell] {
         &self.queried_cells
+    }
+}
+
+impl<F: SerdePrimeField> Gate<F> {
+    /// Gets the total number of bytes in the serialization of `Gate<F>`
+    pub(crate) fn bytes_length(&self) -> usize {
+        // gates
+        4 + self
+            .polys
+            .iter()
+            .fold(0, |acc, poly| acc + poly.bytes_length())
+        // queried_selectors
+        + 4 + self.queried_selectors.len() * Selector::bytes_length()
+        // queried_cells
+        + 4 + self.queried_cells.len() * VirtualCell::bytes_length()
+    }
+
+    /// Writes a gate to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        write_expressions_slice(self.polynomials(), writer)?;
+        writer.write_all(&(self.queried_selectors.len() as u32).to_be_bytes())?;
+        for queried_selector in &self.queried_selectors {
+            queried_selector.write(writer)?;
+        }
+        writer.write_all(&(self.queried_cells.len() as u32).to_be_bytes())?;
+        for queried_cell in &self.queried_cells {
+            queried_cell.write(writer)?;
+        }
+        Ok(())
+    }
+
+    /// Reads a gate from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let polys = read_expressions_vec(reader)?;
+        let mut queried_selectors_len = [0u8; 4];
+        reader.read_exact(&mut queried_selectors_len)?;
+        let queried_selectors_len = u32::from_be_bytes(queried_selectors_len);
+        let queried_selectors = (0..queried_selectors_len)
+            .map(|_| Selector::read(reader))
+            .collect::<io::Result<Vec<_>>>()?;
+        let mut queried_cells_len = [0u8; 4];
+        reader.read_exact(&mut queried_cells_len)?;
+        let queried_cells_len = u32::from_be_bytes(queried_cells_len);
+        let queried_cells = (0..queried_cells_len)
+            .map(|_| VirtualCell::read(reader))
+            .collect::<io::Result<Vec<_>>>()?;
+        Ok(Self {
+            name: "",
+            constraint_names: vec![],
+            polys,
+            queried_selectors,
+            queried_cells,
+        })
     }
 }
 
@@ -2129,6 +2605,242 @@ impl<F: Field> ConstraintSystem<F> {
     pub fn constants(&self) -> &Vec<Column<Fixed>> {
         &self.constants
     }
+}
+
+impl<F: SerdePrimeField> ConstraintSystem<F> {
+    /// Gets the total number of bytes in the serialization of `self`
+    pub(crate) fn bytes_length(&self) -> usize {
+        // self.num_fixed_columns
+        4 +
+        //self.num_advice_columns
+        4 +
+        //self.num_instance_columns
+        4 +
+        //self.num_selectors
+        4 +
+        //self.num_challenges
+        4 +
+        // self.advice_column_phase
+        4 +
+        self.advice_column_phase.len() * sealed::Phase::bytes_length() +
+        // self.challenge_phase
+        4 +
+        self.challenge_phase.len() * sealed::Phase::bytes_length() +
+        // self.selector_map
+        4 +
+        self.selector_map.len() * Column::<Fixed>::bytes_length() +
+        // self.gates
+        4 +
+        self
+            .gates
+            .iter()
+            .fold(0, |acc, gate| acc + gate.bytes_length()) +
+        // self.advice_queries
+        4 +
+        self.advice_queries.len() * (Column::<Advice>::bytes_length() + Rotation::bytes_length()) +
+        // self.num_advice_queries
+        4 +
+        self.num_advice_queries.len() * 4 +
+        // self.instance_queries
+        4 +
+        self.instance_queries.len() * (Column::<Instance>::bytes_length() + Rotation::bytes_length()) +
+        // self.fixed_queries
+        4 +
+        self.fixed_queries.len() * (Column::<Fixed>::bytes_length() + Rotation::bytes_length()) +
+        // self.permutation
+        self.permutation.bytes_length() +
+        // self.lookups
+        4 +
+        self
+            .lookups
+            .iter()
+            .fold(0, |acc, lookup| acc + lookup.bytes_length()) +
+        // self.constants
+        4 +
+        self.constants.len() * Column::<Fixed>::bytes_length()
+    }
+
+    /// Writes a constraint system to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.num_fixed_columns as u32).to_be_bytes())?;
+        writer.write_all(&(self.num_advice_columns as u32).to_be_bytes())?;
+        writer.write_all(&(self.num_instance_columns as u32).to_be_bytes())?;
+        writer.write_all(&(self.num_selectors as u32).to_be_bytes())?;
+        writer.write_all(&(self.num_challenges as u32).to_be_bytes())?;
+        write_phases_slice(self.advice_column_phase.as_slice(), writer)?;
+        write_phases_slice(self.challenge_phase.as_slice(), writer)?;
+        write_columns_slice(self.selector_map.as_slice(), writer)?;
+        writer.write_all(&(self.gates.len() as u32).to_be_bytes())?;
+        for gate in &self.gates {
+            gate.write(writer)?;
+        }
+        writer.write_all(&(self.advice_queries.len() as u32).to_be_bytes())?;
+        for (column, rotation) in &self.advice_queries {
+            column.write(writer)?;
+            rotation.write(writer)?;
+        }
+        writer.write_all(&(self.num_advice_queries.len() as u32).to_be_bytes())?;
+        for num_advice_query in &self.num_advice_queries {
+            writer.write_all(&(*num_advice_query as u32).to_be_bytes())?;
+        }
+        writer.write_all(&(self.instance_queries.len() as u32).to_be_bytes())?;
+        for (column, rotation) in &self.instance_queries {
+            column.write(writer)?;
+            rotation.write(writer)?;
+        }
+        writer.write_all(&(self.fixed_queries.len() as u32).to_be_bytes())?;
+        for (column, rotation) in &self.fixed_queries {
+            column.write(writer)?;
+            rotation.write(writer)?;
+        }
+        self.permutation.write(writer)?;
+        writer.write_all(&(self.lookups.len() as u32).to_be_bytes())?;
+        for lookup in &self.lookups {
+            lookup.write(writer)?;
+        }
+        write_columns_slice(self.constants.as_slice(), writer)?;
+        Ok(())
+    }
+
+    /// Reads a constraint system from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut num_fixed_columns = [0u8; 4];
+        reader.read_exact(&mut num_fixed_columns)?;
+        let num_fixed_columns = u32::from_be_bytes(num_fixed_columns) as usize;
+
+        let mut num_advice_columns = [0u8; 4];
+        reader.read_exact(&mut num_advice_columns)?;
+        let num_advice_columns = u32::from_be_bytes(num_advice_columns) as usize;
+
+        let mut num_instance_columns = [0u8; 4];
+        reader.read_exact(&mut num_instance_columns)?;
+        let num_instance_columns = u32::from_be_bytes(num_instance_columns) as usize;
+
+        let mut num_selectors = [0u8; 4];
+        reader.read_exact(&mut num_selectors)?;
+        let num_selectors = u32::from_be_bytes(num_selectors) as usize;
+
+        let mut num_challenges = [0u8; 4];
+        reader.read_exact(&mut num_challenges)?;
+        let num_challenges = u32::from_be_bytes(num_challenges) as usize;
+
+        let advice_column_phase = read_phases_vec(reader)?;
+        let challenge_phase = read_phases_vec(reader)?;
+        let selector_map = read_columns_vec(reader)?;
+
+        let mut gates_len = [0u8; 4];
+        reader.read_exact(&mut gates_len)?;
+        let gates_len = u32::from_be_bytes(gates_len);
+        let gates = (0..gates_len)
+            .map(|_| Gate::<F>::read(reader))
+            .collect::<io::Result<Vec<_>>>()
+            .unwrap();
+
+        let mut advice_queries_len = [0u8; 4];
+        reader.read_exact(&mut advice_queries_len)?;
+        let advice_queries_len = u32::from_be_bytes(advice_queries_len);
+        let advice_queries = (0..advice_queries_len)
+            .map(|_| {
+                (
+                    Column::<Advice>::read(reader).unwrap(),
+                    Rotation::read(reader).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut num_advice_queries_len = [0u8; 4];
+        reader.read_exact(&mut num_advice_queries_len)?;
+        let num_advice_queries_len = u32::from_be_bytes(num_advice_queries_len);
+        let num_advice_queries = (0..num_advice_queries_len)
+            .map(|_| {
+                let mut num_advice_queries = [0u8; 4];
+                reader.read_exact(&mut num_advice_queries).unwrap();
+                u32::from_be_bytes(num_advice_queries) as usize
+            })
+            .collect::<Vec<_>>();
+
+        let mut instance_queries_len = [0u8; 4];
+        reader.read_exact(&mut instance_queries_len)?;
+        let instance_queries_len = u32::from_be_bytes(instance_queries_len);
+        let instance_queries = (0..instance_queries_len)
+            .map(|_| {
+                (
+                    Column::<Instance>::read(reader).unwrap(),
+                    Rotation::read(reader).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut fixed_queries_len = [0u8; 4];
+        reader.read_exact(&mut fixed_queries_len)?;
+        let fixed_queries_len = u32::from_be_bytes(fixed_queries_len);
+        let fixed_queries = (0..fixed_queries_len)
+            .map(|_| {
+                (
+                    Column::<Fixed>::read(reader).unwrap(),
+                    Rotation::read(reader).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let permutation = permutation::Argument::read(reader)?;
+
+        let mut lookups_len = [0u8; 4];
+        reader.read_exact(&mut lookups_len)?;
+        let lookups_len = u32::from_be_bytes(lookups_len);
+        let lookups = (0..lookups_len)
+            .map(|_| lookup::Argument::<F>::read(reader))
+            .collect::<io::Result<Vec<_>>>()
+            .unwrap();
+
+        let constants = read_columns_vec(reader)?;
+
+        Ok(Self {
+            num_fixed_columns,
+            num_advice_columns,
+            num_instance_columns,
+            num_selectors,
+            num_challenges,
+            advice_column_phase,
+            challenge_phase,
+            selector_map,
+            gates,
+            advice_queries,
+            num_advice_queries,
+            instance_queries,
+            fixed_queries,
+            permutation,
+            lookups,
+            general_column_annotations: HashMap::<_, _>::new(),
+            constants,
+            minimum_degree: None,
+        })
+    }
+}
+
+/// Writes a slice of expressions to buffer
+pub(crate) fn write_expressions_slice<W: io::Write, F: SerdePrimeField>(
+    slice: &[Expression<F>],
+    writer: &mut W,
+) -> io::Result<()> {
+    writer.write_all(&(slice.len() as u32).to_be_bytes())?;
+    for column in slice {
+        column.write(writer)?;
+    }
+    Ok(())
+}
+
+/// Reads a vector of expressions from buffer
+pub(crate) fn read_expressions_vec<R: io::Read, F: SerdePrimeField>(
+    reader: &mut R,
+) -> io::Result<Vec<Expression<F>>> {
+    let mut len = [0u8; 4];
+    reader.read_exact(&mut len)?;
+    let len = u32::from_be_bytes(len);
+
+    (0..len)
+        .map(|_| Expression::<F>::read(reader))
+        .collect::<io::Result<Vec<_>>>()
 }
 
 /// Exposes the "virtual cells" that can be queried while creating a custom gate or lookup

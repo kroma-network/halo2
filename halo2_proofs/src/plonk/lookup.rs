@@ -1,6 +1,11 @@
-use super::circuit::Expression;
+use crate::helpers::SerdePrimeField;
+
+use super::{circuit::Expression, read_expressions_vec, write_expressions_slice};
 use ff::Field;
-use std::fmt::{self, Debug};
+use std::{
+    fmt::{self, Debug},
+    io,
+};
 
 pub(crate) mod prover;
 pub(crate) mod verifier;
@@ -90,5 +95,36 @@ impl<F: Field> Argument<F> {
     /// Returns table of this argument
     pub fn table_expressions(&self) -> &Vec<Expression<F>> {
         &self.table_expressions
+    }
+}
+
+impl<F: SerdePrimeField> Argument<F> {
+    /// Gets the total number of bytes in the serialization of `self`
+    pub(crate) fn bytes_length(&self) -> usize {
+        8 + self
+            .input_expressions
+            .iter()
+            .fold(0, |acc, e| acc + e.bytes_length())
+            + self
+                .table_expressions
+                .iter()
+                .fold(0, |acc, e| acc + e.bytes_length())
+    }
+
+    /// Writes an argument to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        // NOTE(chokobole): `self.name` is not important in the sense of creating proof.
+        write_expressions_slice(self.input_expressions.as_slice(), writer)?;
+        write_expressions_slice(self.table_expressions.as_slice(), writer)?;
+        Ok(())
+    }
+
+    /// Reads an argument from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        Ok(Self {
+            name: "",
+            input_expressions: read_expressions_vec(reader)?,
+            table_expressions: read_expressions_vec(reader)?,
+        })
     }
 }
