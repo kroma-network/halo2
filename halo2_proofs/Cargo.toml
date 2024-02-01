@@ -95,7 +95,6 @@ shplonk = []
 gwc = []
 phase-check = []
 profile = ["ark-std/print-trace"]
-tachyon_msm_gpu = []
 
 [lib]
 bench = false
