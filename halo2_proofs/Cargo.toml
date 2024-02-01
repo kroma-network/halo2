@@ -78,6 +78,7 @@ criterion = "0.3"
 gumdrop = "0.8"
 proptest = "1"
 rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
+rand_xorshift = "0.3"
 
 [build-dependencies]
 cxx-build = "1.0"

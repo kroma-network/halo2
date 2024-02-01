@@ -36,5 +36,6 @@ pub mod dev;
 mod helpers;
 pub use helpers::SerdeFormat;
 
-#[cxx::bridge(namespace = "tachyon::halo2")]
-pub mod ffi {}
+pub mod bn254;
+pub mod consts;
+pub mod xor_shift_rng;
