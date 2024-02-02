@@ -520,15 +520,11 @@ pub fn parallelize<T: Send, F: Fn(&mut [T], usize) + Send + Sync + Clone>(v: &mu
         chunk = 1;
     }
 
-    multicore::scope(|scope| {
-        for (chunk_num, v) in v.chunks_mut(chunk).enumerate() {
-            let f = f.clone();
-            scope.spawn(move |_| {
-                let start = chunk_num * chunk;
-                f(v, start);
-            });
-        }
-    });
+    for (chunk_num, v) in v.chunks_mut(chunk).enumerate() {
+        let f = f.clone();
+        let start = chunk_num * chunk;
+        f(v, start);
+    }
 }
 
 fn log2_floor(num: usize) -> u32 {
