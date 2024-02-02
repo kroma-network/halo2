@@ -1,24 +1,23 @@
 use ff::BatchInvert;
 use halo2_proofs::{
-    arithmetic::{CurveAffine, FieldExt},
-    circuit::{floor_planner::V1, Layouter, Value},
-    dev::{metadata, FailureLocation, MockProver, VerifyFailure},
-    halo2curves::pasta::EqAffine,
+    arithmetic::FieldExt,
+    circuit::{Layouter, SimpleFloorPlanner, Value},
+    halo2curves::bn256::{Bn256, Fr},
     plonk::*,
     poly::{
-        commitment::ParamsProver,
-        ipa::{
-            commitment::{IPACommitmentScheme, ParamsIPA},
-            multiopen::{ProverIPA, VerifierIPA},
-            strategy::AccumulatorStrategy,
+        kzg::{
+            commitment::{KZGCommitmentScheme, ParamsKZG},
+            multiopen::{ProverSHPLONK, VerifierSHPLONK},
+            strategy::SingleStrategy,
         },
-        Rotation, VerificationStrategy,
+        Rotation,
     },
     transcript::{
         Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
     },
 };
-use rand_core::{OsRng, RngCore};
+use rand_core::{RngCore, SeedableRng};
+use rand_xorshift::XorShiftRng;
 use std::iter;
 
 fn rand_2d_array<F: FieldExt, R: RngCore, const W: usize, const H: usize>(
@@ -137,7 +136,7 @@ impl<F: FieldExt, const W: usize, const H: usize> MyCircuit<F, W, H> {
 
 impl<F: FieldExt, const W: usize, const H: usize> Circuit<F> for MyCircuit<F, W, H> {
     type Config = MyConfig<W>;
-    type FloorPlanner = V1;
+    type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
         Self::default()
@@ -253,109 +252,51 @@ impl<F: FieldExt, const W: usize, const H: usize> Circuit<F> for MyCircuit<F, W,
     }
 }
 
-fn test_mock_prover<F: FieldExt, const W: usize, const H: usize>(
-    k: u32,
-    circuit: MyCircuit<F, W, H>,
-    expected: Result<(), Vec<(metadata::Constraint, FailureLocation)>>,
-) {
-    let prover = MockProver::run::<_>(k, &circuit, vec![]).unwrap();
-    match (prover.verify(), expected) {
-        (Ok(_), Ok(_)) => {}
-        (Err(err), Err(expected)) => {
-            assert_eq!(
-                err.into_iter()
-                    .map(|failure| match failure {
-                        VerifyFailure::ConstraintNotSatisfied {
-                            constraint,
-                            location,
-                            ..
-                        } => (constraint, location),
-                        _ => panic!("MockProver::verify has result unmatching expected"),
-                    })
-                    .collect::<Vec<_>>(),
-                expected
-            )
-        }
-        (_, _) => panic!("MockProver::verify has result unmatching expected"),
-    };
-}
+fn main() {
+    const W: usize = 2;
+    const H: usize = 8;
+    const K: u32 = 4;
 
-fn test_prover<C: CurveAffine, const W: usize, const H: usize>(
-    k: u32,
-    circuit: MyCircuit<C::Scalar, W, H>,
-    expected: bool,
-) {
-    let params = ParamsIPA::<C>::new(k);
-    let vk = keygen_vk(&params, &circuit).unwrap();
-    let pk = keygen_pk(&params, vk, &circuit).unwrap();
+    let mut rng_for_table = XorShiftRng::from_seed([
+        0x59, 0x62, 0xbe, 0x5d, 0x76, 0x3d, 0x31, 0x8d, 0x17, 0xdb, 0x37, 0x32, 0x54, 0x06, 0xbc,
+        0xe5,
+    ]);
+    let circuit = MyCircuit::<Fr, W, H>::rand(&mut rng_for_table);
+
+    let s = Fr::from(2);
+    let params = ParamsKZG::<Bn256>::unsafe_setup_with_s(K, s);
+    let pk = keygen_pk2(&params, &circuit).unwrap();
+
+    let rng = XorShiftRng::from_seed([
+        0x59, 0x62, 0xbe, 0x5d, 0x76, 0x3d, 0x31, 0x8d, 0x17, 0xdb, 0x37, 0x32, 0x54, 0x06, 0xbc,
+        0xe5,
+    ]);
 
     let proof = {
         let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
 
-        create_proof::<IPACommitmentScheme<C>, ProverIPA<C>, _, _, _, _>(
+        create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<_>, _, _, _, _>(
             &params,
             &pk,
             &[circuit],
             &[&[]],
-            OsRng,
+            rng,
             &mut transcript,
         )
         .expect("proof generation should not fail");
 
         transcript.finalize()
     };
+    println!("proof: \n{:?}", proof);
 
-    let accepted = {
-        let strategy = AccumulatorStrategy::new(&params);
-        let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
-
-        verify_proof::<IPACommitmentScheme<C>, VerifierIPA<C>, _, _, _>(
-            &params,
-            pk.get_vk(),
-            strategy,
-            &[&[]],
-            &mut transcript,
-        )
-        .map(|strategy| strategy.finalize())
-        .unwrap_or_default()
-    };
-
-    assert_eq!(accepted, expected);
-}
-
-fn main() {
-    const W: usize = 4;
-    const H: usize = 32;
-    const K: u32 = 8;
-
-    let circuit = &MyCircuit::<_, W, H>::rand(&mut OsRng);
-
-    {
-        test_mock_prover(K, circuit.clone(), Ok(()));
-        test_prover::<EqAffine, W, H>(K, circuit.clone(), true);
-    }
-
-    #[cfg(not(feature = "sanity-checks"))]
-    {
-        use std::ops::IndexMut;
-
-        let mut circuit = circuit.clone();
-        circuit.shuffled = circuit.shuffled.map(|mut shuffled| {
-            shuffled.index_mut(0).swap(0, 1);
-            shuffled
-        });
-
-        test_mock_prover(
-            K,
-            circuit.clone(),
-            Err(vec![(
-                ((1, "z should end with 1").into(), 0, "").into(),
-                FailureLocation::InRegion {
-                    region: (0, "Shuffle original into shuffled").into(),
-                    offset: 32,
-                },
-            )]),
-        );
-        test_prover::<EqAffine, W, H>(K, circuit, false);
-    }
+    let strategy = SingleStrategy::new(&params);
+    let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
+    verify_proof::<KZGCommitmentScheme<Bn256>, VerifierSHPLONK<Bn256>, _, _, _>(
+        &params,
+        pk.get_vk(),
+        strategy,
+        &[&[], &[]],
+        &mut transcript,
+    )
+    .unwrap();
 }
