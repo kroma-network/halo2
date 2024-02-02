@@ -4,11 +4,14 @@ use std::{
     ops::RangeTo,
 };
 
-use crate::bn254::{
-    AdviceSingle, Blake2bWrite as TachyonBlake2bWrite, Evals, InstanceSingle,
-    ProvingKey as TachyonProvingKey, RationalEvals, SHPlonkProver as TachyonSHPlonkProver,
-};
 use crate::xor_shift_rng::XORShiftRng as TachyonXORShiftRng;
+use crate::{
+    bn254::{
+        AdviceSingle, Blake2bWrite as TachyonBlake2bWrite, Evals, InstanceSingle,
+        ProvingKey as TachyonProvingKey, RationalEvals, SHPlonkProver as TachyonSHPlonkProver,
+    },
+    plonk::ChallengeTheta,
+};
 use crate::{
     circuit::Value,
     plonk::{

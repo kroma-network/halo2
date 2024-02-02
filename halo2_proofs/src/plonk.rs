@@ -204,12 +204,14 @@ impl<C: CurveAffine> VerifyingKey<C> {
             .to_state();
 
         let s = format!("{:?}", vk.pinned());
+        println!("vk_str: {}", s);
 
         hasher.update(&(s.len() as u64).to_le_bytes());
         hasher.update(s.as_bytes());
 
         // Hash in final Blake2bState
         vk.transcript_repr = C::Scalar::from_bytes_wide(hasher.finalize().as_array());
+        println!("Halo2(transcript_repr): {:?}", vk.transcript_repr);
 
         vk
     }

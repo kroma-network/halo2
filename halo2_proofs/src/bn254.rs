@@ -192,6 +192,7 @@ impl fmt::Debug for ffi::SHPlonkProver {
 pub struct Blake2bWrite<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
     state: cxx::UniquePtr<ffi::Blake2bWriter>,
     writer: W,
+    proof_idx: usize,
     _marker: PhantomData<(W, C, E)>,
 }
 
@@ -242,12 +243,16 @@ impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
+        println!("Proof[{}]: {:?}", self.proof_idx, point);
+        self.proof_idx += 1;
         self.common_point(point)?;
         let compressed = point.to_bytes();
         self.writer.write_all(compressed.as_ref())
     }
 
     fn write_scalar(&mut self, scalar: C::Scalar) -> io::Result<()> {
+        println!("Proof[{}]: {:?}", self.proof_idx, scalar);
+        self.proof_idx += 1;
         self.common_scalar(scalar)?;
         let data = scalar.to_repr();
         self.writer.write_all(data.as_ref())
@@ -262,6 +267,7 @@ impl<W: Write, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
         Blake2bWrite {
             state: ffi::new_blake2b_writer(),
             writer: writer,
+            proof_idx: 0,
             _marker: PhantomData,
         }
     }
