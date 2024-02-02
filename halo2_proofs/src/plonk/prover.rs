@@ -414,8 +414,9 @@ pub fn create_proof<
 
             for (index, phase) in meta.challenge_phase.iter().enumerate() {
                 if current_phase == *phase {
-                    let existing =
-                        challenges.insert(index, *transcript.squeeze_challenge_scalar::<()>());
+                    let challenge = transcript.squeeze_challenge_scalar::<()>();
+                    println!("challenge[{:?}]: {:?}", index, *challenge);
+                    let existing = challenges.insert(index, *challenge);
                     assert!(existing.is_none());
                 }
             }
@@ -431,6 +432,7 @@ pub fn create_proof<
 
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
+    println!("theta: {:?}", *theta);
 
     let lookups: Vec<Vec<lookup::prover::Permuted<Scheme::Curve>>> = instance
         .iter()
@@ -461,9 +463,11 @@ pub fn create_proof<
 
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
+    println!("beta: {:?}", *beta);
 
     // Sample gamma challenge
     let gamma: ChallengeGamma<_> = transcript.squeeze_challenge_scalar();
+    println!("gamma: {:?}", *gamma);
 
     // Commit to permutations.
     let permutations: Vec<permutation::prover::Committed<Scheme::Curve>> = instance
@@ -501,6 +505,7 @@ pub fn create_proof<
 
     // Obtain challenge for keeping all separate gates linearly independent
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
+    println!("y: {:?}", *y);
 
     // Calculate the advice polys
     let advice: Vec<AdviceSingle<Scheme::Curve, Coeff>> = advice
@@ -545,6 +550,7 @@ pub fn create_proof<
     let vanishing = vanishing.construct(params, domain, h_poly, &mut rng, transcript)?;
 
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
+    println!("x: {:?}", *x);
     let xn = x.pow(&[params.n() as u64, 0, 0, 0]);
 
     if P::QUERY_INSTANCE {

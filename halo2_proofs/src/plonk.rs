@@ -204,6 +204,7 @@ impl<C: CurveAffine> VerifyingKey<C> {
             .to_state();
 
         let s = format!("{:?}", vk.pinned());
+        println!("vk_str: {}", s);
 
         hasher.update(&(s.len() as u64).to_le_bytes());
         hasher.update(s.as_bytes());
