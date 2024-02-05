@@ -149,6 +149,12 @@ impl Assembly {
                 }
             });
         }
+        // println!("permutationssssssss");
+        // for poly in permutations.iter() {
+        //     for c in poly.values.iter() {
+        //         println!("{:?}", c);
+        //     }
+        // }
 
         // Pre-compute commitments for the URS.
         let mut commitments = Vec::with_capacity(p.columns.len());

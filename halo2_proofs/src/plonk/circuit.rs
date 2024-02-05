@@ -222,6 +222,93 @@ impl Ord for Any {
     }
 }
 
+// Write test code for `Any`'s `Ord` implementation.
+#[cfg(test)]
+mod test_any_ord {
+    use super::*;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn test_any_ord() {
+        let advice = Any::advice();
+        let advice_in_first_phase = Any::advice_in(FirstPhase);
+        let advice_in_second_phase = Any::advice_in(SecondPhase);
+        let advice_in_third_phase = Any::advice_in(ThirdPhase);
+        let fixed = Any::Fixed;
+        let instance = Any::Instance;
+
+        assert_eq!(fixed.cmp(&advice), Ordering::Greater);
+        assert_eq!(fixed.cmp(&advice_in_first_phase), Ordering::Greater);
+        assert_eq!(fixed.cmp(&advice_in_second_phase), Ordering::Greater);
+        assert_eq!(fixed.cmp(&advice_in_third_phase), Ordering::Greater);
+        assert_eq!(fixed.cmp(&fixed), Ordering::Equal);
+        assert_eq!(fixed.cmp(&instance), Ordering::Greater);
+
+        // assert_eq!(advice.cmp(&advice), Ordering::Equal);
+        // assert_eq!(advice.cmp(&advice_in_first_phase), Ordering::Equal);
+        // assert_eq!(advice.cmp(&advice_in_second_phase), Ordering::Less);
+        // assert_eq!(advice.cmp(&advice_in_third_phase), Ordering::Less);
+        // assert_eq!(advice.cmp(&fixed), Ordering::Greater);
+        // assert_eq!(advice.cmp(&instance), Ordering::Greater);
+
+        // assert_eq!(advice_in_first_phase.cmp(&advice), Ordering::Equal);
+        // assert_eq!(
+        //     advice_in_first_phase.cmp(&advice_in_first_phase),
+        //     Ordering::Equal
+        // );
+        // assert_eq!(
+        //     advice_in_first_phase.cmp(&advice_in_second_phase),
+        //     Ordering::Less
+        // );
+        // assert_eq!(
+        //     advice_in_first_phase.cmp(&advice_in_third_phase),
+        //     Ordering::Less
+        // );
+        // assert_eq!(advice_in_first_phase.cmp(&fixed), Ordering::Greater);
+        // assert_eq!(advice_in_first_phase.cmp(&instance), Ordering::Greater);
+
+        // assert_eq!(advice_in_second_phase.cmp(&advice), Ordering::Greater);
+        // assert_eq!(
+        //     advice_in_second_phase.cmp(&advice_in_first_phase),
+        //     Ordering::Greater
+        // );
+        // assert_eq!(
+        //     advice_in_second_phase.cmp(&advice_in_second_phase),
+        //     Ordering::Equal
+        // );
+        // assert_eq!(
+        //     advice_in_second_phase.cmp(&advice_in_third_phase),
+        //     Ordering::Less
+        // );
+        // assert_eq!(advice_in_second_phase.cmp(&fixed), Ordering::Greater);
+        // assert_eq!(advice_in_second_phase.cmp(&instance), Ordering::Greater);
+
+        // assert_eq!(advice_in_third_phase.cmp(&advice), Ordering::Greater);
+        // assert_eq!(
+        //     advice_in_third_phase.cmp(&advice_in_first_phase),
+        //     Ordering::Greater
+        // );
+        // assert_eq!(
+        //     advice_in_third_phase.cmp(&advice_in_second_phase),
+        //     Ordering::Greater
+        // );
+        // assert_eq!(
+        //     advice_in_third_phase.cmp(&advice_in_third_phase),
+        //     Ordering::Equal
+        // );
+        // assert_eq!(advice_in_third_phase.cmp(&fixed), Ordering::Greater);
+        // assert_eq!(advice_in_third_phase.cmp(&instance), Ordering::Greater);
+
+        // assert_eq!(instance.cmp(&advice), Ordering::Less);
+        // assert_eq!(instance.cmp(&advice_in_first_phase), Ordering::Less);
+        // assert_eq!(instance.cmp(&advice_in_second_phase), Ordering::Less);
+
+        // assert_eq!(instance.cmp(&advice_in_third_phase), Ordering::Less);
+        // assert_eq!(instance.cmp(&fixed), Ordering::Greater);
+        // assert_eq!(instance.cmp(&instance), Ordering::Equal);
+    }
+}
+
 impl PartialOrd for Any {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -373,7 +460,7 @@ impl TryFrom<Column<Any>> for Column<Instance> {
 /// }
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Selector(pub(crate) usize, bool);
+pub struct Selector(pub usize, pub bool);
 
 impl Selector {
     /// Enable this selector at the given offset within the given region.

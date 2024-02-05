@@ -138,7 +138,7 @@ impl<C: CurveAffine> Evaluated<C> {
 
             (left - &right) * &active_rows
         };
-        println!("{:?}", self.product_eval);
+        // println!("{:?}", self.product_eval);
 
         std::iter::empty()
             .chain(

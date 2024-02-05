@@ -33,7 +33,7 @@ pub struct PartiallyEvaluated<C: CurveAffine> {
 pub struct Evaluated<C: CurveAffine, M: MSM<C>> {
     h_commitment: M,
     random_poly_commitment: C,
-    expected_h_eval: C::Scalar,
+    pub expected_h_eval: C::Scalar,
     random_eval: C::Scalar,
 }
 
@@ -96,14 +96,14 @@ impl<C: CurveAffine> PartiallyEvaluated<C> {
     ) -> Evaluated<C, P::MSM> {
         let mut i = 0;
         let expected_h_eval = expressions.fold(C::Scalar::zero(), |h_eval, v| {
-            println!("eval[{i}]: {:?}", v);
+            // println!("eval[{i}]: {:?}", v);
             let ret = h_eval * &*y + &v;
-            println!("ret[{i}]: {:?}", ret);
+            // println!("ret[{i}]: {:?}", ret);
             i += 1;
             ret
         });
         let expected_h_eval = expected_h_eval * ((xn - C::Scalar::one()).invert().unwrap());
-        println!("{:?}", expected_h_eval);
+        // println!("{:?}", expected_h_eval);
 
         let h_commitment =
             self.h_commitments

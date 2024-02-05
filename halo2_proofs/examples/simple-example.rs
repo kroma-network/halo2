@@ -3,10 +3,9 @@ use std::marker::PhantomData;
 use ff::Field;
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner, Value},
+    circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner, Value, floor_planner::V1},
     plonk::{
-        create_proof, keygen_pk, keygen_pk2, keygen_vk, verify_proof, Advice, Circuit, Column,
-        ConstraintSystem, Error, Fixed, Instance, Selector,
+        create_proof, keygen_pk, keygen_pk2, keygen_vk, verify_proof, Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed, Instance, Selector
     },
     poly::{
         commitment::ParamsProver,
@@ -256,7 +255,7 @@ impl<F: FieldExt> NumericInstructions<F> for FieldChip<F> {
 /// In this struct we store the private input variables. We use `Option<F>` because
 /// they won't have any value during key generation. During proving, if any of these
 /// were `None` we would get an error.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct MyCircuit<F: FieldExt> {
     constant: F,
     a: Value<F>,
@@ -267,6 +266,7 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
     // Since we are using a single chip for everything, we can just reuse its config.
     type Config = FieldConfig;
     type FloorPlanner = SimpleFloorPlanner;
+    // type FloorPlanner = V1;
 
     fn without_witnesses(&self) -> Self {
         Self::default()
@@ -325,6 +325,9 @@ fn main() {
     use halo2_proofs::dev::MockProver;
     use halo2curves::bn256::Fr;
 
+    // let s = Selector(0, true);
+    // println!("{:?}", s);
+
     // ANCHOR: test-circuit
     // The number of rows in our circuit cannot exceed 2^k. Since our example
     // circuit is very small, we can pick a very small value here.
@@ -347,7 +350,7 @@ fn main() {
     // of the instance column, so we position it there in our public inputs.
     let public_inputs = vec![c];
     let public_inputs2 = vec![&public_inputs[..]];
-    let public_inputs3 = vec![&public_inputs2[..]];
+    let public_inputs3 = vec![&public_inputs2[..], &public_inputs2[..]];
 
     // Given the correct public input, our circuit will verify.
     let s = Fr::from(2);
@@ -365,7 +368,7 @@ fn main() {
         create_proof::<KZGCommitmentScheme<Bn256>, ProverSHPLONK<_>, _, _, _, _>(
             &params,
             &pk,
-            &[circuit],
+            &[circuit.clone(), circuit],
             public_inputs3.as_slice(),
             rng,
             &mut transcript,

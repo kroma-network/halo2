@@ -37,6 +37,8 @@ where
 {
     let mut cs = ConstraintSystem::default();
     let config = ConcreteCircuit::configure(&mut cs);
+    // println!("cs: {:?}", cs);
+    // println!("{:?}", cs.pinned());
 
     let degree = cs.degree();
 
@@ -319,6 +321,37 @@ where
         cs.constants.clone(),
     )?;
 
+    // println!("assembly: {:?}", assembly);
+    // println!("assembly.fixed: ");
+    // for poly in assembly.fixed.iter() {
+    //     println!("expected fixed column" );
+    //     for f in poly.iter() {
+    //         println!("{:?}", f);
+    //     }
+    // }
+    // println!("assembly.permutation.columns ");
+    // for col in assembly.permutation.columns.iter() {
+    //     println!("expected permutation column: {:?}", col);
+    // }
+    // println!("assembly.permutation.mapping");
+    // println!("{:?}", assembly.permutation.mapping);
+    // for map in assembly.permutation.mapping.iter() {
+    //     println!("expected permutation mapping: {:?}", map);
+    // }
+    // println!("assembly.permutation.aux");
+    // for aux in assembly.permutation.aux.iter() {
+    //     println!("expected permutation aux: {:?}", aux);
+    // }
+    // println!("assembly.permutation.sizes");
+    // for size in assembly.permutation.sizes.iter() {
+    //     println!("expected permutation sizes: {:?}", size);
+    // }
+    // println!("assembly.selectors");
+    // for sel in assembly.selectors.iter() {
+    //     println!("expected selector: {:?}", sel);
+    // }
+    // println!("assembly.usable_rows: {:?}", assembly.usable_rows);
+
     let mut fixed = batch_invert_assigned(assembly.fixed);
     let (cs, selector_polys) = cs.compress_selectors(assembly.selectors.clone());
     fixed.extend(
@@ -351,30 +384,58 @@ where
         }
     };
 
+    // println!("vk: {:?}", vk);
+    // println!("expected_permutation_verifying_key");
+    // println!("{:?}", vk.permutation.commitments);
+    // println!("expected_permutation_verifying_key");
+    // for c in vk.permutation.commitments.iter() {
+    //     println!("{:?}", c);
+    // }
+    // println!("expected_fixed_commitments");
+    // println!("{:?}", vk.fixed_commitments);
+    // for c in vk.fixed_commitments.iter() {
+    //     println!("{:?}", c);
+    // }
+    println!("expected_transcript_repr {:?}", vk.transcript_repr);
+
     let fixed_polys: Vec<_> = fixed
         .iter()
         .map(|poly| vk.domain.lagrange_to_coeff(poly.clone()))
         .collect();
 
-    println!("\"fixed_polys\": [");
+    // println!("\"fixed_polys\": [");
     for poly in fixed_polys.iter() {
-        println!("\"fixed_poly\": ");
+        // println!("\"fixed_poly\": ");
         for f in poly.iter() {
-            println!("\"{:?}\"", f);
+            // println!("\"{:?}\"", f);
         }
     }
 
-    println!("fixed_evals");
+    // println!("fixed_evals");
     for poly in fixed.iter() {
-        println!("fixed_eval");
+        // println!("fixed_eval");
         for f in poly.iter() {
-            println!("{:?}", f);
+            // println!("{:?}", f);
         }
     }
 
     let permutation_pk = assembly
         .permutation
         .build_pk(params, &vk.domain, &cs.permutation);
+    // println!("expected_permutations_columns:");
+    for eval in permutation_pk.permutations.iter() {
+        // println!("expected_permutations_column");
+        for f in eval.iter() {
+            // println!("{:?}", f);
+        }
+    }
+    // println!("expected_permutations_polys:");
+    for poly in permutation_pk.polys.iter() {
+        // println!("expected_permutations_poly");
+        for f in poly.iter() {
+            // println!("{:?}", f);
+        }
+    }
 
     // Compute l_0(X)
     // TODO: this can be done more efficiently
@@ -382,10 +443,11 @@ where
     l0[0] = C::Scalar::one();
     let l0 = vk.domain.lagrange_to_coeff(l0);
 
-    println!("l0");
-    for f in l0.iter() {
-        println!("{:?}", f);
-    }
+    // println!("expected_l_first");
+    // println!("{:?}", l0);
+    // for f in l0.iter() {
+    //     // println!("{:?}", f);
+    // }
 
     // Compute l_blind(X) which evaluates to 1 for each blinding factor row
     // and 0 otherwise over the domain.
@@ -412,14 +474,14 @@ where
     let l_last = vk.domain.lagrange_to_coeff(l_last);
     let l_active_row = vk.domain.lagrange_to_coeff(l_active_row);
 
-    println!("l_last");
+    // println!("l_last");
     for f in l_last.iter() {
-        println!("{:?}", f);
+        // println!("{:?}", f);
     }
 
-    println!("l_active_row");
+    // println!("l_active_row");
     for f in l_active_row.iter() {
-        println!("{:?}", f);
+        // println!("{:?}", f);
     }
 
     // Compute the optimized evaluation data structure

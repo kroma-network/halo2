@@ -560,6 +560,7 @@ use std::marker::PhantomData;
         >(verifier_params, pk.get_vk(), &proof[..]);
     }
 
+    // Run Test
     #[test]
     fn test_plonk_api_shplonk() {
         use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};

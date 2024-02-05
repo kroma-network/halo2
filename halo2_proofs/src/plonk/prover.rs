@@ -429,22 +429,22 @@ pub fn create_proof<
         (advice, challenges)
     };
 
-    println!("advice_columns_vec");
+    // println!("advice_columns_vec");
     for advice_single in advice.iter() {
         for advice_column in advice_single.advice_polys.iter() {
-            println!("{:#?}", advice_column.values);
+            // println!("{:#?}", advice_column.values);
         }
     }
-    println!("instance_polys_vec");
+    // println!("instance_polys_vec");
     for instance_single in instance.iter() {
         for instance_poly in instance_single.instance_polys.iter() {
-            println!("{:#?}", instance_poly.values);
+            // println!("{:#?}", instance_poly.values);
         }
     }
-    println!("instance_columns_vec");
+    // println!("instance_columns_vec");
     for instance_single in instance.iter() {
         for instance_column in instance_single.instance_values.iter() {
-            println!("{:#?}", instance_column.values);
+            // println!("{:#?}", instance_column.values);
         }
     }
 
@@ -478,10 +478,10 @@ pub fn create_proof<
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    println!("permuted lookups");
+    // println!("permuted lookups");
     for lookups_for_circuit in lookups.iter() {
         for permuted_lookups in lookups_for_circuit.iter() {
-            println!("{:#?}", permuted_lookups);
+            // println!("{:#?}", permuted_lookups);
         }
     }
 
@@ -510,11 +510,11 @@ pub fn create_proof<
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    println!("committed permutations");
+    // println!("committed permutations");
     for (i, permutation_for_circuit) in permutations.iter().enumerate() {
-        println!("{}-th circuit", i);
+        // println!("{}-th circuit", i);
         for committed in permutation_for_circuit.sets.iter() {
-            println!("{:#?}", committed.permutation_product_poly.values);
+            // println!("{:#?}", committed.permutation_product_poly.values);
         }
     }
 
@@ -528,19 +528,19 @@ pub fn create_proof<
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
-    println!("committed lookups");
+    // println!("committed lookups");
     for (i, lookups_for_circuit) in lookups.iter().enumerate() {
-        println!("{}-th circuit", i);
+        // println!("{}-th circuit", i);
         for committed in lookups_for_circuit.iter() {
-            println!("{:#?}", committed.permuted_input_poly.values);
-            println!("{:#?}", committed.permuted_table_poly.values);
-            println!("{:#?}", committed.product_poly.values);
+            // println!("{:#?}", committed.permuted_input_poly.values);
+            // println!("{:#?}", committed.permuted_table_poly.values);
+            // println!("{:#?}", committed.product_poly.values);
         }
     }
 
     // Commit to the vanishing argument's random polynomial for blinding h(x_3)
     let vanishing = vanishing::Argument::commit(params, domain, &mut rng, transcript)?;
-    println!("vanishing committed: {:#?}", vanishing.random_poly.values);
+    // println!("vanishing committed: {:#?}", vanishing.random_poly.values);
 
     // Obtain challenge for keeping all separate gates linearly independent
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
@@ -564,10 +564,10 @@ pub fn create_proof<
         )
         .collect();
 
-    println!("advice_polys_vec");
+    // println!("advice_polys_vec");
     for advice_single in advice.iter() {
         for advice_poly in advice_single.advice_polys.iter() {
-            println!("{:#?}", advice_poly.values);
+            // println!("{:#?}", advice_poly.values);
         }
     }
 
@@ -590,13 +590,13 @@ pub fn create_proof<
         &lookups,
         &permutations,
     );
-    println!("h_poly: {:#?}", h_poly.values);
+    // println!("h_poly: {:#?}", h_poly.values);
 
     // Construct the vanishing argument's h(X) commitments
     let vanishing = vanishing.construct(params, domain, h_poly, &mut rng, transcript)?;
-    println!("constructed_vanishing");
+    // println!("constructed_vanishing");
     for h_piece in vanishing.h_pieces.iter() {
-        println!("{:#?}", h_piece.values);
+        // println!("{:#?}", h_piece.values);
     }
 
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
@@ -728,18 +728,18 @@ pub fn create_proof<
         // We query the h(X) polynomial at x
         .chain(vanishing.open(x));
 
-    println!("\"prover_queries\": [");
+    // println!("\"prover_queries\": [");
     for prover_query in instances.clone() {
-        println!("{{");
-        println!("\t\"poly\": {:#?},", prover_query.poly.values);
-        println!("\t\"point\": {:#?},", prover_query.point);
-        println!(
-            "\t\"eval\": {:#?},",
-            eval_polynomial(prover_query.poly, prover_query.point)
-        );
-        println!("}},");
+        // println!("{{");
+        // println!("\t\"poly\": {:#?},", prover_query.poly.values);
+        // println!("\t\"point\": {:#?},", prover_query.point);
+        // println!(
+            // "\t\"eval\": {:#?},",
+            // eval_polynomial(prover_query.poly, prover_query.point)
+        // );
+        // println!("}},");
     }
-    println!("] // End ProverQueries");
+    // println!("] // End ProverQueries");
 
     let prover = P::new(params);
     prover
