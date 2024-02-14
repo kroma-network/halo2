@@ -430,6 +430,8 @@ pub fn create_proof<
         (advice, challenges)
     };
 
+    println!("<ThetaPhase>");
+    let start = Instant::now();
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
     println!("Halo2(theta): {:?}", *theta);
@@ -460,7 +462,10 @@ pub fn create_proof<
                 .collect()
         })
         .collect::<Result<Vec<_>, _>>()?;
+    println!("theta-elapsed-time: {:#?}", start.elapsed());
 
+    println!("<BetaGammaPhase>");
+    let start = Instant::now();
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
     println!("Halo2(beta): {:?}", *beta);
@@ -502,11 +507,13 @@ pub fn create_proof<
 
     // Commit to the vanishing argument's random polynomial for blinding h(x_3)
     let vanishing = vanishing::Argument::commit(params, domain, &mut rng, transcript)?;
+    println!("beta-gamma-elapsed-time: {:#?}", start.elapsed());
 
+    println!("<YPhase>");
+    let start = Instant::now();
     // Obtain challenge for keeping all separate gates linearly independent
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
     println!("Halo2(y): {:?}", *y);
-
     // Calculate the advice polys
     let advice: Vec<AdviceSingle<Scheme::Curve, Coeff>> = advice
         .into_iter()
@@ -525,7 +532,9 @@ pub fn create_proof<
             },
         )
         .collect();
+    println!("transformed-elapsed-time: {:#?}", start.elapsed());
 
+    let start = Instant::now();
     // Evaluate the h(X) polynomial
     let h_poly = pk.ev.evaluate_h(
         pk,
@@ -548,7 +557,10 @@ pub fn create_proof<
 
     // Construct the vanishing argument's h(X) commitments
     let vanishing = vanishing.construct(params, domain, h_poly, &mut rng, transcript)?;
+    println!("y-elapsed-time: {:#?}", start.elapsed());
 
+    println!("<XPhase>");
+    let start = Instant::now();
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
     println!("Halo2(x): {:?}", *x);
     let xn = x.pow(&[params.n() as u64, 0, 0, 0]);
@@ -678,9 +690,14 @@ pub fn create_proof<
         .chain(pk.permutation.open(x))
         // We query the h(X) polynomial at x
         .chain(vanishing.open(x));
+    println!("x-elapsed-time: {:#?}", start.elapsed());
 
+    println!("<ShplonkStart>");
+    let start = Instant::now();
     let prover = P::new(params);
-    prover
+    let proof = prover
         .create_proof(rng, transcript, instances)
-        .map_err(|_| Error::ConstraintSystemFailure)
+        .map_err(|_| Error::ConstraintSystemFailure);
+    println!("shplonk-elapsed-time: {:#?}", start.elapsed());
+    proof
 }
