@@ -27,7 +27,6 @@ pub struct ParamsKZG<E: Engine> {
     pub g_lagrange: Vec<E::G1Affine>,
     pub(crate) g2: E::G2Affine,
     pub(crate) s_g2: E::G2Affine,
-    pub(crate) maybe_non_uniform: bool,
 }
 
 /// Umbrella commitment scheme construction for all KZG variants
@@ -138,7 +137,6 @@ impl<E: Engine + Debug> ParamsKZG<E> {
             g_lagrange,
             g2,
             s_g2,
-            maybe_non_uniform: false,
         }
     }
 
@@ -254,7 +252,6 @@ impl<E: Engine + Debug> ParamsKZG<E> {
             g_lagrange,
             g2,
             s_g2,
-            maybe_non_uniform: false,
         })
     }
 }
@@ -270,13 +267,6 @@ where
     E::G2Affine: SerdeCurveAffine,
 {
     type MSM = MSMKZG<E>;
-
-    fn set_maybe_non_uniform(&mut self, value: bool) {
-        unsafe {
-            let mut_self: &mut Self = core::mem::transmute(self);
-            mut_self.maybe_non_uniform = value;
-        }
-    }
 
     fn k(&self) -> u32 {
         self.k
@@ -305,32 +295,11 @@ where
         poly: &Polynomial<E::Scalar, LagrangeCoeff>,
         _: Blind<E::Scalar>,
     ) -> E::G1 {
-        let mut scalars: Vec<E::Scalar> = Vec::with_capacity(poly.len());
+        let mut scalars = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
         let bases = &self.g_lagrange;
         let size = scalars.len();
         assert!(bases.len() >= size);
-        #[cfg(feature = "tachyon_msm_gpu")]
-        let use_gpu = !self.maybe_non_uniform;
-        #[cfg(feature = "tachyon_msm_gpu")]
-        let ret = if use_gpu {
-            use crate::{ffi, Fr as CppFr, G1MSMGpu, G1Point2 as CppG1Point2, MSM_GPU};
-            use std::mem;
-
-            unsafe {
-                let bases: &[CppG1Point2] = mem::transmute(&bases[0..size]);
-                let scalars: &[CppFr] = mem::transmute(scalars.as_slice());
-
-                let msm = *MSM_GPU.lock().unwrap() as *mut G1MSMGpu;
-                let ret = ffi::g1_msm_gpu(msm, bases, scalars);
-                let ret: Box<E::G1> = mem::transmute(ret);
-                *ret
-            }
-        } else {
-            best_multiexp(&scalars, &bases[0..size])
-        };
-
-        #[cfg(not(feature = "tachyon_msm_gpu"))]
         best_multiexp(&scalars, &bases[0..size])
     }
 
@@ -368,32 +337,11 @@ where
     }
 
     fn commit(&self, poly: &Polynomial<E::Scalar, Coeff>, _: Blind<E::Scalar>) -> E::G1 {
-        let mut scalars: Vec<E::Scalar> = Vec::with_capacity(poly.len());
+        let mut scalars = Vec::with_capacity(poly.len());
         scalars.extend(poly.iter());
         let bases = &self.g;
         let size = scalars.len();
         assert!(bases.len() >= size);
-        #[cfg(feature = "tachyon_msm_gpu")]
-        let use_gpu = !self.maybe_non_uniform;
-        #[cfg(feature = "tachyon_msm_gpu")]
-        let ret = if use_gpu {
-            use crate::{ffi, Fr as CppFr, G1MSMGpu, G1Point2 as CppG1Point2, MSM_GPU};
-            use std::mem;
-
-            unsafe {
-                let bases: &[CppG1Point2] = mem::transmute(&bases[0..size]);
-                let scalars: &[CppFr] = mem::transmute(scalars.as_slice());
-
-                let msm = *MSM_GPU.lock().unwrap() as *mut G1MSMGpu;
-                let ret = ffi::g1_msm_gpu(msm, bases, scalars);
-                let ret: Box<E::G1> = mem::transmute(ret);
-                *ret
-            }
-        } else {
-            best_multiexp(&scalars, &bases[0..size])
-        };
-
-        #[cfg(not(feature = "tachyon_msm_gpu"))]
         best_multiexp(&scalars, &bases[0..size])
     }
 

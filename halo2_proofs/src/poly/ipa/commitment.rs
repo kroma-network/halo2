@@ -65,8 +65,6 @@ impl<'params, C: CurveAffine> ParamsVerifier<'params, C> for ParamsIPA<C> {}
 impl<'params, C: CurveAffine> Params<'params, C> for ParamsIPA<C> {
     type MSM = MSMIPA<'params, C>;
 
-    fn set_maybe_non_uniform(&mut self, value: bool) {}
-
     fn k(&self) -> u32 {
         self.k
     }

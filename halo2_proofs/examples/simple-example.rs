@@ -306,6 +306,8 @@ fn main() {
     use halo2_proofs::dev::MockProver;
     use halo2curves::pasta::Fp;
 
+    env_logger::init();
+
     // ANCHOR: test-circuit
     // The number of rows in our circuit cannot exceed 2^k. Since our example
     // circuit is very small, we can pick a very small value here.
