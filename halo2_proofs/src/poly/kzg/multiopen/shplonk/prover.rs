@@ -16,6 +16,7 @@ use crate::transcript::{EncodedChallenge, TranscriptWrite};
 use ff::Field;
 use group::Curve;
 use halo2curves::pairing::Engine;
+use log::debug;
 use rand_core::RngCore;
 use rayon::prelude::*;
 use std::fmt::Debug;
@@ -134,6 +135,7 @@ where
         // TODO: explore if it is safe to use same challenge
         // for different sets that are already combined with anoter challenge
         let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
+        debug!("[Halo2:CreateProof:SHPlonk:Y] Y: {:#?}", *y);
 
         let quotient_contribution =
             |rotation_set: &RotationSetExtension<E::G1Affine>| -> Polynomial<E::Scalar, Coeff> {
@@ -189,6 +191,7 @@ where
             .collect();
 
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
+        debug!("[Halo2:CreateProof:SHPlonk:V] V: {:#?}", *v);
 
         let quotient_polynomials = rotation_sets
             .par_iter()
@@ -205,6 +208,7 @@ where
         let h = self.params.commit(&h_x, Blind::default()).to_affine();
         transcript.write_point(h)?;
         let u: ChallengeU<_> = transcript.squeeze_challenge_scalar();
+        debug!("[Halo2:CreateProof:SHPlonk:U] U: {:#?}", *u);
 
         let linearisation_contribution =
             |rotation_set: RotationSetExtension<E::G1Affine>| -> (Polynomial<E::Scalar, Coeff>, E::Scalar) {

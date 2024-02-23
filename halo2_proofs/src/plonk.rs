@@ -44,6 +44,7 @@ pub use prover::*;
 pub use verifier::*;
 
 use evaluation::Evaluator;
+use log::{debug, trace};
 use std::io;
 
 /// This is a verifying key which allows for the verification of proofs for a
@@ -136,7 +137,7 @@ where
 
         let permutation = permutation::VerifyingKey::read(reader, &cs.permutation, format)?;
 
-        /* 
+        /*
         // read selectors
         let selectors: Vec<Vec<bool>> = vec![vec![false; 1 << k]; cs.num_selectors]
             .into_iter()
@@ -204,12 +205,17 @@ impl<C: CurveAffine> VerifyingKey<C> {
             .to_state();
 
         let s = format!("{:?}", vk.pinned());
+        trace!("[Halo2:GenVK:VK] VKeyStr: {}", s);
 
         hasher.update(&(s.len() as u64).to_le_bytes());
         hasher.update(s.as_bytes());
 
         // Hash in final Blake2bState
         vk.transcript_repr = C::Scalar::from_bytes_wide(hasher.finalize().as_array());
+        debug!(
+            "[Halo2:GenVK:TranscriptRepr] TranscriptRepr: {:?}",
+            vk.transcript_repr
+        );
 
         vk
     }

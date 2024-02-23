@@ -1,3 +1,4 @@
+use log::debug;
 use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
@@ -60,6 +61,7 @@ where
         I: IntoIterator<Item = VerifierQuery<'com, E::G1Affine, MSMKZG<E>>> + Clone,
     {
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
+        debug!("[Halo2:VerifyProof:GWC:V] V: {:#?}", *v);
 
         let commitment_data = construct_intermediate_sets(queries);
 
@@ -68,6 +70,7 @@ where
             .collect::<Result<Vec<E::G1Affine>, Error>>()?;
 
         let u: ChallengeU<_> = transcript.squeeze_challenge_scalar();
+        debug!("[Halo2:VerifyProof:GWC:U] U: {:#?}", *u);
 
         let mut commitment_multi = MSMKZG::<E>::new();
         let mut eval_multi = E::Scalar::zero();

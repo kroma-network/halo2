@@ -23,6 +23,7 @@ use std::{
     collections::BTreeMap,
     iter,
     ops::{Mul, MulAssign},
+    time::Instant,
 };
 
 #[derive(Debug)]
@@ -81,6 +82,9 @@ impl<F: FieldExt> Argument<F> {
         challenges: &'a [C::Scalar],
         mut rng: R,
         transcript: &mut T,
+        compr_time_total: &mut f64,
+        perm_time_total: &mut f64,
+        com_time_total: &mut f64,
     ) -> Result<Permuted<C>, Error>
     where
         C: CurveAffine<ScalarExt = F>,
@@ -107,12 +111,15 @@ impl<F: FieldExt> Argument<F> {
             compressed_expression
         };
 
+        let compression_time = Instant::now();
         // Get values of input expressions involved in the lookup and compress them
         let compressed_input_expression = compress_expressions(&self.input_expressions);
 
         // Get values of table expressions involved in the lookup and compress them
         let compressed_table_expression = compress_expressions(&self.table_expressions);
+        *compr_time_total += compression_time.elapsed().as_secs_f64();
 
+        let permutation_time = Instant::now();
         // Permute compressed (InputExpression, TableExpression) pair
         let (permuted_input_expression, permuted_table_expression) = permute_expression_pair(
             pk,
@@ -122,6 +129,7 @@ impl<F: FieldExt> Argument<F> {
             &compressed_input_expression,
             &compressed_table_expression,
         )?;
+        *perm_time_total += permutation_time.elapsed().as_secs_f64();
 
         // Closure to construct commitment to vector of values
         let mut commit_values = |values: &Polynomial<C::Scalar, LagrangeCoeff>| {
@@ -131,6 +139,7 @@ impl<F: FieldExt> Argument<F> {
             (poly, blind, commitment)
         };
 
+        let commit_time = Instant::now();
         // Commit to permuted input expression
         let (permuted_input_poly, permuted_input_blind, permuted_input_commitment) =
             commit_values(&permuted_input_expression);
@@ -144,6 +153,7 @@ impl<F: FieldExt> Argument<F> {
 
         // Hash permuted table commitment
         transcript.write_point(permuted_table_commitment)?;
+        *com_time_total += commit_time.elapsed().as_secs_f64();
 
         Ok(Permuted {
             compressed_input_expression,

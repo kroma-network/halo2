@@ -18,6 +18,8 @@ use halo2_proofs::{
         Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
     },
 };
+
+use env_logger;
 use rand_core::{OsRng, RngCore};
 use std::iter;
 
@@ -324,6 +326,8 @@ fn test_prover<C: CurveAffine, const W: usize, const H: usize>(
 }
 
 fn main() {
+    env_logger::init();
+
     const W: usize = 4;
     const H: usize = 32;
     const K: u32 = 8;

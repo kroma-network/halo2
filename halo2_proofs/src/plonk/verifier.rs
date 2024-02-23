@@ -1,5 +1,6 @@
 use ff::Field;
 use group::Curve;
+use log::debug;
 use rand_core::RngCore;
 use std::iter;
 
@@ -112,6 +113,10 @@ pub fn verify_proof<
             for (phase, challenge) in vk.cs.challenge_phase.iter().zip(challenges.iter_mut()) {
                 if current_phase == *phase {
                     *challenge = *transcript.squeeze_challenge_scalar::<()>();
+                    debug!(
+                        "[Halo2:VerifyProof:Challenge] {:?}: {:?}",
+                        phase.0, *challenge
+                    );
                 }
             }
         }
@@ -121,6 +126,7 @@ pub fn verify_proof<
 
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
+    debug!("[Halo2:VerifyProof:Theta] Theta: {:#?}", *theta);
 
     let lookups_permuted = (0..num_proofs)
         .map(|_| -> Result<Vec<_>, _> {
@@ -135,9 +141,11 @@ pub fn verify_proof<
 
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
+    debug!("[Halo2:VerifyProof:Beta] Beta: {:#?}", *beta);
 
     // Sample gamma challenge
     let gamma: ChallengeGamma<_> = transcript.squeeze_challenge_scalar();
+    debug!("[Halo2:VerifyProof:Gamma] Gamma: {:#?}", *gamma);
 
     let permutations_committed = (0..num_proofs)
         .map(|_| {
@@ -161,12 +169,14 @@ pub fn verify_proof<
 
     // Sample y challenge, which keeps the gates linearly independent.
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
+    debug!("[Halo2:VerifyProof:Y] Y: {:#?}", *y);
 
     let vanishing = vanishing.read_commitments_after_y(vk, transcript)?;
 
     // Sample x challenge, which is used to ensure the circuit is
     // satisfied with high probability.
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
+    debug!("[Halo2:VerifyProof:X] X: {:#?}", *x);
     let instance_evals = if V::QUERY_INSTANCE {
         (0..num_proofs)
             .map(|_| -> Result<Vec<_>, _> {

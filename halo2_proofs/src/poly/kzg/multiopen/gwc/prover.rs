@@ -15,6 +15,7 @@ use crate::transcript::{EncodedChallenge, TranscriptWrite};
 use ff::Field;
 use group::Curve;
 use halo2curves::pairing::Engine;
+use log::debug;
 use rand_core::RngCore;
 use std::fmt::Debug;
 use std::io::{self, Write};
@@ -56,6 +57,7 @@ where
         R: RngCore,
     {
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
+        debug!("[Halo2:CreateProof:GWC:V] V: {:#?}", *v);
         let commitment_data = construct_intermediate_sets(queries);
 
         for commitment_at_a_point in commitment_data.iter() {

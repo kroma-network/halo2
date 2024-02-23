@@ -1,3 +1,4 @@
+use log::debug;
 use std::fmt::Debug;
 use std::io::Read;
 
@@ -71,10 +72,13 @@ where
         );
 
         let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
+        debug!("[Halo2:VerifyProof:SHPlonk:Y] Y: {:#?}", *y);
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
+        debug!("[Halo2:VerifyProof:SHPlonk:V] V: {:#?}", *v);
 
         let h1 = transcript.read_point().map_err(|_| Error::SamplingError)?;
         let u: ChallengeU<_> = transcript.squeeze_challenge_scalar();
+        debug!("[Halo2:VerifyProof:SHPlonk:U] U: {:#?}", *u);
         let h2 = transcript.read_point().map_err(|_| Error::SamplingError)?;
 
         let (mut z_0_diff_inverse, mut z_0) = (E::Scalar::zero(), E::Scalar::zero());

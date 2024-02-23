@@ -1,6 +1,7 @@
 use ff::Field;
 use group::Curve;
 use halo2curves::CurveExt;
+use log::{debug, info};
 use rand_core::RngCore;
 use std::collections::BTreeSet;
 use std::env::var;
@@ -414,8 +415,12 @@ pub fn create_proof<
 
             for (index, phase) in meta.challenge_phase.iter().enumerate() {
                 if current_phase == *phase {
-                    let existing =
-                        challenges.insert(index, *transcript.squeeze_challenge_scalar::<()>());
+                    let challenge = transcript.squeeze_challenge_scalar::<()>();
+                    debug!(
+                        "[Halo2:CreateProof:Challenge] {:#?}: {:?}",
+                        index, *challenge
+                    );
+                    let existing = challenges.insert(index, *challenge);
                     assert!(existing.is_none());
                 }
             }
@@ -429,9 +434,16 @@ pub fn create_proof<
         (advice, challenges)
     };
 
+    let theta_start = Instant::now();
+    info!("[Halo2:CreateProof:Theta] Phase has been started...");
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
+    debug!("[Halo2:CreateProof:Theta] Theta: {:?}", *theta);
 
+    // The 3 variables are used only for benchmark.
+    let mut compr_time_total = 0 as f64;
+    let mut perm_time_total = 0 as f64;
+    let mut com_time_total = 0 as f64;
     let lookups: Vec<Vec<lookup::prover::Permuted<Scheme::Curve>>> = instance
         .iter()
         .zip(advice.iter())
@@ -453,17 +465,32 @@ pub fn create_proof<
                         &challenges,
                         &mut rng,
                         transcript,
+                        &mut compr_time_total,
+                        &mut perm_time_total,
+                        &mut com_time_total,
                     )
                 })
                 .collect()
         })
         .collect::<Result<Vec<_>, _>>()?;
+    info!(
+        "[Halo2:CreateProof:Theta] CompressionTime: {:#?}, Permutationtime: {:#?}, CommitTime: {:#?}",
+        compr_time_total, perm_time_total, com_time_total
+    );
+    info!(
+        "[Halo2:CreateProof:Theta] ThetaTime: {:#?}",
+        theta_start.elapsed()
+    );
 
+    info!("[Halo2:CreateProof:BetaGamma] Phase has been started...");
+    let beta_gamma_start = Instant::now();
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
 
     // Sample gamma challenge
     let gamma: ChallengeGamma<_> = transcript.squeeze_challenge_scalar();
+    debug!("[Halo2:CreateProof:BetaGamma] Beta: {:?}", *beta);
+    debug!("[Halo2:CreateProof:BetaGamma] Gamma: {:?}", *gamma);
 
     // Commit to permutations.
     let permutations: Vec<permutation::prover::Committed<Scheme::Curve>> = instance
@@ -498,9 +525,16 @@ pub fn create_proof<
 
     // Commit to the vanishing argument's random polynomial for blinding h(x_3)
     let vanishing = vanishing::Argument::commit(params, domain, &mut rng, transcript)?;
+    info!(
+        "[Halo2:CreateProof:BetaGamma] BetaGammaTime: {:#?}",
+        beta_gamma_start.elapsed()
+    );
 
+    info!("[Halo2:CreateProof:Y] Phase has been started...");
+    let y_start = Instant::now();
     // Obtain challenge for keeping all separate gates linearly independent
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
+    debug!("[Halo2:CreateProof:Y] Y: {:#?}", *y);
 
     // Calculate the advice polys
     let advice: Vec<AdviceSingle<Scheme::Curve, Coeff>> = advice
@@ -520,7 +554,12 @@ pub fn create_proof<
             },
         )
         .collect();
+    info!(
+        "[Halo2:CreateProof:Y] AdvicesTransformedTime: {:#?}",
+        y_start.elapsed()
+    );
 
+    let y_start = Instant::now();
     // Evaluate the h(X) polynomial
     let h_poly = pk.ev.evaluate_h(
         pk,
@@ -543,8 +582,15 @@ pub fn create_proof<
 
     // Construct the vanishing argument's h(X) commitments
     let vanishing = vanishing.construct(params, domain, h_poly, &mut rng, transcript)?;
+    info!(
+        "[Halo2:CreateProof:Y] BuildingHPolyTime: {:#?}",
+        y_start.elapsed()
+    );
 
+    info!("[Halo2:CreateProof:X] Phase has been started...");
+    let x_start = Instant::now();
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
+    debug!("[Halo2:CreateProof:X] X: {:?}", *x);
     let xn = x.pow(&[params.n() as u64, 0, 0, 0]);
 
     if P::QUERY_INSTANCE {
@@ -672,9 +718,17 @@ pub fn create_proof<
         .chain(pk.permutation.open(x))
         // We query the h(X) polynomial at x
         .chain(vanishing.open(x));
+    info!("[Halo2:CreateProof:X] XTime: {:#?}", x_start.elapsed());
 
+    info!("[Halo2:CreateProof:SHPlonk] Phase has been started...");
+    let sh_start = Instant::now();
     let prover = P::new(params);
-    prover
+    let proof = prover
         .create_proof(rng, transcript, instances)
-        .map_err(|_| Error::ConstraintSystemFailure)
+        .map_err(|_| Error::ConstraintSystemFailure);
+    info!(
+        "[Halo2:CreateProof:SHPlonk] SHPlonkTime: {:#?}",
+        sh_start.elapsed()
+    );
+    proof
 }
