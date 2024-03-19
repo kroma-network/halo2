@@ -11,6 +11,11 @@ SHPlonkProver::SHPlonkProver(uint8_t transcript_type, uint32_t k, const Fr& s)
     : prover_(tachyon_halo2_bn254_shplonk_prover_create_from_unsafe_setup(
           transcript_type, k, reinterpret_cast<const tachyon_bn254_fr*>(&s))) {}
 
+SHPlonkProver::SHPlonkProver(uint8_t transcript_type, uint32_t k,
+                             const uint8_t* params, size_t params_len)
+    : prover_(tachyon_halo2_bn254_shplonk_prover_create_from_params(
+          transcript_type, k, params, params_len)) {}
+
 SHPlonkProver::~SHPlonkProver() {
   tachyon_halo2_bn254_shplonk_prover_destroy(prover_);
 }
@@ -22,6 +27,12 @@ uint32_t SHPlonkProver::k() const {
 uint64_t SHPlonkProver::n() const {
   return static_cast<uint64_t>(
       tachyon_halo2_bn254_shplonk_prover_get_n(prover_));
+}
+
+rust::Box<G2AffinePoint> SHPlonkProver::s_g2() const {
+  return rust::Box<G2AffinePoint>::from_raw(
+      reinterpret_cast<G2AffinePoint*>(new tachyon_bn254_g2_affine(
+          *tachyon_halo2_bn254_shplonk_prover_get_s_g2(prover_))));
 }
 
 rust::Box<G1JacobianPoint> SHPlonkProver::commit(const Poly& poly) const {
@@ -182,6 +193,12 @@ rust::Vec<uint8_t> SHPlonkProver::get_proof() const {
 std::unique_ptr<SHPlonkProver> new_shplonk_prover(uint8_t transcript_type,
                                                   uint32_t k, const Fr& s) {
   return std::make_unique<SHPlonkProver>(transcript_type, k, s);
+}
+
+std::unique_ptr<SHPlonkProver> new_shplonk_prover_from_params(
+    uint8_t transcript_type, uint32_t k, rust::Slice<const uint8_t> params) {
+  return std::make_unique<SHPlonkProver>(transcript_type, k, params.data(),
+                                         params.size());
 }
 
 rust::Box<Fr> ProvingKey::transcript_repr_shplonk(const SHPlonkProver& prover) {

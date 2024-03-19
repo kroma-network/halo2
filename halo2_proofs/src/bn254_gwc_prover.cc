@@ -11,6 +11,11 @@ GWCProver::GWCProver(uint8_t transcript_type, uint32_t k, const Fr& s)
     : prover_(tachyon_halo2_bn254_gwc_prover_create_from_unsafe_setup(
           transcript_type, k, reinterpret_cast<const tachyon_bn254_fr*>(&s))) {}
 
+GWCProver::GWCProver(uint8_t transcript_type, uint32_t k, const uint8_t* params,
+                     size_t params_len)
+    : prover_(tachyon_halo2_bn254_gwc_prover_create_from_params(
+          transcript_type, k, params, params_len)) {}
+
 GWCProver::~GWCProver() { tachyon_halo2_bn254_gwc_prover_destroy(prover_); }
 
 uint32_t GWCProver::k() const {
@@ -19,6 +24,12 @@ uint32_t GWCProver::k() const {
 
 uint64_t GWCProver::n() const {
   return static_cast<uint64_t>(tachyon_halo2_bn254_gwc_prover_get_n(prover_));
+}
+
+rust::Box<G2AffinePoint> GWCProver::s_g2() const {
+  return rust::Box<G2AffinePoint>::from_raw(
+      reinterpret_cast<G2AffinePoint*>(new tachyon_bn254_g2_affine(
+          *tachyon_halo2_bn254_gwc_prover_get_s_g2(prover_))));
 }
 
 rust::Box<G1JacobianPoint> GWCProver::commit(const Poly& poly) const {
@@ -178,6 +189,12 @@ rust::Vec<uint8_t> GWCProver::get_proof() const {
 std::unique_ptr<GWCProver> new_gwc_prover(uint8_t transcript_type, uint32_t k,
                                           const Fr& s) {
   return std::make_unique<GWCProver>(transcript_type, k, s);
+}
+
+std::unique_ptr<GWCProver> new_gwc_prover_from_params(
+    uint8_t transcript_type, uint32_t k, rust::Slice<const uint8_t> params) {
+  return std::make_unique<GWCProver>(transcript_type, k, params.data(),
+                                     params.size());
 }
 
 rust::Box<Fr> ProvingKey::transcript_repr_gwc(const GWCProver& prover) {
