@@ -13,6 +13,7 @@ namespace tachyon::halo2_api::bn254 {
 
 struct Fr;
 struct G1JacobianPoint;
+struct G2AffinePoint;
 struct InstanceSingle;
 struct AdviceSingle;
 class ProvingKey;
@@ -23,6 +24,8 @@ class Poly;
 class GWCProver {
  public:
   GWCProver(uint8_t transcript_type, uint32_t k, const Fr& s);
+  GWCProver(uint8_t transcript_type, uint32_t k, const uint8_t* params,
+            size_t params_len);
   GWCProver(const GWCProver& other) = delete;
   GWCProver& operator=(const GWCProver& other) = delete;
   ~GWCProver();
@@ -31,6 +34,7 @@ class GWCProver {
 
   uint32_t k() const;
   uint64_t n() const;
+  rust::Box<G2AffinePoint> s_g2() const;
   rust::Box<G1JacobianPoint> commit(const Poly& poly) const;
   rust::Box<G1JacobianPoint> commit_lagrange(const Evals& evals) const;
   std::unique_ptr<Evals> empty_evals() const;
@@ -54,6 +58,9 @@ class GWCProver {
 
 std::unique_ptr<GWCProver> new_gwc_prover(uint8_t transcript_type, uint32_t k,
                                           const Fr& s);
+
+std::unique_ptr<GWCProver> new_gwc_prover_from_params(
+    uint8_t transcript_type, uint32_t k, rust::Slice<const uint8_t> params);
 
 }  // namespace tachyon::halo2_api::bn254
 
