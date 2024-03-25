@@ -25,11 +25,10 @@ void Sha256Writer::finalize(std::array<uint8_t, kSha256DigestLength>& result) {
 }
 
 rust::Vec<uint8_t> Sha256Writer::state() const {
-  constexpr size_t kStateSize = sizeof(kSha256StateLength);
   rust::Vec<uint8_t> ret;
   // NOTE(chokobole): |rust::Vec<uint8_t>| doesn't have |resize()|.
-  ret.reserve(kStateSize);
-  for (size_t i = 0; i < kStateSize; ++i) {
+  ret.reserve(kSha256StateLength);
+  for (size_t i = 0; i < kSha256StateLength; ++i) {
     ret.push_back(0);
   }
   size_t state_size;
