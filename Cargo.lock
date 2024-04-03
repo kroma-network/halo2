@@ -860,7 +860,7 @@ dependencies = [
  "ff",
  "group",
  "halo2_proofs",
- "halo2curves 0.2.1",
+ "halo2curves",
  "lazy_static",
  "plotters",
  "pprof",
@@ -886,7 +886,7 @@ dependencies = [
  "getrandom",
  "group",
  "gumdrop",
- "halo2curves 0.3.1 (git+https://github.com/scroll-tech/halo2curves.git?branch=0.3.1-derive-serde)",
+ "halo2curves",
  "log",
  "num-bigint",
  "num-integer",
@@ -903,42 +903,8 @@ dependencies = [
 
 [[package]]
 name = "halo2curves"
-version = "0.2.1"
-source = "git+https://github.com/privacy-scaling-explorations/halo2curves?tag=0.3.0#83c72d49762343ffc9576ca11a2aa615efe1029b"
-dependencies = [
- "ff",
- "group",
- "lazy_static",
- "num-bigint",
- "num-traits",
- "pasta_curves",
- "rand",
- "rand_core",
- "static_assertions",
- "subtle",
-]
-
-[[package]]
-name = "halo2curves"
 version = "0.3.1"
-source = "git+https://github.com/privacy-scaling-explorations/halo2curves.git?tag=0.3.1#9b67e19bca30a35208b0c1b41c1723771e2c9f49"
-dependencies = [
- "ff",
- "group",
- "lazy_static",
- "num-bigint",
- "num-traits",
- "pasta_curves",
- "rand",
- "rand_core",
- "static_assertions",
- "subtle",
-]
-
-[[package]]
-name = "halo2curves"
-version = "0.3.1"
-source = "git+https://github.com/scroll-tech/halo2curves.git?branch=0.3.1-derive-serde#c0ac1935e5da2a620204b5b011be2c924b1e0155"
+source = "git+https://github.com/kroma-network/halo2curves.git?branch=feat/upstream-scroll-v0.9.9#969f1e44d9713ee4cd552563bd0c762c5d53b56e"
 dependencies = [
  "ff",
  "group",
@@ -1423,10 +1389,10 @@ dependencies = [
 [[package]]
 name = "poseidon"
 version = "0.2.0"
-source = "git+https://github.com/scroll-tech/poseidon.git?branch=scroll-dev-0220#2fb4a2385bada39b50dce12fe50cb80d2fd33476"
+source = "git+https://github.com/kroma-network/poseidon.git?branch=feat/upstream-scroll-v0.9.9#a92397035ff0104a5ea843d6d90608c70245c724"
 dependencies = [
  "group",
- "halo2curves 0.3.1 (git+https://github.com/privacy-scaling-explorations/halo2curves.git?tag=0.3.1)",
+ "halo2curves",
  "subtle",
 ]
 
