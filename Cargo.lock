@@ -180,6 +180,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d696c370c750c948ada61c69a0ee2cbbb9c50b1019ddb86d9317157a99c2cae"
 
 [[package]]
+name = "bls12_381"
+version = "0.8.0"
+source = "git+https://github.com/kroma-network/bls12_381?branch=feat/upstream-scroll-v0.10.0rc3#0bec3a5ed5966342ac637ad2f574dd9a103232ff"
+dependencies = [
+ "ff",
+ "group",
+ "pairing",
+ "pasta_curves",
+ "rand_core",
+ "subtle",
+]
+
+[[package]]
 name = "bstr"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -836,7 +849,7 @@ dependencies = [
  "ff",
  "group",
  "halo2_proofs",
- "halo2curves",
+ "halo2curves 0.1.0 (git+https://github.com/kroma-network/halo2curves.git?branch=feat/upstream-scroll-v0.10.0rc3)",
  "lazy_static",
  "plotters",
  "pprof",
@@ -869,7 +882,7 @@ dependencies = [
  "group",
  "gumdrop",
  "halo2_legacy_pdqsort",
- "halo2curves",
+ "halo2curves 0.1.0 (git+https://github.com/kroma-network/halo2curves.git?branch=feat/upstream-scroll-v0.10.0rc3)",
  "lazy_static",
  "log",
  "maybe-rayon",
@@ -897,6 +910,27 @@ dependencies = [
  "ff",
  "group",
  "lazy_static",
+ "num-bigint",
+ "num-traits",
+ "pasta_curves",
+ "paste",
+ "rand",
+ "rand_core",
+ "static_assertions",
+ "subtle",
+]
+
+[[package]]
+name = "halo2curves"
+version = "0.1.0"
+source = "git+https://github.com/kroma-network/halo2curves.git?branch=feat/upstream-scroll-v0.10.0rc3#dcb8aff5721fe9d82f9960a65800769794b4f75f"
+dependencies = [
+ "blake2b_simd",
+ "bls12_381",
+ "ff",
+ "group",
+ "lazy_static",
+ "maybe-rayon",
  "num-bigint",
  "num-traits",
  "pasta_curves",
@@ -1247,6 +1281,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
+name = "pairing"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81fec4625e73cf41ef4bb6846cafa6d44736525f442ba45e407c4a000a13996f"
+dependencies = [
+ "group",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1379,9 +1422,9 @@ dependencies = [
 [[package]]
 name = "poseidon"
 version = "0.2.0"
-source = "git+https://github.com/scroll-tech/poseidon.git?branch=main#5787dd3d2ce7a9e9601a035c396ac0c03449b54d"
+source = "git+https://github.com/kroma-network/poseidon.git?branch=feat/upstream-scroll-v0.10.0rc3#5787dd3d2ce7a9e9601a035c396ac0c03449b54d"
 dependencies = [
- "halo2curves",
+ "halo2curves 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "subtle",
 ]
 
