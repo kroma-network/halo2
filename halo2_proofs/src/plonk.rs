@@ -6,19 +6,14 @@
 //! [plonk]: https://eprint.iacr.org/2019/953
 
 use blake2b_simd::Params as Blake2bParams;
-use ff::PrimeField;
-use group::ff::Field;
-use halo2curves::pairing::Engine;
+use group::ff::{Field, FromUniformBytes, PrimeField};
 
-use crate::arithmetic::{CurveAffine, FieldExt};
+use crate::arithmetic::CurveAffine;
 use crate::helpers::{
     polynomial_slice_byte_length, read_polynomial_vec, write_polynomial_slice, SerdeCurveAffine,
     SerdePrimeField,
 };
-use crate::poly::{
-    commitment::Params, Coeff, EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff,
-    PinnedEvaluationDomain, Polynomial,
-};
+use crate::poly::{Coeff, EvaluationDomain, LagrangeCoeff, PinnedEvaluationDomain, Polynomial};
 use crate::transcript::{ChallengeScalar, EncodedChallenge, Transcript};
 use crate::SerdeFormat;
 
@@ -27,8 +22,11 @@ mod circuit;
 mod error;
 mod evaluation;
 mod keygen;
+#[allow(dead_code)]
 mod lookup;
-pub(crate) mod permutation;
+mod mv_lookup;
+pub mod permutation;
+mod shuffle;
 mod vanishing;
 
 mod prover;
@@ -64,22 +62,8 @@ pub struct VerifyingKey<C: CurveAffine> {
 
 impl<C: SerdeCurveAffine> VerifyingKey<C>
 where
-    C::Scalar: SerdePrimeField,
+    C::Scalar: SerdePrimeField + FromUniformBytes<64>,
 {
-    fn bytes_length(&self) -> usize {
-        8 + (self.fixed_commitments.len() * C::default().to_bytes().as_ref().len())
-            + self.permutation.bytes_length()
-            + self.cs.bytes_length()
-        /*
-        + self.selectors.len()
-            * (self
-                .selectors
-                .get(0)
-                .map(|selector| selector.len() / 8 + 1)
-                .unwrap_or(0))
-                */
-    }
-
     /// Writes a verifying key to a buffer.
     ///
     /// Writes a curve element according to `format`:
@@ -91,6 +75,7 @@ where
     /// WITHOUT performing the expensive Montgomery reduction.
     pub fn write<W: io::Write>(&self, writer: &mut W, format: SerdeFormat) -> io::Result<()> {
         writer.write_all(&self.domain.k().to_be_bytes())?;
+        // the `fixed_commitments` here includes selectors
         writer.write_all(&(self.fixed_commitments.len() as u32).to_be_bytes())?;
         for commitment in &self.fixed_commitments {
             commitment.write(writer, format)?;
@@ -122,11 +107,16 @@ where
     pub fn read<R: io::Read, ConcreteCircuit: Circuit<C::Scalar>>(
         reader: &mut R,
         format: SerdeFormat,
+        #[cfg(feature = "circuit-params")] params: ConcreteCircuit::Params,
     ) -> io::Result<Self> {
         let mut k = [0u8; 4];
         reader.read_exact(&mut k)?;
         let k = u32::from_be_bytes(k);
-        let (domain, cs, _) = keygen::create_domain::<C, ConcreteCircuit>(k);
+        let (domain, cs, _) = keygen::create_domain::<C, ConcreteCircuit>(
+            k,
+            #[cfg(feature = "circuit-params")]
+            params,
+        );
         let mut num_fixed_columns = [0u8; 4];
         reader.read_exact(&mut num_fixed_columns)?;
         let num_fixed_columns = u32::from_be_bytes(num_fixed_columns);
@@ -137,21 +127,12 @@ where
 
         let permutation = permutation::VerifyingKey::read(reader, &cs.permutation, format)?;
 
-        /*
-        // read selectors
-        let selectors: Vec<Vec<bool>> = vec![vec![false; 1 << k]; cs.num_selectors]
-            .into_iter()
-            .map(|mut selector| {
-                let mut selector_bytes = vec![0u8; (selector.len() + 7) / 8];
-                reader.read_exact(&mut selector_bytes)?;
-                for (bits, byte) in selector.chunks_mut(8).into_iter().zip(selector_bytes) {
-                    crate::helpers::unpack(byte, bits);
-                }
-                Ok(selector)
-            })
-            .collect::<io::Result<_>>()?;
-        let (cs, _) = cs.compress_selectors(selectors.clone());
-        */
+        // We already disable compressing selectors inside `compress_selectors::process`.
+        // So `selectors` values is not relevant here actually.
+        // The selector commitments are already in fixed_commitments.
+        let selectors: Vec<Vec<bool>> = vec![vec![false; 1 << k]; cs.num_selectors];
+        let (cs, _) = cs.compress_selectors(selectors);
+
         Ok(Self::from_parts(
             domain,
             fixed_commitments,
@@ -172,19 +153,44 @@ where
     pub fn from_bytes<ConcreteCircuit: Circuit<C::Scalar>>(
         mut bytes: &[u8],
         format: SerdeFormat,
+        #[cfg(feature = "circuit-params")] params: ConcreteCircuit::Params,
     ) -> io::Result<Self> {
-        Self::read::<_, ConcreteCircuit>(&mut bytes, format)
+        Self::read::<_, ConcreteCircuit>(
+            &mut bytes,
+            format,
+            #[cfg(feature = "circuit-params")]
+            params,
+        )
     }
 }
 
-impl<C: CurveAffine> VerifyingKey<C> {
+impl<C: CurveAffine> VerifyingKey<C>
+where
+    C::ScalarExt: FromUniformBytes<64>,
+{
+    fn bytes_length(&self) -> usize {
+        8 + (self.fixed_commitments.len() * C::default().to_bytes().as_ref().len())
+            + self.permutation.bytes_length()
+            + self.cs.bytes_length()
+        // scroll/halo2: we don’t need to store
+        // + self.selectors.len()
+        //     * (self
+        //         .selectors
+        //         .get(0)
+        //         .map(|selector| (selector.len() + 7) / 8)
+        //         .unwrap_or(0))
+    }
+
     fn from_parts(
         domain: EvaluationDomain<C::Scalar>,
         fixed_commitments: Vec<C>,
         permutation: permutation::VerifyingKey<C>,
         cs: ConstraintSystem<C::Scalar>,
-        //selectors: Vec<Vec<bool>>,
-    ) -> Self {
+        // selectors: Vec<Vec<bool>>,
+    ) -> Self
+    where
+        C::ScalarExt: FromUniformBytes<64>,
+    {
         // Compute cached values.
         let cs_degree = cs.degree();
 
@@ -195,7 +201,7 @@ impl<C: CurveAffine> VerifyingKey<C> {
             cs,
             cs_degree,
             // Temporary, this is not pinned.
-            transcript_repr: C::Scalar::zero(),
+            transcript_repr: C::Scalar::ZERO,
             //selectors,
         };
 
@@ -211,12 +217,11 @@ impl<C: CurveAffine> VerifyingKey<C> {
         hasher.update(s.as_bytes());
 
         // Hash in final Blake2bState
-        vk.transcript_repr = C::Scalar::from_bytes_wide(hasher.finalize().as_array());
+        vk.transcript_repr = C::Scalar::from_uniform_bytes(hasher.finalize().as_array());
         debug!(
             "[Halo2:GenVK:TranscriptRepr] TranscriptRepr: {:?}",
             vk.transcript_repr
         );
-
         vk
     }
 
@@ -257,6 +262,11 @@ impl<C: CurveAffine> VerifyingKey<C> {
     pub fn cs(&self) -> &ConstraintSystem<C::Scalar> {
         &self.cs
     }
+
+    /// Returns representative of this `VerifyingKey` in transcripts
+    pub fn transcript_repr(&self) -> C::Scalar {
+        self.transcript_repr
+    }
 }
 
 /// Minimal representation of a verification key that can be used to identify
@@ -285,17 +295,15 @@ pub struct ProvingKey<C: CurveAffine> {
     ev: Evaluator<C>,
 }
 
-impl<C: CurveAffine> ProvingKey<C> {
+impl<C: CurveAffine> ProvingKey<C>
+where
+    C::Scalar: FromUniformBytes<64>,
+{
     /// Get the underlying [`VerifyingKey`].
     pub fn get_vk(&self) -> &VerifyingKey<C> {
         &self.vk
     }
-}
 
-impl<C: SerdeCurveAffine> ProvingKey<C>
-where
-    C::Scalar: SerdePrimeField,
-{
     /// Gets the total number of bytes in the serialization of `self`
     fn bytes_length(&self) -> usize {
         let scalar_len = C::Scalar::default().to_repr().as_ref().len();
@@ -307,7 +315,12 @@ where
             //+ polynomial_slice_byte_length(&self.fixed_cosets)
             + self.permutation.bytes_length()
     }
+}
 
+impl<C: SerdeCurveAffine> ProvingKey<C>
+where
+    C::Scalar: SerdePrimeField + FromUniformBytes<64>,
+{
     /// Writes a proving key to a buffer.
     ///
     /// Writes a curve element according to `format`:
@@ -344,8 +357,14 @@ where
     pub fn read<R: io::Read, ConcreteCircuit: Circuit<C::Scalar>>(
         reader: &mut R,
         format: SerdeFormat,
+        #[cfg(feature = "circuit-params")] params: ConcreteCircuit::Params,
     ) -> io::Result<Self> {
-        let vk = VerifyingKey::<C>::read::<R, ConcreteCircuit>(reader, format)?;
+        let vk = VerifyingKey::<C>::read::<R, ConcreteCircuit>(
+            reader,
+            format,
+            #[cfg(feature = "circuit-params")]
+            params,
+        )?;
         let l0 = Polynomial::read(reader, format)?;
         let l_last = Polynomial::read(reader, format)?;
         let l_active_row = Polynomial::read(reader, format)?;
@@ -378,8 +397,14 @@ where
     pub fn from_bytes<ConcreteCircuit: Circuit<C::Scalar>>(
         mut bytes: &[u8],
         format: SerdeFormat,
+        #[cfg(feature = "circuit-params")] params: ConcreteCircuit::Params,
     ) -> io::Result<Self> {
-        Self::read::<_, ConcreteCircuit>(&mut bytes, format)
+        Self::read::<_, ConcreteCircuit>(
+            &mut bytes,
+            format,
+            #[cfg(feature = "circuit-params")]
+            params,
+        )
     }
 }
 

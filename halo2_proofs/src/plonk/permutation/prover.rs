@@ -1,3 +1,4 @@
+use ff::PrimeField;
 use group::{
     ff::{BatchInvert, Field},
     Curve,
@@ -8,12 +9,11 @@ use std::iter::{self, ExactSizeIterator};
 use super::super::{circuit::Any, ChallengeBeta, ChallengeGamma, ChallengeX};
 use super::{Argument, ProvingKey};
 use crate::{
-    arithmetic::{eval_polynomial, parallelize, CurveAffine, FieldExt},
+    arithmetic::{eval_polynomial, parallelize, CurveAffine},
     plonk::{self, Error},
     poly::{
-        self,
         commitment::{Blind, Params},
-        Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, ProverQuery, Rotation,
+        Coeff, LagrangeCoeff, Polynomial, ProverQuery, Rotation,
     },
     transcript::{EncodedChallenge, TranscriptWrite},
 };
@@ -41,6 +41,7 @@ pub(crate) struct Evaluated<C: CurveAffine> {
 }
 
 impl Argument {
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::plonk) fn commit<
         'params,
         C: CurveAffine,
@@ -72,10 +73,10 @@ impl Argument {
         let blinding_factors = pk.vk.cs.blinding_factors();
 
         // Each column gets its own delta power.
-        let mut deltaomega = C::Scalar::one();
+        let mut deltaomega = C::Scalar::ONE;
 
         // Track the "last" value from the previous column set
-        let mut last_z = C::Scalar::one();
+        let mut last_z = C::Scalar::ONE;
 
         let mut sets = vec![];
 
@@ -92,7 +93,7 @@ impl Argument {
             // where p_j(X) is the jth column in this permutation,
             // and i is the ith row of the column.
 
-            let mut modified_values = vec![C::Scalar::one(); params.n() as usize];
+            let mut modified_values = vec![C::Scalar::ONE; params.n() as usize];
 
             // Iterate over each column of the permutation
             for (&column, permuted_column_values) in columns.iter().zip(permutations.iter()) {
@@ -125,7 +126,7 @@ impl Argument {
                     Any::Instance => instance,
                 };
                 parallelize(&mut modified_values, |modified_values, start| {
-                    let mut deltaomega = deltaomega * &omega.pow_vartime(&[start as u64, 0, 0, 0]);
+                    let mut deltaomega = deltaomega * &omega.pow_vartime([start as u64, 0, 0, 0]);
                     for (modified_values, value) in modified_values
                         .iter_mut()
                         .zip(values[column.index()][start..].iter())
@@ -135,7 +136,7 @@ impl Argument {
                         deltaomega *= &omega;
                     }
                 });
-                deltaomega *= &C::Scalar::DELTA;
+                deltaomega *= &<C::Scalar as PrimeField>::DELTA;
             }
 
             // The modified_values vector is a vector of products of fractions

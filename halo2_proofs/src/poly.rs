@@ -7,9 +7,7 @@ use crate::helpers::SerdePrimeField;
 use crate::plonk::Assigned;
 use crate::SerdeFormat;
 
-use ff::PrimeField;
 use group::ff::{BatchInvert, Field};
-use halo2curves::FieldExt;
 use std::fmt::Debug;
 use std::io;
 use std::marker::PhantomData;
@@ -177,7 +175,7 @@ impl<F: SerdePrimeField, B> Polynomial<F, B> {
     }
 }
 
-pub(crate) fn batch_invert_assigned<F: FieldExt>(
+pub(crate) fn batch_invert_assigned<F: Field>(
     assigned: Vec<Polynomial<Assigned<F>, LagrangeCoeff>>,
 ) -> Vec<Polynomial<F, LagrangeCoeff>> {
     let mut assigned_denominators: Vec<_> = assigned
@@ -201,10 +199,8 @@ pub(crate) fn batch_invert_assigned<F: FieldExt>(
 
     assigned
         .iter()
-        .zip(assigned_denominators.into_iter())
-        .map(|(poly, inv_denoms)| {
-            poly.invert(inv_denoms.into_iter().map(|d| d.unwrap_or_else(F::one)))
-        })
+        .zip(assigned_denominators)
+        .map(|(poly, inv_denoms)| poly.invert(inv_denoms.into_iter().map(|d| d.unwrap_or(F::ONE))))
         .collect()
 }
 
@@ -218,7 +214,7 @@ impl<F: Field> Polynomial<Assigned<F>, LagrangeCoeff> {
             values: self
                 .values
                 .iter()
-                .zip(inv_denoms.into_iter())
+                .zip(inv_denoms)
                 .map(|(a, inv_den)| a.numerator() * inv_den)
                 .collect(),
             _marker: self._marker,
@@ -274,13 +270,13 @@ impl<F: Field, B: Basis> Mul<F> for Polynomial<F, B> {
     type Output = Polynomial<F, B>;
 
     fn mul(mut self, rhs: F) -> Polynomial<F, B> {
-        if rhs == F::zero() {
+        if rhs == F::ZERO {
             return Polynomial {
-                values: vec![F::zero(); self.len()],
+                values: vec![F::ZERO; self.len()],
                 _marker: PhantomData,
             };
         }
-        if rhs == F::one() {
+        if rhs == F::ONE {
             return self;
         }
 
@@ -307,7 +303,7 @@ impl<'a, F: Field, B: Basis> Sub<F> for &'a Polynomial<F, B> {
 /// Describes the relative rotation of a vector. Negative numbers represent
 /// reverse (leftmost) rotations and positive numbers represent forward (rightmost)
 /// rotations. Zero represents no rotation.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Rotation(pub i32);
 
 impl Rotation {

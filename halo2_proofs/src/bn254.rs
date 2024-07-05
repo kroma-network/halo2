@@ -13,7 +13,7 @@ use crate::{
         Challenge255, EncodedChallenge, Transcript, TranscriptWrite, TranscriptWriterBuffer,
     },
 };
-use ff::{Field, PrimeField};
+use ff::{Field, FromUniformBytes, PrimeField};
 use halo2curves::{bn256::G2Affine, Coordinates, CurveAffine};
 
 #[repr(C)]
@@ -305,6 +305,8 @@ pub struct Blake2bWrite<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
 
 impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
         // Prefix to a prover's message soliciting a challenge
@@ -342,6 +344,8 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
         trace!(
@@ -370,6 +374,8 @@ impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWriteState<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn state(&self) -> Vec<u8> {
         self.state.state()
@@ -378,6 +384,8 @@ impl<W: Write, C: CurveAffine> TranscriptWriteState<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     /// Initialize a transcript given an output buffer.
     fn init(writer: W) -> Self {
@@ -405,6 +413,8 @@ pub struct PoseidonWrite<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
 
 impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
     for PoseidonWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
         let scalar = *unsafe {
@@ -452,6 +462,8 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for PoseidonWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
         trace!(
@@ -496,6 +508,8 @@ impl<W: Write, C: CurveAffine, E: EncodedChallenge<C>> PoseidonWrite<W, C, E> {
 
 impl<W: Write, C: CurveAffine> TranscriptWriteState<C, Challenge255<C>>
     for PoseidonWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn state(&self) -> Vec<u8> {
         self.state.state()
@@ -510,8 +524,9 @@ pub struct Sha256Write<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
     _marker: PhantomData<(W, C, E)>,
 }
 
-impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
-    for Sha256Write<W, C, Challenge255<C>>
+impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>> for Sha256Write<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
         const SHA256_PREFIX_CHALLENGE: u8 = 0;
@@ -566,6 +581,8 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Sha256Write<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
         trace!(
@@ -578,10 +595,10 @@ impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
         let coords = point.coordinates();
         let x = coords
             .map(|v| *v.x())
-            .unwrap_or(<C as CurveAffine>::Base::zero());
+            .unwrap_or(<C as CurveAffine>::Base::ZERO);
         let y = coords
             .map(|v| *v.y())
-            .unwrap_or(<C as CurveAffine>::Base::zero());
+            .unwrap_or(<C as CurveAffine>::Base::ZERO);
 
         for base in &[&x, &y] {
             self.writer.write_all(base.to_repr().as_ref())?;
@@ -605,6 +622,8 @@ impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWriteState<C, Challenge255<C>>
     for Sha256Write<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn state(&self) -> Vec<u8> {
         self.state.state()
@@ -763,6 +782,9 @@ impl Clone for Evals {
 pub struct RationalEvals {
     inner: cxx::UniquePtr<ffi::RationalEvals>,
 }
+
+unsafe impl Send for ffi::RationalEvals {}
+unsafe impl Sync for ffi::RationalEvals {}
 
 impl RationalEvals {
     pub fn new(inner: cxx::UniquePtr<ffi::RationalEvals>) -> RationalEvals {

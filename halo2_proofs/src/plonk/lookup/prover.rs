@@ -5,20 +5,19 @@ use super::super::{
 use super::Argument;
 use crate::plonk::evaluation::evaluate;
 use crate::{
-    arithmetic::{eval_polynomial, parallelize, CurveAffine, FieldExt},
+    arithmetic::{eval_polynomial, parallelize, CurveAffine},
     poly::{
         commitment::{Blind, Params},
-        Coeff, EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, ProverQuery,
-        Rotation,
+        Coeff, EvaluationDomain, LagrangeCoeff, Polynomial, ProverQuery, Rotation,
     },
     transcript::{EncodedChallenge, TranscriptWrite},
 };
+use ff::WithSmallOrderMulGroup;
 use group::{
     ff::{BatchInvert, Field},
     Curve,
 };
 use rand_core::RngCore;
-use std::{any::TypeId, convert::TryInto, num::ParseIntError, ops::Index};
 use std::{
     collections::BTreeMap,
     iter,
@@ -52,7 +51,7 @@ pub(in crate::plonk) struct Evaluated<C: CurveAffine> {
     constructed: Committed<C>,
 }
 
-impl<F: FieldExt> Argument<F> {
+impl<F: WithSmallOrderMulGroup<3>> Argument<F> {
     /// Given a Lookup with input expressions [A_0, A_1, ..., A_{m-1}] and table expressions
     /// [S_0, S_1, ..., S_{m-1}], this method
     /// - constructs A_compressed = \theta^{m-1} A_0 + theta^{m-2} A_1 + ... + \theta A_{m-2} + A_{m-1}
@@ -62,6 +61,7 @@ impl<F: FieldExt> Argument<F> {
     /// - constructs Permuted<C> struct using permuted_input_value = A', and
     ///   permuted_table_expression = S'.
     /// The Permuted<C> struct is used to update the Lookup, and is then returned.
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::plonk) fn commit_permuted<
         'a,
         'params: 'a,
@@ -201,7 +201,7 @@ impl<C: CurveAffine> Permuted<C> {
         // s_j(X) is the jth table expression in this lookup,
         // s'(X) is the compression of the permuted table expressions,
         // and i is the ith row of the expression.
-        let mut lookup_product = vec![C::Scalar::zero(); params.n() as usize];
+        let mut lookup_product = vec![C::Scalar::ZERO; params.n() as usize];
         // Denominator uses the permuted input expression and permuted table expression
         parallelize(&mut lookup_product, |lookup_product, start| {
             for ((lookup_product, permuted_input_value), permuted_table_value) in lookup_product
@@ -244,9 +244,9 @@ impl<C: CurveAffine> Permuted<C> {
 
         // Compute the evaluations of the lookup product polynomial
         // over our domain, starting with z[0] = 1
-        let z = iter::once(C::Scalar::one())
+        let z = iter::once(C::Scalar::ONE)
             .chain(lookup_product)
-            .scan(C::Scalar::one(), |state, cur| {
+            .scan(C::Scalar::ONE, |state, cur| {
                 *state *= &cur;
                 Some(*state)
             })
@@ -267,7 +267,7 @@ impl<C: CurveAffine> Permuted<C> {
             let u = (params.n() as usize) - (blinding_factors + 1);
 
             // l_0(X) * (1 - z(X)) = 0
-            assert_eq!(z[0], C::Scalar::one());
+            assert_eq!(z[0], C::Scalar::ONE);
 
             // z(\omega X) (a'(X) + \beta) (s'(X) + \gamma)
             // - z(X) (\theta^{m-1} a_0(X) + ... + a_{m-1}(X) + \beta) (\theta^{m-1} s_0(X) + ... + s_{m-1}(X) + \gamma)
@@ -294,7 +294,7 @@ impl<C: CurveAffine> Permuted<C> {
             // l_last(X) * (z(X)^2 - z(X)) = 0
             // Assertion will fail only when soundness is broken, in which
             // case this z[u] value will be zero. (bad!)
-            assert_eq!(z[u], C::Scalar::one());
+            assert_eq!(z[u], C::Scalar::ONE);
         }
 
         let product_blind = Blind(C::Scalar::random(rng));
@@ -423,7 +423,7 @@ fn permute_expression_pair<'params, C: CurveAffine, P: Params<'params, C>, R: Rn
             *acc.entry(*coeff).or_insert(0) += 1;
             acc
         });
-    let mut permuted_table_coeffs = vec![C::Scalar::zero(); usable_rows];
+    let mut permuted_table_coeffs = vec![C::Scalar::ZERO; usable_rows];
 
     let mut repeated_input_rows = permuted_input_expression
         .iter()
@@ -452,7 +452,7 @@ fn permute_expression_pair<'params, C: CurveAffine, P: Params<'params, C>, R: Rn
     // Populate permuted table at unfilled rows with leftover table elements
     for (coeff, count) in leftover_table_map.iter() {
         for _ in 0..*count {
-            permuted_table_coeffs[repeated_input_rows.pop().unwrap() as usize] = *coeff;
+            permuted_table_coeffs[repeated_input_rows.pop().unwrap()] = *coeff;
         }
     }
     assert!(repeated_input_rows.is_empty());

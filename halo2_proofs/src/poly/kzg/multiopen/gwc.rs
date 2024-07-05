@@ -4,20 +4,9 @@ mod verifier;
 pub use prover::ProverGWC;
 pub use verifier::VerifierGWC;
 
-use crate::{
-    arithmetic::{eval_polynomial, CurveAffine, FieldExt},
-    poly::{
-        commitment::{Params, ParamsVerifier},
-        query::Query,
-        Coeff, Polynomial,
-    },
-    transcript::ChallengeScalar,
-};
-
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    marker::PhantomData,
-};
+use crate::{poly::query::Query, transcript::ChallengeScalar};
+use ff::Field;
+use std::marker::PhantomData;
 
 #[derive(Clone, Copy, Debug)]
 struct U {}
@@ -27,13 +16,13 @@ type ChallengeU<F> = ChallengeScalar<F, U>;
 struct V {}
 type ChallengeV<F> = ChallengeScalar<F, V>;
 
-struct CommitmentData<F: FieldExt, Q: Query<F>> {
+struct CommitmentData<F: Field, Q: Query<F>> {
     queries: Vec<Q>,
     point: F,
     _marker: PhantomData<F>,
 }
 
-fn construct_intermediate_sets<F: FieldExt, I, Q: Query<F>>(queries: I) -> Vec<CommitmentData<F, Q>>
+fn construct_intermediate_sets<F: Field, I, Q: Query<F>>(queries: I) -> Vec<CommitmentData<F, Q>>
 where
     I: IntoIterator<Item = Q> + Clone,
 {

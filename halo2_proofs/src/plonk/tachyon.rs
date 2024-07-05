@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    io::Write,
-    ops::RangeTo,
+    ops::{Range, RangeTo},
+    sync::Arc,
 };
 
 use crate::{
@@ -15,12 +15,12 @@ use crate::{
         Error, Fixed, FloorPlanner, Instance, Selector,
     },
     poly::commitment::{Blind, CommitmentScheme},
-    transcript::{Challenge255, EncodedChallenge, Transcript, TranscriptWrite},
+    transcript::EncodedChallenge,
     xor_shift_rng::XORShiftRng as TachyonXORShiftRng,
 };
 use ff::Field;
 use halo2curves::{
-    bn256::{Fr, G1Affine, G1},
+    bn256::Fr,
     group::{prime::PrimeCurveAffine, Curve},
     CurveAffine,
 };
@@ -55,6 +55,9 @@ pub fn create_proof<
     transcript.common_scalar(prover.transcript_repr(pk))?;
 
     let mut meta = ConstraintSystem::default();
+    #[cfg(feature = "circuit-params")]
+    let config = ConcreteCircuit::configure_with_params(&mut meta, circuits[0].params());
+    #[cfg(not(feature = "circuit-params"))]
     let config = ConcreteCircuit::configure(&mut meta);
 
     // Selector optimizations cannot be applied here; use the ConstraintSystem
@@ -118,9 +121,14 @@ pub fn create_proof<
     struct WitnessCollection<'a, F: Field> {
         k: u32,
         current_phase: sealed::Phase,
-        advice: Vec<RationalEvals>,
+        advice_vec: Arc<Vec<RationalEvals>>,
+        // TODO(chokobole): Support `advice` field.
+        // advice:
         challenges: &'a HashMap<usize, F>,
         instances: &'a [&'a [F]],
+        // TODO(chokobole): Support `fixed_values` field.
+        // fixed_values:
+        rw_rows: Range<usize>,
         usable_rows: RangeTo<usize>,
         _marker: std::marker::PhantomData<F>,
     }
@@ -148,6 +156,77 @@ pub fn create_proof<
             Ok(())
         }
 
+        fn fork(&mut self, ranges: &[Range<usize>]) -> Result<Vec<Self>, Error> {
+            let mut range_start = self.rw_rows.start;
+            for (i, sub_range) in ranges.iter().enumerate() {
+                if sub_range.start < range_start {
+                    log::error!(
+                        "subCS_{} sub_range.start ({}) < range_start ({})",
+                        i,
+                        sub_range.start,
+                        range_start
+                    );
+                    return Err(Error::Synthesis);
+                }
+                if i == ranges.len() - 1 && sub_range.end > self.rw_rows.end {
+                    log::error!(
+                        "subCS_{} sub_range.end ({}) > self.rw_rows.end ({})",
+                        i,
+                        sub_range.end,
+                        self.rw_rows.end
+                    );
+                    return Err(Error::Synthesis);
+                }
+                range_start = sub_range.end;
+                log::debug!(
+                    "subCS_{} rw_rows: {}..{}",
+                    i,
+                    sub_range.start,
+                    sub_range.end
+                );
+            }
+
+            // TODO:
+            // let advice_ptrs = self
+            //     .advice
+            //     .iter_mut()
+            //     .map(|vec| vec.as_mut_ptr())
+            //     .collect::<Vec<_>>();
+
+            let mut sub_cs = vec![];
+            // for sub_range in ranges {
+            //     let advice = advice_ptrs
+            //         .iter()
+            //         .map(|ptr| unsafe {
+            //             std::slice::from_raw_parts_mut(
+            //                 ptr.add(sub_range.start),
+            //                 sub_range.end - sub_range.start,
+            //             )
+            //         })
+            //         .collect::<Vec<&mut [Assigned<F>]>>();
+
+            //     sub_cs.push(Self {
+            //         k: 0,
+            //         current_phase: self.current_phase,
+            //         // TODO:
+            //         // advice_vec: self.advice_vec.clone(),
+            //         advice,
+            //         challenges: self.challenges,
+            //         instances: self.instances,
+            //         // TODO:
+            //         rw_rows: sub_range.clone(),
+            //         usable_rows: self.usable_rows,
+            //         _marker: Default::default(),
+            //     });
+            // }
+
+            Ok(sub_cs)
+        }
+
+        fn merge(&mut self, _sub_cs: Vec<Self>) -> Result<(), Error> {
+            Ok(())
+        }
+
         fn annotate_column<A, AR>(&mut self, _annotation: A, _column: Column<Any>)
         where
             A: FnOnce() -> AR,
@@ -156,16 +235,46 @@ pub fn create_proof<
             // Do nothing
         }
 
+        /// Get the last assigned value of a cell.
+        fn query_advice(&self, column: Column<Advice>, row: usize) -> Result<F, Error> {
+            if !self.usable_rows.contains(&row) {
+                return Err(Error::not_enough_rows_available(self.k));
+            }
+            if !self.rw_rows.contains(&row) {
+                log::error!("query_advice: {:?}, row: {}", column, row);
+                return Err(Error::Synthesis);
+            }
+            // TODO(chokobole): Enable this.
+            // self.advice
+            //     .get(column.index())
+            //     .and_then(|v| v.get(row - self.rw_rows.start))
+            //     .map(|v| v.evaluate())
+            //     .ok_or(Error::BoundsFailure)
+            Ok(F::ZERO)
+        }
+
+        fn query_fixed(&self, column: Column<Fixed>, row: usize) -> Result<F, Error> {
+            Ok(F::ZERO)
+            // TODO(chokobole): Enable this.
+            // self.fixed_values
+            //     .get(column.index())
+            //     .and_then(|v| v.get(row))
+            //     .copied()
+            //     .ok_or(Error::BoundsFailure)
+        }
+
         fn query_instance(&self, column: Column<Instance>, row: usize) -> Result<Value<F>, Error> {
             if !self.usable_rows.contains(&row) {
                 return Err(Error::not_enough_rows_available(self.k));
             }
 
-            self.instances
+            Ok(self
+                .instances
                 .get(column.index())
                 .and_then(|column| column.get(row))
                 .map(|v| Value::known(*v))
                 .ok_or(Error::BoundsFailure)
+                .expect("bound failure"))
         }
 
         fn assign_advice<V, VR, A, AR>(
@@ -190,24 +299,30 @@ pub fn create_proof<
                 return Err(Error::not_enough_rows_available(self.k));
             }
 
-            let rational_evals = self
-                .advice
-                .get_mut(column.index())
-                .ok_or(Error::BoundsFailure)?;
-
-            let value = to().into_field().assign()?;
-            match &value {
-                Assigned::Zero => rational_evals.set_zero(row),
-                Assigned::Trivial(numerator) => {
-                    let numerator = unsafe { std::mem::transmute::<_, &Fr>(numerator) };
-                    rational_evals.set_trivial(row, numerator);
-                }
-                Assigned::Rational(numerator, denominator) => {
-                    let numerator = unsafe { std::mem::transmute::<_, &Fr>(numerator) };
-                    let denominator = unsafe { std::mem::transmute::<_, &Fr>(denominator) };
-                    rational_evals.set_rational(row, numerator, denominator)
-                }
+            if !self.rw_rows.contains(&row) {
+                log::error!("assign_advice: {:?}, row: {}", column, row);
+                return Err(Error::Synthesis);
             }
+
+            // TODO(chokobole): Enable this.
+            // let rational_evals = self
+            //     .advice
+            //     .get_mut(column.index())
+            //     .ok_or(Error::BoundsFailure)?;
+
+            // let value = to().into_field().assign()?;
+            // match &value {
+            //     Assigned::Zero => rational_evals.set_zero(row),
+            //     Assigned::Trivial(numerator) => {
+            //         let numerator = unsafe { std::mem::transmute::<_, &Fr>(numerator) };
+            //         rational_evals.set_trivial(row, numerator);
+            //     }
+            //     Assigned::Rational(numerator, denominator) => {
+            //         let numerator = unsafe { std::mem::transmute::<_, &Fr>(numerator) };
+            //         let denominator = unsafe { std::mem::transmute::<_, &Fr>(denominator) };
+            //         rational_evals.set_rational(row, numerator, denominator)
+            //     }
+            // }
 
             Ok(())
         }
@@ -308,10 +423,12 @@ pub fn create_proof<
                 .zip(instances)
                 .enumerate()
             {
+                let advice_vec =
+                    Arc::new(vec![prover.empty_rational_evals(); meta.num_advice_columns]);
                 let mut witness = WitnessCollection {
                     k: prover.k(),
                     current_phase,
-                    advice: vec![prover.empty_rational_evals(); num_advice_columns],
+                    advice_vec,
                     instances,
                     challenges: &challenges,
                     // The prover will not be allowed to assign values to advice
@@ -319,16 +436,20 @@ pub fn create_proof<
                     // number of blinding factors and an extra row for use in the
                     // permutation argument.
                     usable_rows: ..unusable_rows_start,
+                    rw_rows: 0..unusable_rows_start,
                     _marker: std::marker::PhantomData,
                 };
 
                 // Synthesize the circuit to obtain the witness and other information.
+
+                log::info!("create_proof synthesize phase {current_phase:?} begin");
                 ConcreteCircuit::FloorPlanner::synthesize(
                     &mut witness,
                     circuit,
                     config.clone(),
                     pk.constants(),
                 )?;
+                log::info!("create_proof synthesize phase {current_phase:?} end");
 
                 #[cfg(feature = "phase-check")]
                 {
@@ -347,8 +468,10 @@ pub fn create_proof<
                     }
                 }
 
+                /*
+                TODO(chokobole): Enable this.
                 let advice_assigned_values = witness
-                    .advice
+                    .advice_vec
                     .into_iter()
                     .enumerate()
                     .filter_map(|(column_index, advice)| {
@@ -387,7 +510,6 @@ pub fn create_proof<
                     .collect();
                 let mut advice_commitments =
                     vec![Scheme::Curve::identity(); advice_commitments_projective.len()];
-                vec![Scheme::Curve::identity(); advice_commitments_projective.len()];
                 <Scheme::Curve as CurveAffine>::CurveExt::batch_normalize(
                     &advice_commitments_projective,
                     &mut advice_commitments,
@@ -404,6 +526,7 @@ pub fn create_proof<
                     advice.advice_polys[*column_index] = advice_values;
                     advice.advice_blinds[*column_index] = blind;
                 }
+                */
             }
 
             for (index, phase) in pk.challenge_phases().iter().enumerate() {

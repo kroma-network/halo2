@@ -6,10 +6,9 @@ use rand_core::RngCore;
 
 use super::Argument;
 use crate::{
-    arithmetic::{eval_polynomial, CurveAffine, FieldExt},
-    plonk::{ChallengeX, ChallengeY, Error},
+    arithmetic::{eval_polynomial, CurveAffine},
+    plonk::{ChallengeX, Error},
     poly::{
-        self,
         commitment::{Blind, ParamsProver},
         Coeff, EvaluationDomain, ExtendedLagrangeCoeff, Polynomial, ProverQuery,
     },
@@ -50,10 +49,10 @@ impl<C: CurveAffine> Argument<C> {
         transcript: &mut T,
     ) -> Result<Committed<C>, Error> {
         // Sample a random polynomial of degree n - 1
-        let random_poly = domain.constant_lagrange(C::Scalar::one());
+        let random_poly = domain.constant_lagrange(C::Scalar::ONE);
         let random_poly = domain.lagrange_to_coeff(random_poly);
         // Sample a random blinding factor
-        let random_blind = Blind(C::Scalar::zero());
+        let random_blind = Blind(C::Scalar::ZERO);
         let c = params.commit(&random_poly, random_blind).to_affine();
         // We write the identity point to the transcript which
         // is the commitment of the zero polynomial.
@@ -139,9 +138,7 @@ impl<C: CurveAffine> Constructed<C> {
             .h_blinds
             .iter()
             .rev()
-            .fold(Blind(C::Scalar::zero()), |acc, eval| {
-                acc * Blind(xn) + *eval
-            });
+            .fold(Blind(C::Scalar::ZERO), |acc, eval| acc * Blind(xn) + *eval);
 
         let random_eval = eval_polynomial(&self.committed.random_poly, *x);
         transcript.write_scalar(random_eval)?;

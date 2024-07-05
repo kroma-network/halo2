@@ -21,7 +21,7 @@ use halo2_proofs::{
 use halo2curves::pasta::{pallas, vesta, EqAffine, Fp};
 
 use halo2_gadgets::poseidon::{
-    primitives::{self as poseidon, ConstantLength, Spec},
+    primitives::{self as poseidon, generate_constants, ConstantLength, Mds, Spec},
     Hash, Pow5Chip, Pow5Config,
 };
 use std::convert::TryInto;
@@ -53,6 +53,8 @@ where
 {
     type Config = MyConfig<WIDTH, RATE, L>;
     type FloorPlanner = SimpleFloorPlanner;
+    #[cfg(feature = "circuit-params")]
+    type Params = ();
 
     fn without_witnesses(&self) -> Self {
         Self {
@@ -133,11 +135,15 @@ impl<const WIDTH: usize, const RATE: usize> Spec<Fp, WIDTH, RATE> for MySpec<WID
     }
 
     fn sbox(val: Fp) -> Fp {
-        val.pow_vartime(&[5])
+        val.pow_vartime([5])
     }
 
     fn secure_mds() -> usize {
         0
+    }
+
+    fn constants() -> (Vec<[Fp; WIDTH]>, Mds<Fp, WIDTH>, Mds<Fp, WIDTH>) {
+        generate_constants::<_, Self, WIDTH, RATE>()
     }
 }
 

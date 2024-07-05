@@ -2,11 +2,11 @@
 //! transcripts.
 
 use blake2b_simd::{Params as Blake2bParams, State as Blake2bState};
-use group::ff::PrimeField;
+use group::ff::{FromUniformBytes, PrimeField};
 use sha3::{Digest, Keccak256};
 use std::convert::TryInto;
 
-use halo2curves::{Coordinates, CurveAffine, FieldExt};
+use halo2curves::{Coordinates, CurveAffine};
 
 use log::trace;
 use std::io::{self, Read, Write};
@@ -120,6 +120,8 @@ pub struct Keccak256Read<R: Read, C: CurveAffine, E: EncodedChallenge<C>> {
 
 impl<R: Read, C: CurveAffine> TranscriptReadBuffer<R, C, Challenge255<C>>
     for Blake2bRead<R, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     /// Initialize a transcript given an input buffer.
     fn init(reader: R) -> Self {
@@ -136,6 +138,8 @@ impl<R: Read, C: CurveAffine> TranscriptReadBuffer<R, C, Challenge255<C>>
 
 impl<R: Read, C: CurveAffine> TranscriptReadBuffer<R, C, Challenge255<C>>
     for Keccak256Read<R, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     /// Initialize a transcript given an input buffer.
     fn init(reader: R) -> Self {
@@ -151,6 +155,8 @@ impl<R: Read, C: CurveAffine> TranscriptReadBuffer<R, C, Challenge255<C>>
 
 impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
     for Blake2bRead<R, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn read_point(&mut self) -> io::Result<C> {
         let mut compressed = C::Repr::default();
@@ -180,6 +186,8 @@ impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
 
 impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
     for Keccak256Read<R, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn read_point(&mut self) -> io::Result<C> {
         let mut compressed = C::Repr::default();
@@ -207,8 +215,9 @@ impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
     }
 }
 
-impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>>
-    for Blake2bRead<R, C, Challenge255<C>>
+impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>> for Blake2bRead<R, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
         self.state.update(&[BLAKE2B_PREFIX_CHALLENGE]);
@@ -241,14 +250,16 @@ impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>>
 
 impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>>
     for Keccak256Read<R, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
-        self.state.update(&[KECCAK256_PREFIX_CHALLENGE]);
+        self.state.update([KECCAK256_PREFIX_CHALLENGE]);
 
         let mut state_lo = self.state.clone();
         let mut state_hi = self.state.clone();
-        state_lo.update(&[KECCAK256_PREFIX_CHALLENGE_LO]);
-        state_hi.update(&[KECCAK256_PREFIX_CHALLENGE_HI]);
+        state_lo.update([KECCAK256_PREFIX_CHALLENGE_LO]);
+        state_hi.update([KECCAK256_PREFIX_CHALLENGE_HI]);
         let result_lo: [u8; 32] = state_lo.finalize().as_slice().try_into().unwrap();
         let result_hi: [u8; 32] = state_hi.finalize().as_slice().try_into().unwrap();
 
@@ -260,7 +271,7 @@ impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>>
     }
 
     fn common_point(&mut self, point: C) -> io::Result<()> {
-        self.state.update(&[KECCAK256_PREFIX_POINT]);
+        self.state.update([KECCAK256_PREFIX_POINT]);
         let coords: Coordinates<C> = Option::from(point.coordinates()).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::Other,
@@ -274,7 +285,7 @@ impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>>
     }
 
     fn common_scalar(&mut self, scalar: C::Scalar) -> io::Result<()> {
-        self.state.update(&[KECCAK256_PREFIX_SCALAR]);
+        self.state.update([KECCAK256_PREFIX_SCALAR]);
         self.state.update(scalar.to_repr().as_ref());
 
         Ok(())
@@ -300,6 +311,8 @@ pub struct Keccak256Write<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
 
 impl<W: Write, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     /// Initialize a transcript given an output buffer.
     fn init(writer: W) -> Self {
@@ -322,6 +335,8 @@ impl<W: Write, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
     for Keccak256Write<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     /// Initialize a transcript given an output buffer.
     fn init(writer: W) -> Self {
@@ -343,6 +358,8 @@ impl<W: Write, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
         trace!(
@@ -370,6 +387,8 @@ impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Keccak256Write<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
         self.common_point(point)?;
@@ -385,6 +404,8 @@ impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
         self.state.update(&[BLAKE2B_PREFIX_CHALLENGE]);
@@ -417,14 +438,16 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
     for Keccak256Write<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
-        self.state.update(&[KECCAK256_PREFIX_CHALLENGE]);
+        self.state.update([KECCAK256_PREFIX_CHALLENGE]);
 
         let mut state_lo = self.state.clone();
         let mut state_hi = self.state.clone();
-        state_lo.update(&[KECCAK256_PREFIX_CHALLENGE_LO]);
-        state_hi.update(&[KECCAK256_PREFIX_CHALLENGE_HI]);
+        state_lo.update([KECCAK256_PREFIX_CHALLENGE_LO]);
+        state_hi.update([KECCAK256_PREFIX_CHALLENGE_HI]);
         let result_lo: [u8; 32] = state_lo.finalize().as_slice().try_into().unwrap();
         let result_hi: [u8; 32] = state_hi.finalize().as_slice().try_into().unwrap();
 
@@ -436,7 +459,7 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
     }
 
     fn common_point(&mut self, point: C) -> io::Result<()> {
-        self.state.update(&[KECCAK256_PREFIX_POINT]);
+        self.state.update([KECCAK256_PREFIX_POINT]);
         let coords: Coordinates<C> = Option::from(point.coordinates()).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::Other,
@@ -450,7 +473,7 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
     }
 
     fn common_scalar(&mut self, scalar: C::Scalar) -> io::Result<()> {
-        self.state.update(&[KECCAK256_PREFIX_SCALAR]);
+        self.state.update([KECCAK256_PREFIX_SCALAR]);
         self.state.update(scalar.to_repr().as_ref());
 
         Ok(())
@@ -511,12 +534,15 @@ impl<C: CurveAffine> std::ops::Deref for Challenge255<C> {
     }
 }
 
-impl<C: CurveAffine> EncodedChallenge<C> for Challenge255<C> {
+impl<C: CurveAffine> EncodedChallenge<C> for Challenge255<C>
+where
+    C::Scalar: FromUniformBytes<64>,
+{
     type Input = [u8; 64];
 
     fn new(challenge_input: &[u8; 64]) -> Self {
         Challenge255(
-            C::Scalar::from_bytes_wide(challenge_input)
+            C::Scalar::from_uniform_bytes(challenge_input)
                 .to_repr()
                 .as_ref()
                 .try_into()

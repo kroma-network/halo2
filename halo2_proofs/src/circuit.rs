@@ -1,14 +1,11 @@
 //! Traits and structs for implementing circuit components.
 
-use std::{convert::TryInto, fmt, marker::PhantomData};
+use std::{fmt, marker::PhantomData};
 
 use ff::Field;
 
-use crate::{
-    arithmetic::FieldExt,
-    plonk::{
-        Advice, Any, Assigned, Challenge, Column, Error, Fixed, Instance, Selector, TableColumn,
-    },
+use crate::plonk::{
+    Advice, Any, Assigned, Challenge, Column, Error, Fixed, Instance, Selector, TableColumn,
 };
 
 mod value;
@@ -19,6 +16,9 @@ pub mod floor_planner;
 pub use floor_planner::single_pass::SimpleFloorPlanner;
 
 pub mod layouter;
+mod table_layouter;
+
+pub use table_layouter::{SimpleTableLayouter, TableLayouter};
 
 /// A chip implements a set of instructions that can be used by gadgets.
 ///
@@ -28,7 +28,7 @@ pub mod layouter;
 /// The chip also loads any fixed configuration needed at synthesis time
 /// using its own implementation of `load`, and stores it in [`Chip::Loaded`].
 /// This can be accessed via [`Chip::loaded`].
-pub trait Chip<F: FieldExt>: Sized {
+pub trait Chip<F: Field>: Sized {
     /// A type that holds the configuration for this chip, and any other state it may need
     /// during circuit synthesis, that can be derived during [`Circuit::configure`].
     ///
@@ -221,6 +221,16 @@ impl<'r, F: Field> Region<'r, F> {
             .name_column(&|| annotation().into(), column.into());
     }
 
+    /// Get the last assigned value of an advice cell.
+    pub fn query_advice(&self, column: Column<Advice>, offset: usize) -> Result<F, Error> {
+        self.region.query_advice(column, offset)
+    }
+
+    /// Get the last assigned value of a fixed cell.
+    pub fn query_fixed(&self, column: Column<Fixed>, offset: usize) -> Result<F, Error> {
+        self.region.query_fixed(column, offset)
+    }
+
     /// Assign an advice column value (witness).
     ///
     /// Even though `to` has `FnMut` bounds, it is guaranteed to be called at most once.
@@ -317,6 +327,19 @@ impl<'r, F: Field> Region<'r, F> {
         })
     }
 
+    /// Returns the value of the instance column's cell at absolute location `row`.
+    ///
+    /// This method is only provided for convenience; it does not create any constraints.
+    /// Callers still need to use [`Self::assign_advice_from_instance`] to constrain the
+    /// instance values in their circuit.
+    pub fn instance_value(
+        &mut self,
+        instance: Column<Instance>,
+        row: usize,
+    ) -> Result<Value<F>, Error> {
+        self.region.instance_value(instance, row)
+    }
+
     /// Assign a fixed value.
     ///
     /// Even though `to` has `FnMut` bounds, it is guaranteed to be called at most once.
@@ -367,16 +390,21 @@ impl<'r, F: Field> Region<'r, F> {
     pub fn constrain_equal(&mut self, left: Cell, right: Cell) -> Result<(), Error> {
         self.region.constrain_equal(left, right)
     }
+
+    /// Return the offset of a row within the overall circuit.
+    pub fn global_offset(&self, row_offset: usize) -> usize {
+        self.region.global_offset(row_offset)
+    }
 }
 
 /// A lookup table in the circuit.
 #[derive(Debug)]
 pub struct Table<'r, F: Field> {
-    table: &'r mut dyn layouter::TableLayouter<F>,
+    table: &'r mut dyn TableLayouter<F>,
 }
 
-impl<'r, F: Field> From<&'r mut dyn layouter::TableLayouter<F>> for Table<'r, F> {
-    fn from(table: &'r mut dyn layouter::TableLayouter<F>) -> Self {
+impl<'r, F: Field> From<&'r mut dyn TableLayouter<F>> for Table<'r, F> {
+    fn from(table: &'r mut dyn TableLayouter<F>) -> Self {
         Table { table }
     }
 }
@@ -432,6 +460,18 @@ pub trait Layouter<F: Field> {
     fn assign_region<A, AR, N, NR>(&mut self, name: N, assignment: A) -> Result<AR, Error>
     where
         A: FnMut(Region<'_, F>) -> Result<AR, Error>,
+        N: Fn() -> NR,
+        NR: Into<String>;
+
+    #[cfg(feature = "parallel_syn")]
+    fn assign_regions<A, AR, N, NR>(
+        &mut self,
+        name: N,
+        assignments: Vec<A>,
+    ) -> Result<Vec<AR>, Error>
+    where
+        A: FnMut(Region<'_, F>) -> Result<AR, Error> + Send,
+        AR: Send,
         N: Fn() -> NR,
         NR: Into<String>;
 
@@ -508,6 +548,21 @@ impl<'a, F: Field, L: Layouter<F> + 'a> Layouter<F> for NamespacedLayouter<'a, F
         NR: Into<String>,
     {
         self.0.assign_region(name, assignment)
+    }
+
+    #[cfg(feature = "parallel_syn")]
+    fn assign_regions<A, AR, N, NR>(
+        &mut self,
+        name: N,
+        assignments: Vec<A>,
+    ) -> Result<Vec<AR>, Error>
+    where
+        A: FnMut(Region<'_, F>) -> Result<AR, Error> + Send,
+        AR: Send,
+        N: Fn() -> NR,
+        NR: Into<String>,
+    {
+        self.0.assign_regions(name, assignments)
     }
 
     fn assign_table<A, N, NR>(&mut self, name: N, assignment: A) -> Result<(), Error>

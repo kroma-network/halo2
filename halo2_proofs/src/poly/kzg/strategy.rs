@@ -1,27 +1,19 @@
-use std::{fmt::Debug, marker::PhantomData};
-
 use super::{
     commitment::{KZGCommitmentScheme, ParamsKZG},
-    msm::{DualMSM, MSMKZG},
-    multiopen::VerifierGWC,
+    msm::DualMSM,
 };
 use crate::{
     helpers::SerdeCurveAffine,
     plonk::Error,
     poly::{
-        commitment::{Verifier, MSM},
-        ipa::msm::MSMIPA,
+        commitment::Verifier,
         strategy::{Guard, VerificationStrategy},
     },
-    transcript::{EncodedChallenge, TranscriptRead},
 };
-use ff::Field;
-use group::Group;
-use halo2curves::{
-    pairing::{Engine, MillerLoopResult, MultiMillerLoop},
-    CurveAffine,
-};
+use ff::{Field, PrimeField};
+use halo2curves::pairing::{Engine, MultiMillerLoop};
 use rand_core::OsRng;
+use std::fmt::Debug;
 
 /// Wrapper for linear verification accumulator
 #[derive(Debug, Clone)]
@@ -32,6 +24,7 @@ pub struct GuardKZG<'params, E: MultiMillerLoop + Debug> {
 /// Define accumulator type as `DualMSM`
 impl<'params, E> Guard<KZGCommitmentScheme<E>> for GuardKZG<'params, E>
 where
+    E::Scalar: PrimeField,
     E: MultiMillerLoop + Debug,
     E::G1Affine: SerdeCurveAffine,
     E::G2Affine: SerdeCurveAffine,
@@ -92,6 +85,7 @@ impl<
         >,
     > VerificationStrategy<'params, KZGCommitmentScheme<E>, V> for AccumulatorStrategy<'params, E>
 where
+    E::Scalar: PrimeField,
     E::G1Affine: SerdeCurveAffine,
     E::G2Affine: SerdeCurveAffine,
 {
@@ -130,6 +124,7 @@ impl<
         >,
     > VerificationStrategy<'params, KZGCommitmentScheme<E>, V> for SingleStrategy<'params, E>
 where
+    E::Scalar: PrimeField,
     E::G1Affine: SerdeCurveAffine,
     E::G2Affine: SerdeCurveAffine,
 {

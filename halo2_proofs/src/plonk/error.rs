@@ -1,8 +1,8 @@
-use std::cmp;
 use std::error;
 use std::fmt;
 use std::io;
 
+use super::TableColumn;
 use super::{Any, Column};
 
 /// This is an error that could occur during proving or circuit synthesis.
@@ -18,6 +18,8 @@ pub enum Error {
     ConstraintSystemFailure,
     /// Out of bounds index passed to a backend
     BoundsFailure,
+    /// Out of bounds an subCS is allowed to access(r/w).
+    InvalidRange(usize, String),
     /// Opening error
     Opening,
     /// Transcript error
@@ -37,6 +39,8 @@ pub enum Error {
     /// The instance sets up a copy constraint involving a column that has not been
     /// included in the permutation.
     ColumnNotInPermutation(Column<Any>),
+    /// An error relating to a lookup table.
+    TableError(TableError),
 }
 
 impl From<io::Error> for Error {
@@ -60,6 +64,12 @@ impl fmt::Display for Error {
             Error::InvalidInstances => write!(f, "Provided instances do not match the circuit"),
             Error::ConstraintSystemFailure => write!(f, "The constraint system is not satisfied"),
             Error::BoundsFailure => write!(f, "An out-of-bounds index was passed to the backend"),
+            Error::InvalidRange(row, region_name) => write!(
+                f,
+                "the row={} is not in the range that this subCS owns (region name = {})",
+                row,
+                region_name,
+            ),
             Error::Opening => write!(f, "Multi-opening proof was invalid"),
             Error::Transcript(e) => write!(f, "Transcript error: {}", e),
             Error::NotEnoughRowsAvailable { current_k } => write!(
@@ -79,6 +89,7 @@ impl fmt::Display for Error {
                 "Column {:?} must be included in the permutation. Help: try applying `meta.enable_equalty` on the column",
                 column
             ),
+            Error::TableError(error) => write!(f, "{}", error)
         }
     }
 }
@@ -88,6 +99,48 @@ impl error::Error for Error {
         match self {
             Error::Transcript(e) => Some(e),
             _ => None,
+        }
+    }
+}
+
+/// This is an error that could occur during table synthesis.
+#[derive(Debug)]
+pub enum TableError {
+    /// A `TableColumn` has not been assigned.
+    ColumnNotAssigned(TableColumn),
+    /// A Table has columns of uneven lengths.
+    UnevenColumnLengths((TableColumn, usize), (TableColumn, usize)),
+    /// Attempt to assign a used `TableColumn`
+    UsedColumn(TableColumn),
+    /// Attempt to overwrite a default value
+    OverwriteDefault(TableColumn, String, String),
+}
+
+impl fmt::Display for TableError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TableError::ColumnNotAssigned(col) => {
+                write!(
+                    f,
+                    "{:?} not fully assigned. Help: assign a value at offset 0.",
+                    col
+                )
+            }
+            TableError::UnevenColumnLengths((col, col_len), (table, table_len)) => write!(
+                f,
+                "{:?} has length {} while {:?} has length {}",
+                col, col_len, table, table_len
+            ),
+            TableError::UsedColumn(col) => {
+                write!(f, "{:?} has already been used", col)
+            }
+            TableError::OverwriteDefault(col, default, val) => {
+                write!(
+                    f,
+                    "Attempted to overwrite default value {} with {} in {:?}",
+                    default, val, col
+                )
+            }
         }
     }
 }
