@@ -33,7 +33,7 @@ pub trait ColumnType:
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Column<C: ColumnType> {
     pub index: usize,
-    column_type: C,
+    pub column_type: C,
 }
 
 impl<C: ColumnType> Column<C> {
@@ -95,10 +95,10 @@ impl<C: ColumnType> PartialOrd for Column<C> {
     }
 }
 
-pub(crate) mod sealed {
+pub mod sealed {
     /// Phase of advice column
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-    pub struct Phase(pub(crate) u8);
+    pub struct Phase(pub u8);
 
     impl Phase {
         pub fn prev(&self) -> Option<Phase> {
@@ -156,7 +156,7 @@ impl SealedPhase for super::ThirdPhase {
 /// An advice column
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Advice {
-    pub(crate) phase: sealed::Phase,
+    pub phase: sealed::Phase,
 }
 
 impl Default for Advice {
