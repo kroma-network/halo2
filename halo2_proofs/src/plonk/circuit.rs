@@ -3169,7 +3169,9 @@ impl<F: FromUniformBytes<64>> ConstraintSystem<F> {
             .fold(0, |acc, lookup| acc + lookup.bytes_length()) +
         // self.constants
         4 +
-        self.constants.len() * Column::<Fixed>::bytes_length()
+        self.constants.len() * Column::<Fixed>::bytes_length() +
+        // self.minimum_degree
+        1 + if self.minimum_degree.is_some() {4} else {0}
     }
 }
 
@@ -3224,6 +3226,12 @@ impl<F: SerdePrimeField + FromUniformBytes<64>> ConstraintSystem<F> {
             lookup.write(writer)?;
         }
         write_columns_slice(self.constants.as_slice(), writer)?;
+        if let Some(minimum_degree) = self.minimum_degree {
+            writer.write_all(&(1 as u8).to_be_bytes())?;
+            writer.write_all(&(minimum_degree as u32).to_be_bytes())?;
+        } else {
+            writer.write_all(&(0 as u8).to_be_bytes())?;
+        }
         Ok(())
     }
 
@@ -3339,6 +3347,17 @@ impl<F: SerdePrimeField + FromUniformBytes<64>> ConstraintSystem<F> {
 
         let constants = read_columns_vec(reader)?;
 
+        let mut has_minimum_degree = [0u8; 1];
+        reader.read_exact(&mut has_minimum_degree)?;
+        let has_minimum_degree = u8::from_be_bytes(has_minimum_degree);
+        let minimum_degree = if has_minimum_degree == 1 {
+            let mut minimum_degree = [0u8; 4];
+            reader.read_exact(&mut minimum_degree)?;
+            Some(u32::from_be_bytes(minimum_degree) as usize)
+        } else {
+            None
+        };
+
         Ok(Self {
             num_fixed_columns,
             num_advice_columns,
@@ -3361,7 +3380,7 @@ impl<F: SerdePrimeField + FromUniformBytes<64>> ConstraintSystem<F> {
             shuffles: Vec::new(),
             general_column_annotations: BTreeMap::new(),
             constants,
-            minimum_degree: None,
+            minimum_degree,
         })
     }
 }
