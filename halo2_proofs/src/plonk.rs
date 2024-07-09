@@ -306,6 +306,17 @@ where
             //+ polynomial_slice_byte_length(&self.fixed_cosets)
             + self.permutation.bytes_length()
     }
+
+    pub fn drop_but_fixed_values(self) -> Vec<Polynomial<C::Scalar, LagrangeCoeff>> {
+        drop(self.vk);
+        drop(self.l0);
+        drop(self.l_last);
+        drop(self.l_active_row);
+        drop(self.fixed_polys);
+        drop(self.permutation);
+        drop(self.ev);
+        self.fixed_values
+    }
 }
 
 impl<C: SerdeCurveAffine> ProvingKey<C>
