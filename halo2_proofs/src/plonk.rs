@@ -32,6 +32,8 @@ mod vanishing;
 mod prover;
 mod verifier;
 
+pub mod tachyon;
+
 pub use assigned::*;
 pub use circuit::*;
 pub use error::*;
