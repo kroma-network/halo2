@@ -208,13 +208,17 @@ where
             .to_state();
 
         let s = format!("{:?}", vk.pinned());
+        log::trace!("[Halo2:GenVK:VK] VKeyStr: {}", s);
 
         hasher.update(&(s.len() as u64).to_le_bytes());
         hasher.update(s.as_bytes());
 
         // Hash in final Blake2bState
         vk.transcript_repr = C::Scalar::from_uniform_bytes(hasher.finalize().as_array());
-        log::info!("vk.transcript_repr {:?}", vk.transcript_repr);
+        log::debug!(
+            "[Halo2:GenVK:TranscriptRepr] TranscriptRepr: {:?}",
+            vk.transcript_repr
+        );
         vk
     }
 

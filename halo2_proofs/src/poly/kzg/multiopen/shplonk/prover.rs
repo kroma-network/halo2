@@ -137,6 +137,7 @@ where
         // TODO: explore if it is safe to use same challenge
         // for different sets that are already combined with anoter challenge
         let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
+        log::debug!("[Halo2:CreateProof:SHPlonk:Y] Y: {:#?}", *y);
 
         let quotient_contribution = |rotation_set: &RotationSetExtension<E::G1Affine>| {
             // [P_i_0(X) - R_i_0(X), P_i_1(X) - R_i_1(X), ... ]
@@ -194,6 +195,7 @@ where
             .collect();
 
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
+        log::debug!("[Halo2:CreateProof:SHPlonk:V] V: {:#?}", *v);
 
         #[allow(clippy::needless_collect)]
         let quotient_polynomials = rotation_sets
@@ -212,6 +214,7 @@ where
         let h = self.params.commit(&h_x, Blind::default()).to_affine();
         transcript.write_point(h)?;
         let u: ChallengeU<_> = transcript.squeeze_challenge_scalar();
+        log::debug!("[Halo2:CreateProof:SHPlonk:U] U: {:#?}", *u);
 
         let linearisation_contribution = |rotation_set: RotationSetExtension<E::G1Affine>| {
             let mut diffs = super_point_set.clone();

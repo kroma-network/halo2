@@ -296,6 +296,7 @@ where
 pub struct Blake2bWrite<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
     state: Blake2bState,
     writer: W,
+    proof_idx: usize,
     _marker: PhantomData<(C, E)>,
 }
 
@@ -320,6 +321,7 @@ where
                 .personal(b"Halo2-Transcript")
                 .to_state(),
             writer,
+            proof_idx: 0,
             _marker: PhantomData,
         }
     }
@@ -359,11 +361,23 @@ where
     C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
+        log::trace!(
+            "[Halo2:WriteToProof] Proof[{}]: {:?}",
+            self.proof_idx,
+            point
+        );
+        self.proof_idx += 1;
         self.common_point(point)?;
         let compressed = point.to_bytes();
         self.writer.write_all(compressed.as_ref())
     }
     fn write_scalar(&mut self, scalar: C::Scalar) -> io::Result<()> {
+        log::trace!(
+            "[Halo2:WriteToProof] Proof[{}]: {:?}",
+            self.proof_idx,
+            scalar
+        );
+        self.proof_idx += 1;
         self.common_scalar(scalar)?;
         let data = scalar.to_repr();
         self.writer.write_all(data.as_ref())

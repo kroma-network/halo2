@@ -53,6 +53,7 @@ where
         R: RngCore,
     {
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
+        log::debug!("[Halo2:CreateProof:GWC:V] V: {:#?}", *v);
         let commitment_data = construct_intermediate_sets(queries);
 
         for commitment_at_a_point in commitment_data.iter() {
