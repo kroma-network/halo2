@@ -77,6 +77,7 @@ where
         for commitment in &self.fixed_commitments {
             commitment.write(writer, format)?;
         }
+        self.cs.write(writer)?;
         self.permutation.write(writer, format)?;
         /*
         // write self.selectors
@@ -167,6 +168,7 @@ where
     fn bytes_length(&self) -> usize {
         8 + (self.fixed_commitments.len() * C::default().to_bytes().as_ref().len())
             + self.permutation.bytes_length()
+            + self.cs.bytes_length()
         // scroll/halo2: we don’t need to store
         // + self.selectors.len()
         //     * (self

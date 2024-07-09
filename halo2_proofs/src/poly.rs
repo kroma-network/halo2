@@ -146,7 +146,7 @@ impl<F, B> Polynomial<F, B> {
 }
 
 impl<F: SerdePrimeField, B> Polynomial<F, B> {
-    /// Reads polynomial from buffer using `SerdePrimeField::read`.  
+    /// Reads polynomial from buffer using `SerdePrimeField::read`.
     pub(crate) fn read<R: io::Read>(reader: &mut R, format: SerdeFormat) -> io::Result<Self> {
         let mut poly_len = [0u8; 4];
         reader.read_exact(&mut poly_len)?;
@@ -161,7 +161,7 @@ impl<F: SerdePrimeField, B> Polynomial<F, B> {
             })
     }
 
-    /// Writes polynomial to buffer using `SerdePrimeField::write`.  
+    /// Writes polynomial to buffer using `SerdePrimeField::write`.
     pub(crate) fn write<W: io::Write>(
         &self,
         writer: &mut W,
@@ -320,5 +320,24 @@ impl Rotation {
     /// The next location in the evaluation domain
     pub fn next() -> Rotation {
         Rotation(1)
+    }
+
+    /// Gets the total number of bytes in the serialization of `Rotation`
+    pub(crate) fn bytes_length() -> usize {
+        4
+    }
+
+    /// Writes a rotation to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.0 as i32).to_be_bytes())?;
+        Ok(())
+    }
+
+    /// Reads a rotation from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut rotation = [0u8; 4];
+        reader.read_exact(&mut rotation)?;
+        let rotation = i32::from_be_bytes(rotation);
+        Ok(Self(rotation))
     }
 }

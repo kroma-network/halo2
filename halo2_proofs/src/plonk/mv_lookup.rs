@@ -1,6 +1,13 @@
-use super::circuit::Expression;
-use ff::Field;
-use std::fmt::{self, Debug};
+use super::{
+    circuit::Expression, read_expressions_2d_vec, read_expressions_vec, write_expressions_2d_slice,
+    write_expressions_slice,
+};
+use crate::helpers::SerdePrimeField;
+use ff::{Field, FromUniformBytes};
+use std::{
+    fmt::{self, Debug},
+    io,
+};
 
 pub(crate) mod prover;
 pub(crate) mod verifier;
@@ -89,5 +96,36 @@ impl<F: Field> Argument<F> {
     /// Returns table of this argument
     pub fn table_expressions(&self) -> &Vec<Expression<F>> {
         &self.table_expressions
+    }
+}
+
+impl<F: FromUniformBytes<64>> Argument<F> {
+    /// Gets the total number of bytes in the serialization of `self`
+    pub(crate) fn bytes_length(&self) -> usize {
+        8 + self.inputs_expressions.iter().fold(4, |acc, e_vec| {
+            acc + e_vec.iter().fold(0, |acc, e| acc + e.bytes_length())
+        }) + self
+            .table_expressions
+            .iter()
+            .fold(0, |acc, e| acc + e.bytes_length())
+    }
+}
+
+impl<F: SerdePrimeField + FromUniformBytes<64>> Argument<F> {
+    /// Writes an argument to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        // NOTE(chokobole): `self.name` is not important in the sense of creating proof.
+        write_expressions_2d_slice(self.inputs_expressions.as_slice(), writer)?;
+        write_expressions_slice(self.table_expressions.as_slice(), writer)?;
+        Ok(())
+    }
+
+    /// Reads an argument from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        Ok(Self {
+            name: "",
+            inputs_expressions: read_expressions_2d_vec(reader)?,
+            table_expressions: read_expressions_vec(reader)?,
+        })
     }
 }

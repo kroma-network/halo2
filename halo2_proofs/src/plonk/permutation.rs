@@ -1,6 +1,6 @@
 //! Implementation of permutation argument.
 
-use super::circuit::{Any, Column};
+use super::circuit::{read_columns_vec, write_columns_slice, Any, Column};
 use crate::{
     arithmetic::CurveAffine,
     helpers::{
@@ -79,6 +79,24 @@ impl Argument {
     pub fn get_columns(&self) -> Vec<Column<Any>> {
         self.columns.clone()
     }
+
+    /// Gets the total number of bytes in the serialization of `self`
+    pub(crate) fn bytes_length(&self) -> usize {
+        4 + self.columns.len() * Column::<Any>::bytes_length()
+    }
+
+    /// Writes an argument to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        write_columns_slice(self.columns.as_slice(), writer)?;
+        Ok(())
+    }
+
+    /// Reads an argument from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let mut permutation = Self::new();
+        permutation.columns = read_columns_vec(reader).unwrap();
+        Ok(permutation)
+    }
 }
 
 /// The verifying key for a single permutation argument.
@@ -133,7 +151,7 @@ impl<C: SerdeCurveAffine> ProvingKey<C>
 where
     C::Scalar: SerdePrimeField,
 {
-    /// Reads proving key for a single permutation argument from buffer using `Polynomial::read`.  
+    /// Reads proving key for a single permutation argument from buffer using `Polynomial::read`.
     pub(super) fn read<R: io::Read>(reader: &mut R, format: SerdeFormat) -> io::Result<Self> {
         let permutations = read_polynomial_vec(reader, format)?;
         let polys = read_polynomial_vec(reader, format)?;
@@ -145,7 +163,7 @@ where
         })
     }
 
-    /// Writes proving key for a single permutation argument to buffer using `Polynomial::write`.  
+    /// Writes proving key for a single permutation argument to buffer using `Polynomial::write`.
     pub(super) fn write<W: io::Write>(
         &self,
         writer: &mut W,
