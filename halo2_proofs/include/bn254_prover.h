@@ -1,18 +1,18 @@
-#ifndef HALO2_PROOFS_INCLUDE_BN254_GWC_PROVER_H_
-#define HALO2_PROOFS_INCLUDE_BN254_GWC_PROVER_H_
+#ifndef HALO2_PROOFS_INCLUDE_BN254_PROVER_H_
+#define HALO2_PROOFS_INCLUDE_BN254_PROVER_H_
 
 #include <stdint.h>
 
 #include <memory>
 
-#include <tachyon/c/zk/plonk/halo2/bn254_gwc_prover.h>
+#include <tachyon/c/zk/plonk/halo2/bn254_prover.h>
 
 #include "rust/cxx.h"
 
 namespace tachyon::halo2_api::bn254 {
 
 struct Fr;
-struct G1JacobianPoint;
+struct G1ProjectivePoint;
 struct G2AffinePoint;
 struct InstanceSingle;
 struct AdviceSingle;
@@ -21,22 +21,22 @@ class Evals;
 class RationalEvals;
 class Poly;
 
-class GWCProver {
+class Prover {
  public:
-  GWCProver(uint8_t transcript_type, uint32_t k, const Fr& s);
-  GWCProver(uint8_t transcript_type, uint32_t k, const uint8_t* params,
-            size_t params_len);
-  GWCProver(const GWCProver& other) = delete;
-  GWCProver& operator=(const GWCProver& other) = delete;
-  ~GWCProver();
+  Prover(uint8_t pcs_type, uint8_t transcript_type, uint32_t k, const Fr& s);
+  Prover(uint8_t pcs_type, uint8_t transcript_type, uint32_t k,
+         const uint8_t* params, size_t params_len);
+  Prover(const Prover& other) = delete;
+  Prover& operator=(const Prover& other) = delete;
+  ~Prover();
 
-  const tachyon_halo2_bn254_gwc_prover* prover() const { return prover_; }
+  const tachyon_halo2_bn254_prover* prover() const { return prover_; }
 
   uint32_t k() const;
   uint64_t n() const;
   rust::Box<G2AffinePoint> s_g2() const;
-  rust::Box<G1JacobianPoint> commit(const Poly& poly) const;
-  rust::Box<G1JacobianPoint> commit_lagrange(const Evals& evals) const;
+  rust::Box<G1ProjectivePoint> commit(const Poly& poly) const;
+  rust::Box<G1ProjectivePoint> commit_lagrange(const Evals& evals) const;
   std::unique_ptr<Evals> empty_evals() const;
   std::unique_ptr<RationalEvals> empty_rational_evals() const;
   std::unique_ptr<Poly> ifft(const Evals& evals) const;
@@ -53,15 +53,16 @@ class GWCProver {
   rust::Vec<uint8_t> get_proof() const;
 
  private:
-  tachyon_halo2_bn254_gwc_prover* prover_;
+  tachyon_halo2_bn254_prover* prover_;
 };
 
-std::unique_ptr<GWCProver> new_gwc_prover(uint8_t transcript_type, uint32_t k,
-                                          const Fr& s);
+std::unique_ptr<Prover> new_prover(uint8_t pcs_type, uint8_t transcript_type,
+                                   uint32_t k, const Fr& s);
 
-std::unique_ptr<GWCProver> new_gwc_prover_from_params(
-    uint8_t transcript_type, uint32_t k, rust::Slice<const uint8_t> params);
+std::unique_ptr<Prover> new_prover_from_params(
+    uint8_t pcs_type, uint8_t transcript_type, uint32_t k,
+    rust::Slice<const uint8_t> params);
 
 }  // namespace tachyon::halo2_api::bn254
 
-#endif  // HALO2_PROOFS_INCLUDE_BN254_GWC_PROVER_H_
+#endif  // HALO2_PROOFS_INCLUDE_BN254_PROVER_H_

@@ -1,4 +1,10 @@
 #[derive(Debug)]
+pub enum PCSType {
+    GWC,
+    SHPlonk,
+}
+
+#[derive(Debug)]
 pub enum TranscriptType {
     Blake2b,
     Poseidon,
