@@ -361,7 +361,7 @@ where
     C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
-        log::trace!(
+        log::info!(
             "[Halo2:WriteToProof] Proof[{}]: {:?}",
             self.proof_idx,
             point
@@ -372,7 +372,7 @@ where
         self.writer.write_all(compressed.as_ref())
     }
     fn write_scalar(&mut self, scalar: C::Scalar) -> io::Result<()> {
-        log::trace!(
+        log::info!(
             "[Halo2:WriteToProof] Proof[{}]: {:?}",
             self.proof_idx,
             scalar

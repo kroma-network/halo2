@@ -206,7 +206,7 @@ where
                     return Err(Error::Synthesis);
                 }
                 range_start = sub_range.end;
-                log::debug!(
+                log::info!(
                     "subCS_{} rw_rows: {}..{}",
                     i,
                     sub_range.start,
@@ -540,7 +540,7 @@ where
             for (index, phase) in meta.challenge_phase.iter().enumerate() {
                 if current_phase == *phase {
                     let challenge = transcript.squeeze_challenge_scalar::<()>();
-                    log::debug!(
+                    log::info!(
                         "[Halo2:CreateProof:Challenge] {:#?}: {:?}",
                         index,
                         *challenge
@@ -563,7 +563,7 @@ where
     log::info!("[Halo2:CreateProof:Theta] Phase has been started...");
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
-    log::debug!("[Halo2:CreateProof:Theta] Theta: {:?}", *theta);
+    log::info!("[Halo2:CreateProof:Theta] Theta: {:?}", *theta);
 
     let lookups: Vec<Vec<mv_lookup::prover::Prepared<Scheme::Curve>>> = instance
         .iter()
@@ -613,8 +613,8 @@ where
 
     // Sample gamma challenge
     let gamma: ChallengeGamma<_> = transcript.squeeze_challenge_scalar();
-    log::debug!("[Halo2:CreateProof:BetaGamma] Beta: {:?}", *beta);
-    log::debug!("[Halo2:CreateProof:BetaGamma] Gamma: {:?}", *gamma);
+    log::info!("[Halo2:CreateProof:BetaGamma] Beta: {:?}", *beta);
+    log::info!("[Halo2:CreateProof:BetaGamma] Gamma: {:?}", *gamma);
 
     // Commit to permutations.
     let permutations: Vec<permutation::prover::Committed<Scheme::Curve>> = instance
@@ -688,7 +688,7 @@ where
     let y_start = Instant::now();
     // Obtain challenge for keeping all separate gates linearly independent
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
-    log::debug!("[Halo2:CreateProof:Y] Y: {:#?}", *y);
+    log::info!("[Halo2:CreateProof:Y] Y: {:#?}", *y);
 
     // Calculate the advice polys
     let advice: Vec<AdviceSingle<Scheme::Curve, Coeff>> = advice
@@ -745,7 +745,7 @@ where
     log::info!("[Halo2:CreateProof:X] Phase has been started...");
     let x_start = Instant::now();
     let x: ChallengeX<_> = transcript.squeeze_challenge_scalar();
-    log::debug!("[Halo2:CreateProof:X] X: {:?}", *x);
+    log::info!("[Halo2:CreateProof:X] X: {:?}", *x);
     let xn = x.pow([params.n()]);
 
     if P::QUERY_INSTANCE {

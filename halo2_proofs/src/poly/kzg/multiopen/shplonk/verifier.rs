@@ -63,13 +63,13 @@ where
         );
 
         let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
-        log::debug!("[Halo2:VerifyProof:SHPlonk:Y] Y: {:#?}", *y);
+        log::info!("[Halo2:VerifyProof:SHPlonk:Y] Y: {:#?}", *y);
         let v: ChallengeV<_> = transcript.squeeze_challenge_scalar();
-        log::debug!("[Halo2:VerifyProof:SHPlonk:V] V: {:#?}", *v);
+        log::info!("[Halo2:VerifyProof:SHPlonk:V] V: {:#?}", *v);
 
         let h1 = transcript.read_point().map_err(|_| Error::SamplingError)?;
         let u: ChallengeU<_> = transcript.squeeze_challenge_scalar();
-        log::debug!("[Halo2:VerifyProof:SHPlonk:U] U: {:#?}", *u);
+        log::info!("[Halo2:VerifyProof:SHPlonk:U] U: {:#?}", *u);
         let h2 = transcript.read_point().map_err(|_| Error::SamplingError)?;
 
         let (mut z_0_diff_inverse, mut z_0) = (E::Scalar::ZERO, E::Scalar::ZERO);
