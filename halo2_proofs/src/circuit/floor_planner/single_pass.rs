@@ -2,6 +2,9 @@ use std::cmp;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
+use std::time::Instant;
+
+use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use ff::Field;
 
@@ -9,7 +12,8 @@ use ark_std::{end_timer, start_timer};
 
 use crate::{
     circuit::{
-        layouter::{RegionColumn, RegionLayouter, RegionShape, TableLayouter},
+        layouter::{RegionColumn, RegionLayouter, RegionShape, SyncDeps, TableLayouter},
+        table_layouter::{compute_table_lengths, SimpleTableLayouter},
         Cell, Layouter, Region, RegionIndex, RegionStart, Table, Value,
     },
     plonk::{
@@ -27,13 +31,13 @@ use crate::{
 pub struct SimpleFloorPlanner;
 
 impl FloorPlanner for SimpleFloorPlanner {
-    fn synthesize<F: Field, CS: Assignment<F>, C: Circuit<F>>(
+    fn synthesize<F: Field, CS: Assignment<F> + SyncDeps, C: Circuit<F>>(
         cs: &mut CS,
         circuit: &C,
         config: C::Config,
         constants: Vec<Column<Fixed>>,
     ) -> Result<(), Error> {
-        let timer = start_timer!(|| format!("SimpleFloorPlanner synthesize"));
+        let timer = start_timer!(|| ("SimpleFloorPlanner synthesize").to_string());
         let layouter = SingleChipLayouter::new(cs, constants)?;
         let result = circuit.synthesize(config, layouter);
         end_timer!(timer);
@@ -63,7 +67,7 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> fmt::Debug for SingleChipLayouter<'a,
     }
 }
 
-impl<'a, F: Field, CS: Assignment<F>> SingleChipLayouter<'a, F, CS> {
+impl<'a, F: Field, CS: Assignment<F> + 'a> SingleChipLayouter<'a, F, CS> {
     /// Creates a new single-chip layouter.
     pub fn new(cs: &'a mut CS, constants: Vec<Column<Fixed>>) -> Result<Self, Error> {
         let ret = SingleChipLayouter {
@@ -76,9 +80,26 @@ impl<'a, F: Field, CS: Assignment<F>> SingleChipLayouter<'a, F, CS> {
         };
         Ok(ret)
     }
+
+    #[allow(dead_code)]
+    fn fork(&self, sub_cs: Vec<&'a mut CS>) -> Result<Vec<Self>, Error> {
+        Ok(sub_cs
+            .into_iter()
+            .map(|sub_cs| Self {
+                cs: sub_cs,
+                constants: self.constants.clone(),
+                regions: self.regions.clone(),
+                columns: self.columns.clone(),
+                table_columns: self.table_columns.clone(),
+                _marker: Default::default(),
+            })
+            .collect::<Vec<_>>())
+    }
 }
 
-impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a, F, CS> {
+impl<'a, F: Field, CS: Assignment<F> + 'a + SyncDeps> Layouter<F>
+    for SingleChipLayouter<'a, F, CS>
+{
     type Root = Self;
 
     fn assign_region<A, AR, N, NR>(&mut self, name: N, mut assignment: A) -> Result<AR, Error>
@@ -103,7 +124,7 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a
         let log_region_info = row_count >= 40;
         if log_region_info {
             log::debug!(
-                "region row_count \"{}\": {}",
+                "region \"{}\" row_count: {}",
                 region_name,
                 shape.row_count()
             );
@@ -185,6 +206,140 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a
         Ok(result)
     }
 
+    #[cfg(feature = "parallel_syn")]
+    fn assign_regions<A, AR, N, NR>(
+        &mut self,
+        name: N,
+        mut assignments: Vec<A>,
+    ) -> Result<Vec<AR>, Error>
+    where
+        A: FnMut(Region<'_, F>) -> Result<AR, Error> + Send,
+        AR: Send,
+        N: Fn() -> NR,
+        NR: Into<String>,
+    {
+        let region_index = self.regions.len();
+        let region_name: String = name().into();
+        // Get region shapes sequentially
+        let mut ranges = vec![];
+        for (i, assignment) in assignments.iter_mut().enumerate() {
+            // Get shape of the ith sub-region.
+            let mut shape = RegionShape::new((region_index + i).into());
+            let region: &mut dyn RegionLayouter<F> = &mut shape;
+            assignment(region.into())?;
+
+            let mut region_start = 0;
+            for column in &shape.columns {
+                let column_start = self.columns.get(column).cloned().unwrap_or(0);
+                region_start = cmp::max(region_start, column_start);
+            }
+            log::debug!(
+                "{}_{} start: {}, end: {}",
+                region_name,
+                i,
+                region_start,
+                region_start + shape.row_count()
+            );
+            self.regions.push(region_start.into());
+            ranges.push(region_start..(region_start + shape.row_count()));
+
+            // Update column usage information.
+            for column in shape.columns.iter() {
+                self.columns
+                    .insert(*column, region_start + shape.row_count());
+            }
+        }
+
+        // Do actual synthesis of sub-regions in parallel
+        let cs_fork_time = Instant::now();
+        let mut sub_cs = self.cs.fork(&ranges)?;
+        log::debug!(
+            "CS forked into {} subCS took {:?}",
+            sub_cs.len(),
+            cs_fork_time.elapsed()
+        );
+        let ref_sub_cs = sub_cs.iter_mut().collect();
+        let sub_layouters = self.fork(ref_sub_cs)?;
+        let regions_2nd_pass = Instant::now();
+        let ret = assignments
+            .into_par_iter()
+            .zip(sub_layouters.into_par_iter())
+            .enumerate()
+            .map(|(i, (mut assignment, mut sub_layouter))| {
+                let region_name = format!("{}_{}", region_name, i);
+                let sub_region_2nd_pass = Instant::now();
+                sub_layouter.cs.enter_region(|| region_name.clone());
+                let mut region =
+                    SingleChipLayouterRegion::new(&mut sub_layouter, (region_index + i).into());
+                let region_ref: &mut dyn RegionLayouter<F> = &mut region;
+                let result = assignment(region_ref.into());
+                let constant = region.constants.clone();
+                sub_layouter.cs.exit_region();
+                log::debug!(
+                    "region {} 2nd pass synthesis took {:?}",
+                    region_name,
+                    sub_region_2nd_pass.elapsed()
+                );
+                (result, constant)
+            })
+            .collect::<Vec<_>>();
+        let cs_merge_time = Instant::now();
+        let num_sub_cs = sub_cs.len();
+        self.cs.merge(sub_cs)?;
+        log::debug!(
+            "Merge {} subCS back took {:?}",
+            num_sub_cs,
+            cs_merge_time.elapsed()
+        );
+        log::debug!(
+            "{} sub_regions of {} 2nd pass synthesis took {:?}",
+            ranges.len(),
+            region_name,
+            regions_2nd_pass.elapsed()
+        );
+        let (results, constants): (Vec<_>, Vec<_>) = ret.into_iter().unzip();
+
+        // Check if there are errors in sub-region synthesis
+        let results = results.into_iter().collect::<Result<Vec<_>, Error>>()?;
+
+        // Merge all constants from sub-regions together
+        let constants_to_assign = constants
+            .into_iter()
+            .flat_map(|constant_to_assign| constant_to_assign.into_iter())
+            .collect::<Vec<_>>();
+
+        // Assign constants. For the simple floor planner, we assign constants in order in
+        // the first `constants` column.
+        if self.constants.is_empty() {
+            if !constants_to_assign.is_empty() {
+                return Err(Error::NotEnoughColumnsForConstants);
+            }
+        } else {
+            let constants_column = self.constants[0];
+            let next_constant_row = self
+                .columns
+                .entry(Column::<Any>::from(constants_column).into())
+                .or_default();
+            for (constant, advice) in constants_to_assign {
+                self.cs.assign_fixed(
+                    || format!("Constant({:?})", constant.evaluate()),
+                    constants_column,
+                    *next_constant_row,
+                    || Value::known(constant),
+                )?;
+                self.cs.copy(
+                    constants_column.into(),
+                    *next_constant_row,
+                    advice.column,
+                    *self.regions[*advice.region_index] + advice.row_offset,
+                )?;
+                *next_constant_row += 1;
+            }
+        }
+
+        Ok(results)
+    }
+
     fn assign_table<A, N, NR>(&mut self, name: N, mut assignment: A) -> Result<(), Error>
     where
         A: FnMut(Table<'_, F>) -> Result<(), Error>,
@@ -204,24 +359,7 @@ impl<'a, F: Field, CS: Assignment<F> + 'a> Layouter<F> for SingleChipLayouter<'a
 
         // Check that all table columns have the same length `first_unused`,
         // and all cells up to that length are assigned.
-        let first_unused = {
-            match default_and_assigned
-                .values()
-                .map(|(_, assigned)| {
-                    if assigned.iter().all(|b| *b) {
-                        Some(assigned.len())
-                    } else {
-                        None
-                    }
-                })
-                .reduce(|acc, item| match (acc, item) {
-                    (Some(a), Some(b)) if a == b => Some(a),
-                    _ => None,
-                }) {
-                Some(Some(len)) => len,
-                _ => return Err(Error::Synthesis), // TODO better error
-            }
-        };
+        let first_unused = compute_table_lengths(&default_and_assigned)?;
 
         // Record these columns so that we can prevent them from being used again.
         for column in default_and_assigned.keys() {
@@ -302,7 +440,7 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> SingleChipLayouterRegion<'r, 'a, 
     }
 }
 
-impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> RegionLayouter<F>
+impl<'r, 'a, F: Field, CS: Assignment<F> + 'a + SyncDeps> RegionLayouter<F>
     for SingleChipLayouterRegion<'r, 'a, F, CS>
 {
     fn enable_selector<'v>(
@@ -324,6 +462,18 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> RegionLayouter<F>
         column: Column<Any>,
     ) {
         self.layouter.cs.annotate_column(annotation, column);
+    }
+
+    fn query_advice(&self, column: Column<Advice>, offset: usize) -> Result<F, Error> {
+        self.layouter
+            .cs
+            .query_advice(column, *self.layouter.regions[*self.region_index] + offset)
+    }
+
+    fn query_fixed(&self, column: Column<Fixed>, offset: usize) -> Result<F, Error> {
+        self.layouter
+            .cs
+            .query_fixed(column, *self.layouter.regions[*self.region_index] + offset)
     }
 
     fn assign_advice<'v>(
@@ -383,6 +533,14 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> RegionLayouter<F>
         Ok((cell, value))
     }
 
+    fn instance_value(
+        &mut self,
+        instance: Column<Instance>,
+        row: usize,
+    ) -> Result<Value<F>, Error> {
+        self.layouter.cs.query_instance(instance, row)
+    }
+
     fn assign_fixed<'v>(
         &'v mut self,
         annotation: &'v (dyn Fn() -> String + 'v),
@@ -419,85 +577,9 @@ impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> RegionLayouter<F>
 
         Ok(())
     }
-}
 
-/// The default value to fill a table column with.
-///
-/// - The outer `Option` tracks whether the value in row 0 of the table column has been
-///   assigned yet. This will always be `Some` once a valid table has been completely
-///   assigned.
-/// - The inner `Value` tracks whether the underlying `Assignment` is evaluating
-///   witnesses or not.
-type DefaultTableValue<F> = Option<Value<Assigned<F>>>;
-
-pub(crate) struct SimpleTableLayouter<'r, 'a, F: Field, CS: Assignment<F> + 'a> {
-    cs: &'a mut CS,
-    used_columns: &'r [TableColumn],
-    // maps from a fixed column to a pair (default value, vector saying which rows are assigned)
-    pub(crate) default_and_assigned: HashMap<TableColumn, (DefaultTableValue<F>, Vec<bool>)>,
-}
-
-impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> fmt::Debug for SimpleTableLayouter<'r, 'a, F, CS> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SimpleTableLayouter")
-            .field("used_columns", &self.used_columns)
-            .field("default_and_assigned", &self.default_and_assigned)
-            .finish()
-    }
-}
-
-impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> SimpleTableLayouter<'r, 'a, F, CS> {
-    pub(crate) fn new(cs: &'a mut CS, used_columns: &'r [TableColumn]) -> Self {
-        SimpleTableLayouter {
-            cs,
-            used_columns,
-            default_and_assigned: HashMap::default(),
-        }
-    }
-}
-
-impl<'r, 'a, F: Field, CS: Assignment<F> + 'a> TableLayouter<F>
-    for SimpleTableLayouter<'r, 'a, F, CS>
-{
-    fn assign_cell<'v>(
-        &'v mut self,
-        annotation: &'v (dyn Fn() -> String + 'v),
-        column: TableColumn,
-        offset: usize,
-        to: &'v mut (dyn FnMut() -> Value<Assigned<F>> + 'v),
-    ) -> Result<(), Error> {
-        if self.used_columns.contains(&column) {
-            return Err(Error::Synthesis); // TODO better error
-        }
-
-        let entry = self.default_and_assigned.entry(column).or_default();
-
-        let mut value = Value::unknown();
-        self.cs.assign_fixed(
-            annotation,
-            column.inner(),
-            offset, // tables are always assigned starting at row 0
-            || {
-                let res = to();
-                value = res;
-                res
-            },
-        )?;
-
-        match (entry.0.is_none(), offset) {
-            // Use the value at offset 0 as the default value for this table column.
-            (true, 0) => entry.0 = Some(value),
-            // Since there is already an existing default value for this table column,
-            // the caller should not be attempting to assign another value at offset 0.
-            (false, 0) => return Err(Error::Synthesis), // TODO better error
-            _ => (),
-        }
-        if entry.1.len() <= offset {
-            entry.1.resize(offset + 1, false);
-        }
-        entry.1[offset] = true;
-
-        Ok(())
+    fn global_offset(&self, row_offset: usize) -> usize {
+        *self.layouter.regions[*self.region_index] + row_offset
     }
 }
 
@@ -518,6 +600,8 @@ mod tests {
         impl Circuit<vesta::Scalar> for MyCircuit {
             type Config = Column<Advice>;
             type FloorPlanner = SimpleFloorPlanner;
+            #[cfg(feature = "circuit-params")]
+            type Params = ();
 
             fn without_witnesses(&self) -> Self {
                 MyCircuit {}

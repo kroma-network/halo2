@@ -1,8 +1,7 @@
+use crate::plonk::{Any, Column};
 use crate::poly::Polynomial;
-use ff::Field;
-use ff::PrimeField;
-use halo2curves::FieldExt;
-use halo2curves::{pairing::Engine, serde::SerdeObject, CurveAffine};
+use ff::{FromUniformBytes, PrimeField};
+use halo2curves::{serde::SerdeObject, CurveAffine};
 use num_bigint::BigUint;
 use std::io;
 
@@ -21,6 +20,13 @@ pub enum SerdeFormat {
     /// Serialization is the same as `RawBytes`, but no checks are performed.
     RawBytesUnchecked,
 }
+
+#[derive(Clone, Debug)]
+pub(crate) struct CopyCell {
+    pub column: Column<Any>,
+    pub row: usize,
+}
+
 // Keep this trait for compatibility with IPA serialization
 pub(crate) trait CurveRead: CurveAffine {
     /// Reads a compressed element from the buffer and attempts to parse it
@@ -34,32 +40,59 @@ pub(crate) trait CurveRead: CurveAffine {
 }
 impl<C: CurveAffine> CurveRead for C {}
 
-pub fn field_to_bn<F: FieldExt>(f: &F) -> BigUint {
+pub fn field_to_bn<F: PrimeField>(f: &F) -> BigUint {
     BigUint::from_bytes_le(f.to_repr().as_ref())
 }
 
 /// Input a big integer `bn`, compute a field element `f`
 /// such that `f == bn % F::MODULUS`.
-pub fn bn_to_field<F: FieldExt>(bn: &BigUint) -> F {
+/// Require:
+/// - bn is less than 512 bits.
+/// Return:
+/// - bn mod F::MODULUS when bn > F::MODULUS
+pub fn bn_to_field<F: PrimeField>(bn: &BigUint) -> F
+where
+    F: FromUniformBytes<64>,
+{
     let mut buf = bn.to_bytes_le();
     buf.resize(64, 0u8);
 
     let mut buf_array = [0u8; 64];
     buf_array.copy_from_slice(buf.as_ref());
-    F::from_bytes_wide(&buf_array)
+    F::from_uniform_bytes(&buf_array)
 }
 
 /// Input a base field element `b`, output a scalar field
 /// element `s` s.t. `s == b % ScalarField::MODULUS`
-pub(crate) fn base_to_scalar<C: CurveAffine>(base: &C::Base) -> C::Scalar {
+pub(crate) fn base_to_scalar<C: CurveAffine>(base: &C::Base) -> C::Scalar
+where
+    C::Scalar: FromUniformBytes<64>,
+{
     let bn = field_to_bn(base);
     // bn_to_field will perform a mod reduction
     bn_to_field(&bn)
 }
 
+#[macro_export]
+macro_rules! two_dim_vec_to_vec_of_slice {
+    ($arc_vec:ident) => {
+        unsafe {
+            let arc_vec_clone = $arc_vec.clone();
+            let ptr = Arc::as_ptr(&arc_vec_clone) as *mut Vec<Vec<_>>;
+            let mut_ref = &mut (*ptr);
+
+            mut_ref
+                .iter_mut()
+                .map(|item| item.as_mut_slice())
+                .collect::<Vec<_>>()
+        }
+    };
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use ff::Field;
     use halo2curves::bn256::{Fq, G1Affine};
     use rand_core::OsRng;
     #[test]
@@ -79,6 +112,7 @@ mod test {
         }
     }
 }
+
 pub trait SerdeCurveAffine: CurveAffine + SerdeObject {
     /// Reads an element from the buffer and parses it according to the `format`:
     /// - `Processed`: Reads a compressed curve element and decompress it
@@ -143,6 +177,7 @@ impl<F: PrimeField + SerdeObject> SerdePrimeField for F {}
 /// Convert a slice of `bool` into a `u8`.
 ///
 /// Panics if the slice has length greater than 8.
+#[allow(unused)]
 pub fn pack(bits: &[bool]) -> u8 {
     let mut value = 0u8;
     assert!(bits.len() <= 8);
@@ -153,6 +188,7 @@ pub fn pack(bits: &[bool]) -> u8 {
 }
 
 /// Writes the first `bits.len()` bits of a `u8` into `bits`.
+#[allow(unused)]
 pub fn unpack(byte: u8, bits: &mut [bool]) {
     for (bit_index, bit) in bits.iter_mut().enumerate() {
         *bit = (byte >> bit_index) & 1 == 1;

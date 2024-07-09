@@ -1,8 +1,20 @@
+use crate::circuit::layouter::SyncDeps;
+use crate::dev::metadata;
+use crate::helpers::SerdePrimeField;
+use crate::plonk::shuffle;
+use crate::{
+    circuit::{Layouter, Region, Value},
+    poly::Rotation,
+};
 use core::cmp::max;
 use core::ops::{Add, Mul};
-use ff::Field;
-use std::collections::HashMap;
+use ff::{Field, FromUniformBytes};
+use sealed::SealedPhase;
+use std::collections::BTreeMap;
+use std::fmt::Debug;
 use std::io;
+use std::iter::{Product, Sum};
+use std::ops::Range;
 use std::{
     convert::TryFrom,
     ops::{Neg, Sub},
@@ -10,15 +22,7 @@ use std::{
 
 use self::sealed::{read_phases_vec, write_phases_slice};
 
-use super::{lookup, permutation, Assigned, Error};
-use crate::dev::metadata;
-use crate::helpers::SerdePrimeField;
-use crate::SerdeFormat;
-use crate::{
-    circuit::{Layouter, Region, Value},
-    poly::Rotation,
-};
-use sealed::SealedPhase;
+use super::{mv_lookup, permutation, Assigned, Error};
 
 mod compress_selectors;
 
@@ -28,6 +32,8 @@ pub trait ColumnType:
 {
     fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()>;
     fn read<R: io::Read>(reader: &mut R) -> io::Result<Self>;
+    /// Return expression from cell
+    fn query_cell<F: Field>(&self, index: usize, at: Rotation) -> Expression<F>;
 }
 
 /// A column with an index and type
@@ -38,7 +44,6 @@ pub struct Column<C: ColumnType> {
 }
 
 impl<C: ColumnType> Column<C> {
-    #[cfg(test)]
     pub(crate) fn new(index: usize, column_type: C) -> Self {
         Column { index, column_type }
     }
@@ -51,6 +56,31 @@ impl<C: ColumnType> Column<C> {
     /// Type of this column.
     pub fn column_type(&self) -> &C {
         &self.column_type
+    }
+
+    /// Return expression from column at a relative position
+    pub fn query_cell<F: Field>(&self, at: Rotation) -> Expression<F> {
+        self.column_type.query_cell(self.index, at)
+    }
+
+    /// Return expression from column at the current row
+    pub fn cur<F: Field>(&self) -> Expression<F> {
+        self.query_cell(Rotation::cur())
+    }
+
+    /// Return expression from column at the next row
+    pub fn next<F: Field>(&self) -> Expression<F> {
+        self.query_cell(Rotation::next())
+    }
+
+    /// Return expression from column at the previous row
+    pub fn prev<F: Field>(&self) -> Expression<F> {
+        self.query_cell(Rotation::prev())
+    }
+
+    /// Return expression from column at the specified rotation
+    pub fn rot<F: Field>(&self, rotation: i32) -> Expression<F> {
+        self.query_cell(Rotation(rotation))
     }
 
     /// Gets the total number of bytes in the serialization of `Column<C>`
@@ -173,6 +203,12 @@ pub(crate) mod sealed {
         (0..len)
             .map(|_| Phase::read(reader))
             .collect::<io::Result<Vec<_>>>()
+    }
+
+    impl SealedPhase for Phase {
+        fn to_sealed(self) -> Phase {
+            self
+        }
     }
 
     /// Sealed trait to help keep `Phase` private.
@@ -328,6 +364,15 @@ impl PartialOrd for Any {
 }
 
 impl ColumnType for Advice {
+    fn query_cell<F: Field>(&self, index: usize, at: Rotation) -> Expression<F> {
+        Expression::Advice(AdviceQuery {
+            index: None,
+            column_index: index,
+            rotation: at,
+            phase: self.phase,
+        })
+    }
+
     fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_all(&(2 as u8).to_be_bytes())?;
         self.phase.write(writer)?;
@@ -346,6 +391,14 @@ impl ColumnType for Advice {
 }
 
 impl ColumnType for Fixed {
+    fn query_cell<F: Field>(&self, index: usize, at: Rotation) -> Expression<F> {
+        Expression::Fixed(FixedQuery {
+            index: None,
+            column_index: index,
+            rotation: at,
+        })
+    }
+
     fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_all(&(3 as u8).to_be_bytes())?;
         Ok(())
@@ -361,6 +414,14 @@ impl ColumnType for Fixed {
 }
 
 impl ColumnType for Instance {
+    fn query_cell<F: Field>(&self, index: usize, at: Rotation) -> Expression<F> {
+        Expression::Instance(InstanceQuery {
+            index: None,
+            column_index: index,
+            rotation: at,
+        })
+    }
+
     fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_all(&(1 as u8).to_be_bytes())?;
         Ok(())
@@ -376,6 +437,27 @@ impl ColumnType for Instance {
 }
 
 impl ColumnType for Any {
+    fn query_cell<F: Field>(&self, index: usize, at: Rotation) -> Expression<F> {
+        match self {
+            Any::Advice(Advice { phase }) => Expression::Advice(AdviceQuery {
+                index: None,
+                column_index: index,
+                rotation: at,
+                phase: *phase,
+            }),
+            Any::Fixed => Expression::Fixed(FixedQuery {
+                index: None,
+                column_index: index,
+                rotation: at,
+            }),
+            Any::Instance => Expression::Instance(InstanceQuery {
+                index: None,
+                column_index: index,
+                rotation: at,
+            }),
+        }
+    }
+
     fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self {
             Self::Instance => {
@@ -521,11 +603,10 @@ impl TryFrom<Column<Any>> for Column<Instance> {
 /// row when required:
 /// ```
 /// use halo2_proofs::{
-///     arithmetic::FieldExt,
 ///     circuit::{Chip, Layouter, Value},
 ///     plonk::{Advice, Column, Error, Selector},
 /// };
-/// # use ff::Field;
+/// use ff::Field;
 /// # use halo2_proofs::plonk::Fixed;
 ///
 /// struct Config {
@@ -534,12 +615,12 @@ impl TryFrom<Column<Any>> for Column<Instance> {
 ///     s: Selector,
 /// }
 ///
-/// fn circuit_logic<F: FieldExt, C: Chip<F>>(chip: C, mut layouter: impl Layouter<F>) -> Result<(), Error> {
+/// fn circuit_logic<F: Field, C: Chip<F>>(chip: C, mut layouter: impl Layouter<F>) -> Result<(), Error> {
 ///     let config = chip.config();
 ///     # let config: Config = todo!();
 ///     layouter.assign_region(|| "bar", |mut region| {
-///         region.assign_advice(|| "a", config.a, 0, || Value::known(F::one()))?;
-///         region.assign_advice(|| "a", config.b, 1, || Value::known(F::one()))?;
+///         region.assign_advice(|| "a", config.a, 0, || Value::known(F::ONE))?;
+///         region.assign_advice(|| "a", config.b, 1, || Value::known(F::ONE))?;
 ///         config.s.enable(&mut region, 1)
 ///     })?;
 ///     Ok(())
@@ -558,6 +639,16 @@ impl Selector {
     /// by expressions that contain no other simple selectors.
     pub fn is_simple(&self) -> bool {
         self.1
+    }
+
+    /// Returns index of this selector
+    pub fn index(&self) -> usize {
+        self.0
+    }
+
+    /// Return expression from selector
+    pub fn expr<F: Field>(&self) -> Expression<F> {
+        Expression::Selector(*self)
     }
 
     /// Gets the total number of bytes in the serialization of `Selector`
@@ -585,10 +676,10 @@ impl Selector {
 }
 
 /// Query of fixed column at a certain relative location
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FixedQuery {
     /// Query index
-    pub(crate) index: usize,
+    pub(crate) index: Option<usize>,
     /// Column index
     pub(crate) column_index: usize,
     /// Rotation of this query
@@ -598,11 +689,15 @@ pub struct FixedQuery {
 impl FixedQuery {
     /// Index
     pub fn index(&self) -> usize {
-        self.index
+        self.index.unwrap()
     }
     /// Column index
     pub fn column_index(&self) -> usize {
         self.column_index
+    }
+    /// Column
+    pub fn column(&self) -> Column<Fixed> {
+        Column::new(self.column_index, Fixed)
     }
 
     /// Rotation of this query
@@ -611,22 +706,35 @@ impl FixedQuery {
     }
 
     /// Gets the total number of bytes in the serialization of `FixedQuery`
-    pub(crate) fn bytes_length() -> usize {
-        8 + Rotation::bytes_length()
+    pub(crate) fn bytes_length(&self) -> usize {
+        5 + if self.index.is_some() { 4 } else { 0 } + Rotation::bytes_length()
     }
 
     /// Writes a fixed query to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_all(&(self.index as u32).to_be_bytes())?;
+        if self.index.is_some() {
+            writer.write_all(&(1 as u8).to_be_bytes())?;
+            writer.write_all(&(self.index.unwrap() as u32).to_be_bytes())?;
+        } else {
+            writer.write_all(&(0 as u8).to_be_bytes())?;
+        }
         writer.write_all(&(self.column_index as u32).to_be_bytes())?;
         self.rotation.write(writer)
     }
 
     /// Reads a fixed query from a buffer.
     pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
-        let mut index = [0u8; 4];
-        reader.read_exact(&mut index)?;
-        let index = u32::from_be_bytes(index) as usize;
+        let mut has_index = [0u8; 1];
+        reader.read_exact(&mut has_index)?;
+        let has_index = u8::from_be_bytes(has_index);
+        let index = if has_index == 1 {
+            let mut index = [0u8; 4];
+            reader.read_exact(&mut index)?;
+
+            Some(u32::from_be_bytes(index) as usize)
+        } else {
+            None
+        };
         let mut column_index = [0u8; 4];
         reader.read_exact(&mut column_index)?;
         let column_index = u32::from_be_bytes(column_index) as usize;
@@ -639,10 +747,10 @@ impl FixedQuery {
 }
 
 /// Query of advice column at a certain relative location
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AdviceQuery {
     /// Query index
-    pub(crate) index: usize,
+    pub(crate) index: Option<usize>,
     /// Column index
     pub(crate) column_index: usize,
     /// Rotation of this query
@@ -654,11 +762,15 @@ pub struct AdviceQuery {
 impl AdviceQuery {
     /// Index
     pub fn index(&self) -> usize {
-        self.index
+        self.index.unwrap()
     }
     /// Column index
     pub fn column_index(&self) -> usize {
         self.column_index
+    }
+    /// Column
+    pub fn column(&self) -> Column<Advice> {
+        Column::new(self.column_index, Advice { phase: self.phase })
     }
 
     /// Rotation of this query
@@ -672,13 +784,20 @@ impl AdviceQuery {
     }
 
     /// Gets the total number of bytes in the serialization of `AdviceQuery`
-    pub(crate) fn bytes_length() -> usize {
-        8 + Rotation::bytes_length() + sealed::Phase::bytes_length()
+    pub(crate) fn bytes_length(&self) -> usize {
+        5 + if self.index.is_some() { 4 } else { 0 }
+            + Rotation::bytes_length()
+            + sealed::Phase::bytes_length()
     }
 
     /// Writes an advice query to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_all(&(self.index as u32).to_be_bytes())?;
+        if self.index.is_some() {
+            writer.write_all(&(1 as u8).to_be_bytes())?;
+            writer.write_all(&(self.index.unwrap() as u32).to_be_bytes())?;
+        } else {
+            writer.write_all(&(0 as u8).to_be_bytes())?;
+        }
         writer.write_all(&(self.column_index as u32).to_be_bytes())?;
         self.rotation.write(writer)?;
         self.phase.write(writer)
@@ -686,9 +805,17 @@ impl AdviceQuery {
 
     /// Reads an advice query from a buffer.
     pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
-        let mut index = [0u8; 4];
-        reader.read_exact(&mut index)?;
-        let index = u32::from_be_bytes(index) as usize;
+        let mut has_index = [0u8; 1];
+        reader.read_exact(&mut has_index)?;
+        let has_index = u8::from_be_bytes(has_index);
+        let index = if has_index == 1 {
+            let mut index = [0u8; 4];
+            reader.read_exact(&mut index)?;
+
+            Some(u32::from_be_bytes(index) as usize)
+        } else {
+            None
+        };
         let mut column_index = [0u8; 4];
         reader.read_exact(&mut column_index)?;
         let column_index = u32::from_be_bytes(column_index) as usize;
@@ -702,10 +829,10 @@ impl AdviceQuery {
 }
 
 /// Query of instance column at a certain relative location
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct InstanceQuery {
     /// Query index
-    pub(crate) index: usize,
+    pub(crate) index: Option<usize>,
     /// Column index
     pub(crate) column_index: usize,
     /// Rotation of this query
@@ -715,7 +842,7 @@ pub struct InstanceQuery {
 impl InstanceQuery {
     /// Index
     pub fn index(&self) -> usize {
-        self.index
+        self.index.unwrap()
     }
     /// Column index
     pub fn column_index(&self) -> usize {
@@ -728,22 +855,35 @@ impl InstanceQuery {
     }
 
     /// Gets the total number of bytes in the serialization of `InstanceQuery`
-    pub(crate) fn bytes_length() -> usize {
-        8 + Rotation::bytes_length()
+    pub(crate) fn bytes_length(&self) -> usize {
+        5 + if self.index.is_some() { 4 } else { 0 } + Rotation::bytes_length()
     }
 
     /// Writes an instance query to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_all(&(self.index as u32).to_be_bytes())?;
+        if self.index.is_some() {
+            writer.write_all(&(1 as u8).to_be_bytes())?;
+            writer.write_all(&(self.index.unwrap() as u32).to_be_bytes())?;
+        } else {
+            writer.write_all(&(0 as u8).to_be_bytes())?;
+        }
         writer.write_all(&(self.column_index as u32).to_be_bytes())?;
         self.rotation.write(writer)
     }
 
     /// Reads an instance query from a buffer.
     pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
-        let mut index = [0u8; 4];
-        reader.read_exact(&mut index)?;
-        let index = u32::from_be_bytes(index) as usize;
+        let mut has_index = [0u8; 1];
+        reader.read_exact(&mut has_index)?;
+        let has_index = u8::from_be_bytes(has_index);
+        let index = if has_index == 1 {
+            let mut index = [0u8; 4];
+            reader.read_exact(&mut index)?;
+
+            Some(u32::from_be_bytes(index) as usize)
+        } else {
+            None
+        };
         let mut column_index = [0u8; 4];
         reader.read_exact(&mut column_index)?;
         let column_index = u32::from_be_bytes(column_index) as usize;
@@ -765,7 +905,7 @@ impl InstanceQuery {
 /// they cannot simultaneously be used as general fixed columns.
 ///
 /// [`Layouter::assign_table`]: crate::circuit::Layouter::assign_table
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct TableColumn {
     /// The fixed column that this table column is stored in.
     ///
@@ -778,7 +918,8 @@ pub struct TableColumn {
 }
 
 impl TableColumn {
-    pub(crate) fn inner(&self) -> Column<Fixed> {
+    /// Returns inner column
+    pub fn inner(&self) -> Column<Fixed> {
         self.inner
     }
 }
@@ -787,7 +928,7 @@ impl TableColumn {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Challenge {
     index: usize,
-    phase: sealed::Phase,
+    pub(crate) phase: sealed::Phase,
 }
 
 impl Challenge {
@@ -799,6 +940,11 @@ impl Challenge {
     /// Phase of this challenge.
     pub fn phase(&self) -> u8 {
         self.phase.0
+    }
+
+    /// Return Expression
+    pub fn expr<F: Field>(&self) -> Expression<F> {
+        Expression::Challenge(*self)
     }
 
     /// Gets the total number of bytes in the serialization of `Challenge`
@@ -827,7 +973,7 @@ impl Challenge {
 
 /// This trait allows a [`Circuit`] to direct some backend to assign a witness
 /// for a constraint system.
-pub trait Assignment<F: Field> {
+pub trait Assignment<F: Field>: Sized + Send {
     /// Creates a new region and enters into it.
     ///
     /// Panics if we are currently in a region (if `exit_region` was not called).
@@ -867,6 +1013,22 @@ pub trait Assignment<F: Field> {
     where
         A: FnOnce() -> AR,
         AR: Into<String>;
+
+    /// Fork
+    fn fork(&mut self, _ranges: &[Range<usize>]) -> Result<Vec<Self>, Error> {
+        unimplemented!("fork is not implemented by default")
+    }
+
+    /// Merge
+    fn merge(&mut self, _sub_cs: Vec<Self>) -> Result<(), Error> {
+        unimplemented!("merge is not implemented by default")
+    }
+
+    /// Get the last assigned value of an advice cell.
+    fn query_advice(&self, column: Column<Advice>, row: usize) -> Result<F, Error>;
+
+    /// Get the last assigned value of a fixed cell.
+    fn query_fixed(&self, column: Column<Fixed>, row: usize) -> Result<F, Error>;
 
     /// Queries the cell of an instance column at a particular absolute row.
     ///
@@ -956,7 +1118,7 @@ pub trait FloorPlanner {
     /// - Perform any necessary setup or measurement tasks, which may involve one or more
     ///   calls to `Circuit::default().synthesize(config, &mut layouter)`.
     /// - Call `circuit.synthesize(config, &mut layouter)` exactly once.
-    fn synthesize<F: Field, CS: Assignment<F>, C: Circuit<F>>(
+    fn synthesize<F: Field, CS: Assignment<F> + SyncDeps, C: Circuit<F>>(
         cs: &mut CS,
         circuit: &C,
         config: C::Config,
@@ -973,10 +1135,32 @@ pub trait Circuit<F: Field> {
     /// The floor planner used for this circuit. This is an associated type of the
     /// `Circuit` trait because its behaviour is circuit-critical.
     type FloorPlanner: FloorPlanner;
+    /// Optional circuit configuration parameters. Requires the `circuit-params` feature.
+    #[cfg(feature = "circuit-params")]
+    type Params: Default;
 
     /// Returns a copy of this circuit with no witness values (i.e. all witnesses set to
     /// `None`). For most circuits, this will be equal to `Self::default()`.
     fn without_witnesses(&self) -> Self;
+
+    /// Returns a reference to the parameters that should be used to configure the circuit.
+    /// Requires the `circuit-params` feature.
+    #[cfg(feature = "circuit-params")]
+    fn params(&self) -> Self::Params {
+        Self::Params::default()
+    }
+
+    /// The circuit is given an opportunity to describe the exact gate
+    /// arrangement, column arrangement, etc.  Takes a runtime parameter.  The default
+    /// implementation calls `configure` ignoring the `_params` argument in order to easily support
+    /// circuits that don't use configuration parameters.
+    #[cfg(feature = "circuit-params")]
+    fn configure_with_params(
+        meta: &mut ConstraintSystem<F>,
+        _params: Self::Params,
+    ) -> Self::Config {
+        Self::configure(meta)
+    }
 
     /// The circuit is given an opportunity to describe the exact gate
     /// arrangement, column arrangement, etc.
@@ -989,7 +1173,7 @@ pub trait Circuit<F: Field> {
 }
 
 /// Low-degree expression representing an identity that must hold over the committed columns.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Expression<F> {
     /// This is a constant polynomial
     Constant(F),
@@ -1014,8 +1198,62 @@ pub enum Expression<F> {
 }
 
 impl<F: Field> Expression<F> {
+    /// Make side effects
+    pub fn query_cells(&mut self, cells: &mut VirtualCells<'_, F>) {
+        match self {
+            Expression::Constant(_) => (),
+            Expression::Selector(selector) => {
+                if !cells.queried_selectors.contains(selector) {
+                    cells.queried_selectors.push(*selector);
+                }
+            }
+            Expression::Fixed(query) => {
+                if query.index.is_none() {
+                    let col = Column {
+                        index: query.column_index,
+                        column_type: Fixed,
+                    };
+                    cells.queried_cells.push((col, query.rotation).into());
+                    query.index = Some(cells.meta.query_fixed_index(col, query.rotation));
+                }
+            }
+            Expression::Advice(query) => {
+                if query.index.is_none() {
+                    let col = Column {
+                        index: query.column_index,
+                        column_type: Advice { phase: query.phase },
+                    };
+                    cells.queried_cells.push((col, query.rotation).into());
+                    query.index = Some(cells.meta.query_advice_index(col, query.rotation));
+                }
+            }
+            Expression::Instance(query) => {
+                if query.index.is_none() {
+                    let col = Column {
+                        index: query.column_index,
+                        column_type: Instance,
+                    };
+                    cells.queried_cells.push((col, query.rotation).into());
+                    query.index = Some(cells.meta.query_instance_index(col, query.rotation));
+                }
+            }
+            Expression::Challenge(_) => (),
+            Expression::Negated(a) => a.query_cells(cells),
+            Expression::Sum(a, b) => {
+                a.query_cells(cells);
+                b.query_cells(cells);
+            }
+            Expression::Product(a, b) => {
+                a.query_cells(cells);
+                b.query_cells(cells);
+            }
+            Expression::Scaled(a, _) => a.query_cells(cells),
+        };
+    }
+
     /// Evaluate the polynomial using the provided closures to perform the
     /// operations.
+    #[allow(clippy::too_many_arguments)]
     pub fn evaluate<T>(
         &self,
         constant: &impl Fn(F) -> T,
@@ -1125,6 +1363,7 @@ impl<F: Field> Expression<F> {
 
     /// Evaluate the polynomial lazily using the provided closures to perform the
     /// operations.
+    #[allow(clippy::too_many_arguments)]
     pub fn evaluate_lazy<T: PartialEq>(
         &self,
         constant: &impl Fn(F) -> T,
@@ -1394,15 +1633,15 @@ impl<F: Field> Expression<F> {
     }
 }
 
-impl<F: SerdePrimeField> Expression<F> {
+impl<F: FromUniformBytes<64>> Expression<F> {
     /// Gets the total number of bytes in the serialization of `self`
     pub(crate) fn bytes_length(&self) -> usize {
         1 + match self {
             Expression::Constant(_) => F::default().to_repr().as_ref().len(),
             Expression::Selector(_) => Selector::bytes_length(),
-            Expression::Fixed(_) => FixedQuery::bytes_length(),
-            Expression::Advice(_) => AdviceQuery::bytes_length(),
-            Expression::Instance(_) => InstanceQuery::bytes_length(),
+            Expression::Fixed(q) => q.bytes_length(),
+            Expression::Advice(q) => q.bytes_length(),
+            Expression::Instance(q) => q.bytes_length(),
             Expression::Challenge(_) => Challenge::bytes_length(),
             Expression::Negated(poly) => poly.bytes_length(),
             Expression::Sum(a, b) => a.bytes_length() + b.bytes_length(),
@@ -1412,7 +1651,9 @@ impl<F: SerdePrimeField> Expression<F> {
             }
         }
     }
+}
 
+impl<F: SerdePrimeField + FromUniformBytes<64>> Expression<F> {
     /// Writes an expression to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self {
@@ -1499,43 +1740,43 @@ impl<F: std::fmt::Debug> std::fmt::Debug for Expression<F> {
             Expression::Constant(scalar) => f.debug_tuple("Constant").field(scalar).finish(),
             Expression::Selector(selector) => f.debug_tuple("Selector").field(selector).finish(),
             // Skip enum variant and print query struct directly to maintain backwards compatibility.
-            Expression::Fixed(FixedQuery {
-                index,
-                column_index,
-                rotation,
-            }) => f
-                .debug_struct("Fixed")
-                .field("query_index", index)
-                .field("column_index", column_index)
-                .field("rotation", rotation)
-                .finish(),
-            Expression::Advice(AdviceQuery {
-                index,
-                column_index,
-                rotation,
-                phase,
-            }) => {
-                let mut debug_struct = f.debug_struct("Advice");
+            Expression::Fixed(query) => {
+                let mut debug_struct = f.debug_struct("Fixed");
+                match query.index {
+                    None => debug_struct.field("query_index", &query.index),
+                    Some(idx) => debug_struct.field("query_index", &idx),
+                };
                 debug_struct
-                    .field("query_index", index)
-                    .field("column_index", column_index)
-                    .field("rotation", rotation);
+                    .field("column_index", &query.column_index)
+                    .field("rotation", &query.rotation)
+                    .finish()
+            }
+            Expression::Advice(query) => {
+                let mut debug_struct = f.debug_struct("Advice");
+                match query.index {
+                    None => debug_struct.field("query_index", &query.index),
+                    Some(idx) => debug_struct.field("query_index", &idx),
+                };
+                debug_struct
+                    .field("column_index", &query.column_index)
+                    .field("rotation", &query.rotation);
                 // Only show advice's phase if it's not in first phase.
-                if *phase != FirstPhase.to_sealed() {
-                    debug_struct.field("phase", phase);
+                if query.phase != FirstPhase.to_sealed() {
+                    debug_struct.field("phase", &query.phase);
                 }
                 debug_struct.finish()
             }
-            Expression::Instance(InstanceQuery {
-                index,
-                column_index,
-                rotation,
-            }) => f
-                .debug_struct("Instance")
-                .field("query_index", index)
-                .field("column_index", column_index)
-                .field("rotation", rotation)
-                .finish(),
+            Expression::Instance(query) => {
+                let mut debug_struct = f.debug_struct("Instance");
+                match query.index {
+                    None => debug_struct.field("query_index", &query.index),
+                    Some(idx) => debug_struct.field("query_index", &idx),
+                };
+                debug_struct
+                    .field("column_index", &query.column_index)
+                    .field("rotation", &query.rotation)
+                    .finish()
+            }
             Expression::Challenge(challenge) => {
                 f.debug_tuple("Challenge").field(challenge).finish()
             }
@@ -1593,6 +1834,20 @@ impl<F: Field> Mul<F> for Expression<F> {
     }
 }
 
+impl<F: Field> Sum<Self> for Expression<F> {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(|acc, x| acc + x)
+            .unwrap_or(Expression::Constant(F::ZERO))
+    }
+}
+
+impl<F: Field> Product<Self> for Expression<F> {
+    fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(|acc, x| acc * x)
+            .unwrap_or(Expression::Constant(F::ONE))
+    }
+}
+
 /// Represents an index into a vector where each entry corresponds to a distinct
 /// point that polynomials are queried at.
 #[derive(Copy, Clone, Debug)]
@@ -1600,7 +1855,7 @@ pub(crate) struct PointIndex(pub usize);
 
 /// A "virtual cell" is a PLONK cell that has been queried at a particular relative offset
 /// within a custom gate.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VirtualCell {
     pub(crate) column: Column<Any>,
     pub(crate) rotation: Rotation,
@@ -1642,25 +1897,34 @@ impl<Col: Into<Column<Any>>> From<(Col, Rotation)> for VirtualCell {
 /// These are returned by the closures passed to `ConstraintSystem::create_gate`.
 #[derive(Debug)]
 pub struct Constraint<F: Field> {
-    name: &'static str,
+    name: String,
     poly: Expression<F>,
 }
 
 impl<F: Field> From<Expression<F>> for Constraint<F> {
     fn from(poly: Expression<F>) -> Self {
-        Constraint { name: "", poly }
+        Constraint {
+            name: "".to_string(),
+            poly,
+        }
     }
 }
 
-impl<F: Field> From<(&'static str, Expression<F>)> for Constraint<F> {
-    fn from((name, poly): (&'static str, Expression<F>)) -> Self {
-        Constraint { name, poly }
+impl<F: Field, S: AsRef<str>> From<(S, Expression<F>)> for Constraint<F> {
+    fn from((name, poly): (S, Expression<F>)) -> Self {
+        Constraint {
+            name: name.as_ref().to_string(),
+            poly,
+        }
     }
 }
 
 impl<F: Field> From<Expression<F>> for Vec<Constraint<F>> {
     fn from(poly: Expression<F>) -> Self {
-        vec![Constraint { name: "", poly }]
+        vec![Constraint {
+            name: "".to_string(),
+            poly,
+        }]
     }
 }
 
@@ -1742,16 +2006,16 @@ impl<F: Field, C: Into<Constraint<F>>, Iter: IntoIterator<Item = C>> IntoIterato
 
     fn into_iter(self) -> Self::IntoIter {
         std::iter::repeat(self.selector)
-            .zip(self.constraints.into_iter())
+            .zip(self.constraints)
             .map(apply_selector_to_constraint)
     }
 }
 
 /// Gate
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Gate<F: Field> {
-    name: &'static str,
-    constraint_names: Vec<&'static str>,
+    name: String,
+    constraint_names: Vec<String>,
     pub polys: Vec<Expression<F>>,
     /// We track queried selectors separately from other cells, so that we can use them to
     /// trigger debug checks on gates.
@@ -1760,12 +2024,14 @@ pub struct Gate<F: Field> {
 }
 
 impl<F: Field> Gate<F> {
-    pub(crate) fn name(&self) -> &'static str {
-        self.name
+    /// Returns the gate name.
+    pub fn name(&self) -> &str {
+        self.name.as_str()
     }
 
-    pub(crate) fn constraint_name(&self, constraint_index: usize) -> &'static str {
-        self.constraint_names[constraint_index]
+    /// Returns the name of the constraint at index `constraint_index`.
+    pub fn constraint_name(&self, constraint_index: usize) -> &str {
+        self.constraint_names[constraint_index].as_str()
     }
 
     /// Returns constraints of this gate
@@ -1782,7 +2048,7 @@ impl<F: Field> Gate<F> {
     }
 }
 
-impl<F: SerdePrimeField> Gate<F> {
+impl<F: FromUniformBytes<64>> Gate<F> {
     /// Gets the total number of bytes in the serialization of `Gate<F>`
     pub(crate) fn bytes_length(&self) -> usize {
         // gates
@@ -1795,7 +2061,9 @@ impl<F: SerdePrimeField> Gate<F> {
         // queried_cells
         + 4 + self.queried_cells.len() * VirtualCell::bytes_length()
     }
+}
 
+impl<F: SerdePrimeField + FromUniformBytes<64>> Gate<F> {
     /// Writes a gate to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         write_expressions_slice(self.polynomials(), writer)?;
@@ -1826,12 +2094,61 @@ impl<F: SerdePrimeField> Gate<F> {
             .map(|_| VirtualCell::read(reader))
             .collect::<io::Result<Vec<_>>>()?;
         Ok(Self {
-            name: "",
+            name: "".to_string(),
             constraint_names: vec![],
             polys,
             queried_selectors,
             queried_cells,
         })
+    }
+}
+
+/// TODO doc
+#[derive(Clone)]
+pub struct LookupTracker<F: Field> {
+    pub(crate) name: String,
+    pub(crate) table: Vec<Expression<F>>,
+    pub(crate) inputs: Vec<Vec<Expression<F>>>,
+}
+
+impl<F: FromUniformBytes<64>> LookupTracker<F> {
+    /// Gets the total number of bytes in the serialization of `self`
+    pub(crate) fn bytes_length(&self) -> usize {
+        8 + self.table.iter().fold(0, |acc, e| acc + e.bytes_length())
+            + self.inputs.iter().fold(4, |acc, e_vec| {
+                acc + e_vec.iter().fold(0, |acc, e| acc + e.bytes_length())
+            })
+    }
+}
+
+impl<F: SerdePrimeField + FromUniformBytes<64>> LookupTracker<F> {
+    /// Writes a lookup tracker to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        // NOTE(chokobole): `self.name` is not important in the sense of creating proof.
+        write_expressions_slice(self.table.as_slice(), writer)?;
+        write_expressions_2d_slice(self.inputs.as_slice(), writer)?;
+        Ok(())
+    }
+
+    /// Reads a lookup tracker from a buffer.
+    pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        Ok(Self {
+            name: "".to_string(),
+            table: read_expressions_vec(reader)?,
+            inputs: read_expressions_2d_vec(reader)?,
+        })
+    }
+}
+
+impl<F: Field> std::fmt::Debug for LookupTracker<F>
+where
+    F: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LookupTracker")
+            .field("table", &self.table)
+            .field("inputs", &self.inputs)
+            .finish()
     }
 }
 
@@ -1842,6 +2159,7 @@ pub struct ConstraintSystem<F: Field> {
     pub num_fixed_columns: usize,
     pub num_advice_columns: usize,
     pub num_instance_columns: usize,
+    pub num_simple_selectors: usize,
     pub num_selectors: usize,
     pub(crate) num_challenges: usize,
 
@@ -1866,12 +2184,19 @@ pub struct ConstraintSystem<F: Field> {
     // Permutation argument for performing equality constraints
     pub permutation: permutation::Argument,
 
+    /// Map from table expression to vec of vec of input expressions
+    pub lookups_map: BTreeMap<String, LookupTracker<F>>,
+
     // Vector of lookup arguments, where each corresponds to a sequence of
     // input expressions and a sequence of table expressions involved in the lookup.
-    pub lookups: Vec<lookup::Argument<F>>,
+    pub lookups: Vec<mv_lookup::Argument<F>>,
+
+    // Vector of shuffle arguments, where each corresponds to a sequence of
+    // input expressions and a sequence of shuffle expressions involved in the shuffle.
+    pub(crate) shuffles: Vec<shuffle::Argument<F>>,
 
     // List of indexes of Fixed columns which are associated to a circuit-general Column tied to their annotation.
-    pub(crate) general_column_annotations: HashMap<metadata::Column, String>,
+    pub(crate) general_column_annotations: BTreeMap<metadata::Column, String>,
 
     // Vector of fixed columns, which can be used to store constant values
     // that are copied into advice columns.
@@ -1895,7 +2220,8 @@ pub struct PinnedConstraintSystem<'a, F: Field> {
     instance_queries: &'a Vec<(Column<Instance>, Rotation)>,
     fixed_queries: &'a Vec<(Column<Fixed>, Rotation)>,
     permutation: &'a permutation::Argument,
-    lookups: &'a Vec<lookup::Argument<F>>,
+    lookups_map: &'a BTreeMap<String, LookupTracker<F>>,
+    shuffles: &'a Vec<shuffle::Argument<F>>,
     constants: &'a Vec<Column<Fixed>>,
     minimum_degree: &'a Option<usize>,
 }
@@ -1921,7 +2247,7 @@ impl<'a, F: Field> std::fmt::Debug for PinnedConstraintSystem<'a, F> {
             .field("instance_queries", self.instance_queries)
             .field("fixed_queries", self.fixed_queries)
             .field("permutation", self.permutation)
-            .field("lookups", self.lookups)
+            .field("lookups_map", self.lookups_map)
             .field("constants", self.constants)
             .field("minimum_degree", self.minimum_degree);
         debug_struct.finish()
@@ -1944,6 +2270,7 @@ impl<F: Field> Default for ConstraintSystem<F> {
             num_fixed_columns: 0,
             num_advice_columns: 0,
             num_instance_columns: 0,
+            num_simple_selectors: 0,
             num_selectors: 0,
             num_challenges: 0,
             advice_column_phase: Vec::new(),
@@ -1955,8 +2282,10 @@ impl<F: Field> Default for ConstraintSystem<F> {
             num_advice_queries: Vec::new(),
             instance_queries: Vec::new(),
             permutation: permutation::Argument::new(),
+            lookups_map: BTreeMap::default(),
             lookups: Vec::new(),
-            general_column_annotations: HashMap::new(),
+            shuffles: Vec::new(),
+            general_column_annotations: BTreeMap::new(),
             constants: vec![],
             minimum_degree: None,
         }
@@ -1981,7 +2310,8 @@ impl<F: Field> ConstraintSystem<F> {
             advice_queries: &self.advice_queries,
             instance_queries: &self.instance_queries,
             permutation: &self.permutation,
-            lookups: &self.lookups,
+            lookups_map: &self.lookups_map,
+            shuffles: &self.shuffles,
             constants: &self.constants,
             minimum_degree: &self.minimum_degree,
         }
@@ -2010,47 +2340,161 @@ impl<F: Field> ConstraintSystem<F> {
     ///
     /// `table_map` returns a map between input expressions and the table columns
     /// they need to match.
-    pub fn lookup(
+    pub fn lookup<S: AsRef<str>>(
         &mut self,
-        name: &'static str,
+        name: S,
         table_map: impl FnOnce(&mut VirtualCells<'_, F>) -> Vec<(Expression<F>, TableColumn)>,
-    ) -> usize {
+    ) {
         let mut cells = VirtualCells::new(self);
-        let table_map = table_map(&mut cells)
+        let (input_expressions, table_expressions): (Vec<_>, Vec<_>) = table_map(&mut cells)
             .into_iter()
-            .map(|(input, table)| {
+            .map(|(mut input, table)| {
                 if input.contains_simple_selector() {
                     panic!("expression containing simple selector supplied to lookup argument");
                 }
-
-                let table = cells.query_fixed(table.inner(), Rotation::cur());
-
+                let mut table = cells.query_fixed(table.inner(), Rotation::cur());
+                input.query_cells(&mut cells);
+                table.query_cells(&mut cells);
                 (input, table)
             })
-            .collect();
+            .unzip();
+        let table_expressions_identifier = table_expressions
+            .iter()
+            .fold(String::new(), |string, expr| string + &expr.identifier());
 
-        let index = self.lookups.len();
+        self.lookups_map
+            .entry(table_expressions_identifier)
+            .and_modify(|table_tracker| table_tracker.inputs.push(input_expressions.clone()))
+            .or_insert(LookupTracker {
+                name: name.as_ref().to_string(),
+                table: table_expressions,
+                inputs: vec![input_expressions],
+            });
+    }
 
-        self.lookups.push(lookup::Argument::new(name, table_map));
+    /// Chunk lookup arguments into pieces below a given degree bound
+    pub fn chunk_lookups(mut self) -> Self {
+        if self.lookups_map.is_empty() {
+            return self;
+        }
 
-        index
+        let max_gate_degree = self.max_gate_degree();
+        let max_single_lookup_degree: usize = self
+            .lookups_map
+            .values()
+            .map(|v| {
+                let table_degree = v.table.iter().map(|expr| expr.degree()).max().unwrap();
+                let base_lookup_degree = super::mv_lookup::base_degree(table_degree);
+
+                let max_inputs_degree: usize = v
+                    .inputs
+                    .iter()
+                    .map(|input| input.iter().map(|expr| expr.degree()).max().unwrap())
+                    .max()
+                    .unwrap();
+
+                mv_lookup::degree_with_input(base_lookup_degree, max_inputs_degree)
+            })
+            .max()
+            .unwrap();
+
+        let required_degree = std::cmp::max(max_gate_degree, max_single_lookup_degree);
+        let required_degree = (required_degree as u64 - 1).next_power_of_two() as usize;
+
+        self.set_minimum_degree(required_degree + 1);
+
+        // safe to unwrap here
+        let minimum_degree = self.minimum_degree.unwrap();
+
+        let mut lookups: Vec<_> = vec![];
+        for v in self.lookups_map.values() {
+            let LookupTracker {
+                table,
+                inputs,
+                name,
+            } = v;
+            let name = Box::leak(name.clone().into_boxed_str());
+            let mut args = vec![super::mv_lookup::Argument::new(
+                name,
+                table,
+                &[inputs[0].clone()],
+            )];
+
+            for input in inputs.iter().skip(1) {
+                let cur_input_degree = input.iter().map(|expr| expr.degree()).max().unwrap();
+                let mut indicator = false;
+                for arg in args.iter_mut() {
+                    // try to fit input in one of the args
+                    let cur_argument_degree = arg.required_degree();
+                    let new_potential_degree = cur_argument_degree + cur_input_degree;
+                    if new_potential_degree <= minimum_degree {
+                        arg.inputs_expressions.push(input.clone());
+                        indicator = true;
+                        break;
+                    }
+                }
+
+                if !indicator {
+                    args.push(super::mv_lookup::Argument::new(
+                        name,
+                        table,
+                        &[input.clone()],
+                    ))
+                }
+            }
+            lookups.append(&mut args);
+        }
+        self.lookups = lookups;
+        self
     }
 
     /// Add a lookup argument for some input expressions and table expressions.
     ///
     /// `table_map` returns a map between input expressions and the table expressions
     /// they need to match.
-    pub fn lookup_any(
+    pub fn lookup_any<S: AsRef<str>>(
         &mut self,
-        name: &'static str,
+        name: S,
         table_map: impl FnOnce(&mut VirtualCells<'_, F>) -> Vec<(Expression<F>, Expression<F>)>,
-    ) -> usize {
+    ) {
         let mut cells = VirtualCells::new(self);
         let table_map = table_map(&mut cells);
 
-        let index = self.lookups.len();
+        let (input_expressions, table_expressions): (Vec<_>, Vec<_>) =
+            table_map.into_iter().unzip();
+        let table_expressions_identifier = table_expressions
+            .iter()
+            .fold(String::new(), |string, expr| string + &expr.identifier());
 
-        self.lookups.push(lookup::Argument::new(name, table_map));
+        self.lookups_map
+            .entry(table_expressions_identifier)
+            .and_modify(|table_tracker| table_tracker.inputs.push(input_expressions.clone()))
+            .or_insert(LookupTracker {
+                name: name.as_ref().to_string(),
+                table: table_expressions,
+                inputs: vec![input_expressions],
+            });
+    }
+
+    /// Add a shuffle argument for some input expressions and table expressions.
+    pub fn shuffle<S: AsRef<str>>(
+        &mut self,
+        name: S,
+        shuffle_map: impl FnOnce(&mut VirtualCells<'_, F>) -> Vec<(Expression<F>, Expression<F>)>,
+    ) -> usize {
+        let mut cells = VirtualCells::new(self);
+        let shuffle_map = shuffle_map(&mut cells)
+            .into_iter()
+            .map(|(mut input, mut table)| {
+                input.query_cells(&mut cells);
+                table.query_cells(&mut cells);
+                (input, table)
+            })
+            .collect();
+        let index = self.shuffles.len();
+
+        self.shuffles
+            .push(shuffle::Argument::new(name.as_ref(), shuffle_map));
 
         index
     }
@@ -2161,7 +2605,9 @@ impl<F: Field> ConstraintSystem<F> {
     /// larger amount than actually needed. This can be used, for example, to
     /// force the permutation argument to involve more columns in the same set.
     pub fn set_minimum_degree(&mut self, degree: usize) {
-        self.minimum_degree = Some(degree);
+        self.minimum_degree = self
+            .minimum_degree
+            .map_or(Some(degree), |min_degree| Some(max(min_degree, degree)));
     }
 
     /// Creates a new gate.
@@ -2170,21 +2616,24 @@ impl<F: Field> ConstraintSystem<F> {
     ///
     /// A gate is required to contain polynomial constraints. This method will panic if
     /// `constraints` returns an empty iterator.
-    pub fn create_gate<C: Into<Constraint<F>>, Iter: IntoIterator<Item = C>>(
+    pub fn create_gate<C: Into<Constraint<F>>, Iter: IntoIterator<Item = C>, S: AsRef<str>>(
         &mut self,
-        name: &'static str,
+        name: S,
         constraints: impl FnOnce(&mut VirtualCells<'_, F>) -> Iter,
     ) {
         let mut cells = VirtualCells::new(self);
         let constraints = constraints(&mut cells);
-        let queried_selectors = cells.queried_selectors;
-        let queried_cells = cells.queried_cells;
-
         let (constraint_names, polys): (_, Vec<_>) = constraints
             .into_iter()
             .map(|c| c.into())
-            .map(|c| (c.name, c.poly))
+            .map(|mut c: Constraint<F>| {
+                c.poly.query_cells(&mut cells);
+                (c.name, c.poly)
+            })
             .unzip();
+
+        let queried_selectors = cells.queried_selectors;
+        let queried_cells = cells.queried_cells;
 
         assert!(
             !polys.is_empty(),
@@ -2192,7 +2641,7 @@ impl<F: Field> ConstraintSystem<F> {
         );
 
         self.gates.push(Gate {
-            name,
+            name: name.as_ref().to_string(),
             constraint_names,
             polys,
             queried_selectors,
@@ -2207,7 +2656,7 @@ impl<F: Field> ConstraintSystem<F> {
     /// find which fixed column corresponds with a given `Selector`.
     ///
     /// Do not call this twice. Yes, this should be a builder pattern instead.
-    pub(crate) fn compress_selectors(mut self, selectors: Vec<Vec<bool>>) -> (Self, Vec<Vec<F>>) {
+    pub fn compress_selectors(mut self, selectors: Vec<Vec<bool>>) -> (Self, Vec<Vec<F>>) {
         // The number of provided selector assignments must be the number we
         // counted for this constraint system.
         assert_eq!(selectors.len(), self.num_selectors);
@@ -2231,7 +2680,7 @@ impl<F: Field> ConstraintSystem<F> {
         let (polys, selector_assignment) = compress_selectors::process(
             selectors
                 .into_iter()
-                .zip(degrees.into_iter())
+                .zip(degrees)
                 .enumerate()
                 .map(
                     |(i, (activations, max_degree))| compress_selectors::SelectorDescription {
@@ -2246,7 +2695,7 @@ impl<F: Field> ConstraintSystem<F> {
                 let column = self.fixed_column();
                 new_columns.push(column);
                 Expression::Fixed(FixedQuery {
-                    index: self.query_fixed_index(column, Rotation::cur()),
+                    index: Some(self.query_fixed_index(column, Rotation::cur())),
                     column_index: column.index,
                     rotation: Rotation::cur(),
                 })
@@ -2306,9 +2755,19 @@ impl<F: Field> ConstraintSystem<F> {
         // lookup expressions
         for expr in self.lookups.iter_mut().flat_map(|lookup| {
             lookup
+                .inputs_expressions
+                .iter_mut()
+                .flatten()
+                .chain(lookup.table_expressions.iter_mut())
+        }) {
+            replace_selectors(expr, &selector_replacements, true);
+        }
+
+        for expr in self.shuffles.iter_mut().flat_map(|shuffle| {
+            shuffle
                 .input_expressions
                 .iter_mut()
-                .chain(lookup.table_expressions.iter_mut())
+                .chain(shuffle.shuffle_expressions.iter_mut())
         }) {
             replace_selectors(expr, &selector_replacements, true);
         }
@@ -2322,6 +2781,7 @@ impl<F: Field> ConstraintSystem<F> {
     /// inputs.
     pub fn selector(&mut self) -> Selector {
         let index = self.num_selectors;
+        self.num_simple_selectors += 1;
         self.num_selectors += 1;
         Selector(index, true)
     }
@@ -2465,6 +2925,15 @@ impl<F: Field> ConstraintSystem<F> {
         (0..=max_phase).map(sealed::Phase)
     }
 
+    /// Compute the maximum degree of gates in the constraint system
+    pub fn max_gate_degree(&self) -> usize {
+        self.gates
+            .iter()
+            .flat_map(|gate| gate.polynomials().iter().map(|poly| poly.degree()))
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Compute the degree of the constraint system (the maximum degree of all
     /// constraints).
     pub fn degree(&self) -> usize {
@@ -2483,15 +2952,29 @@ impl<F: Field> ConstraintSystem<F> {
                 .unwrap_or(1),
         );
 
-        // Account for each gate to ensure our quotient polynomial is the
-        // correct degree and that our extended domain is the right size.
+        // The lookup argument also serves alongside the gates and must be accounted
+        // for.
         degree = std::cmp::max(
             degree,
-            self.gates
+            self.shuffles
                 .iter()
-                .flat_map(|gate| gate.polynomials().iter().map(|poly| poly.degree()))
+                .map(|l| l.required_degree())
                 .max()
-                .unwrap_or(0),
+                .unwrap_or(1),
+        );
+
+        // Account for each gate to ensure our quotient polynomial is the
+        // correct degree and that our extended domain is the right size.
+        degree = std::cmp::max(degree, self.max_gate_degree());
+
+        // Lookup degree
+        degree = std::cmp::max(
+            degree,
+            self.lookups
+                .iter()
+                .map(|hl| hl.required_degree())
+                .max()
+                .unwrap_or(1),
         );
 
         std::cmp::max(degree, self.minimum_degree.unwrap_or(1))
@@ -2553,6 +3036,11 @@ impl<F: Field> ConstraintSystem<F> {
         self.num_instance_columns
     }
 
+    /// Returns number of selectors
+    pub fn num_selectors(&self) -> usize {
+        self.num_selectors
+    }
+
     /// Returns number of challenges
     pub fn num_challenges(&self) -> usize {
         self.num_challenges
@@ -2576,6 +3064,11 @@ impl<F: Field> ConstraintSystem<F> {
         &self.gates
     }
 
+    /// Returns general column annotations
+    pub fn general_column_annotations(&self) -> &BTreeMap<metadata::Column, String> {
+        &self.general_column_annotations
+    }
+
     /// Returns advice queries
     pub fn advice_queries(&self) -> &Vec<(Column<Advice>, Rotation)> {
         &self.advice_queries
@@ -2597,8 +3090,13 @@ impl<F: Field> ConstraintSystem<F> {
     }
 
     /// Returns lookup arguments
-    pub fn lookups(&self) -> &Vec<lookup::Argument<F>> {
+    pub fn lookups(&self) -> &Vec<mv_lookup::Argument<F>> {
         &self.lookups
+    }
+
+    /// Returns shuffle arguments
+    pub fn shuffles(&self) -> &Vec<shuffle::Argument<F>> {
+        &self.shuffles
     }
 
     /// Returns constants
@@ -2607,14 +3105,20 @@ impl<F: Field> ConstraintSystem<F> {
     }
 }
 
-impl<F: SerdePrimeField> ConstraintSystem<F> {
+impl<F: FromUniformBytes<64>> ConstraintSystem<F> {
     /// Gets the total number of bytes in the serialization of `self`
     pub(crate) fn bytes_length(&self) -> usize {
+        // TODO(chokobole): Support `shuffles`.
+        if !self.shuffles.is_empty() {
+            panic!("shuffles is not supported");
+        }
         // self.num_fixed_columns
         4 +
         //self.num_advice_columns
         4 +
         //self.num_instance_columns
+        4 +
+        //self.num_simple_selectors
         4 +
         //self.num_selectors
         4 +
@@ -2649,6 +3153,14 @@ impl<F: SerdePrimeField> ConstraintSystem<F> {
         self.fixed_queries.len() * (Column::<Fixed>::bytes_length() + Rotation::bytes_length()) +
         // self.permutation
         self.permutation.bytes_length() +
+        // self.lookups_map
+        4 +
+        self
+            .lookups_map
+            .iter()
+            .fold(0, |acc, lookup| {
+                acc + 4 + lookup.0.len() + lookup.1.bytes_length()
+            }) +
         // self.lookups
         4 +
         self
@@ -2657,14 +3169,23 @@ impl<F: SerdePrimeField> ConstraintSystem<F> {
             .fold(0, |acc, lookup| acc + lookup.bytes_length()) +
         // self.constants
         4 +
-        self.constants.len() * Column::<Fixed>::bytes_length()
+        self.constants.len() * Column::<Fixed>::bytes_length() +
+        // self.minimum_degree
+        1 + if self.minimum_degree.is_some() {4} else {0}
     }
+}
 
+impl<F: SerdePrimeField + FromUniformBytes<64>> ConstraintSystem<F> {
     /// Writes a constraint system to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        // TODO(chokobole): Support `shuffles`.
+        if !self.shuffles.is_empty() {
+            panic!("shuffles is not supported");
+        }
         writer.write_all(&(self.num_fixed_columns as u32).to_be_bytes())?;
         writer.write_all(&(self.num_advice_columns as u32).to_be_bytes())?;
         writer.write_all(&(self.num_instance_columns as u32).to_be_bytes())?;
+        writer.write_all(&(self.num_simple_selectors as u32).to_be_bytes())?;
         writer.write_all(&(self.num_selectors as u32).to_be_bytes())?;
         writer.write_all(&(self.num_challenges as u32).to_be_bytes())?;
         write_phases_slice(self.advice_column_phase.as_slice(), writer)?;
@@ -2694,11 +3215,23 @@ impl<F: SerdePrimeField> ConstraintSystem<F> {
             rotation.write(writer)?;
         }
         self.permutation.write(writer)?;
+        writer.write_all(&(self.lookups_map.len() as u32).to_be_bytes())?;
+        for lookup in &self.lookups_map {
+            writer.write_all(&(lookup.0.len() as u32).to_be_bytes())?;
+            writer.write_all(lookup.0.as_bytes())?;
+            lookup.1.write(writer)?;
+        }
         writer.write_all(&(self.lookups.len() as u32).to_be_bytes())?;
         for lookup in &self.lookups {
             lookup.write(writer)?;
         }
         write_columns_slice(self.constants.as_slice(), writer)?;
+        if let Some(minimum_degree) = self.minimum_degree {
+            writer.write_all(&(1 as u8).to_be_bytes())?;
+            writer.write_all(&(minimum_degree as u32).to_be_bytes())?;
+        } else {
+            writer.write_all(&(0 as u8).to_be_bytes())?;
+        }
         Ok(())
     }
 
@@ -2715,6 +3248,10 @@ impl<F: SerdePrimeField> ConstraintSystem<F> {
         let mut num_instance_columns = [0u8; 4];
         reader.read_exact(&mut num_instance_columns)?;
         let num_instance_columns = u32::from_be_bytes(num_instance_columns) as usize;
+
+        let mut num_simple_selectors = [0u8; 4];
+        reader.read_exact(&mut num_simple_selectors)?;
+        let num_simple_selectors = u32::from_be_bytes(num_simple_selectors) as usize;
 
         let mut num_selectors = [0u8; 4];
         reader.read_exact(&mut num_selectors)?;
@@ -2785,20 +3322,47 @@ impl<F: SerdePrimeField> ConstraintSystem<F> {
 
         let permutation = permutation::Argument::read(reader)?;
 
+        let mut lookups_map = BTreeMap::default();
+        let mut lookups_map_len = [0u8; 4];
+        reader.read_exact(&mut lookups_map_len)?;
+        let lookups_map_len = u32::from_be_bytes(lookups_map_len);
+        for _ in 0..lookups_map_len {
+            let mut name_len = [0u8; 4];
+            reader.read_exact(&mut name_len)?;
+            let name_len = u32::from_be_bytes(name_len);
+            let mut name = vec![0u8; name_len as usize];
+            reader.read_exact(name.as_mut_slice())?;
+            let name = String::from_utf8(name).unwrap();
+            let tracker = LookupTracker::<F>::read(reader)?;
+            lookups_map.insert(name, tracker);
+        }
+
         let mut lookups_len = [0u8; 4];
         reader.read_exact(&mut lookups_len)?;
         let lookups_len = u32::from_be_bytes(lookups_len);
         let lookups = (0..lookups_len)
-            .map(|_| lookup::Argument::<F>::read(reader))
+            .map(|_| mv_lookup::Argument::<F>::read(reader))
             .collect::<io::Result<Vec<_>>>()
             .unwrap();
 
         let constants = read_columns_vec(reader)?;
 
+        let mut has_minimum_degree = [0u8; 1];
+        reader.read_exact(&mut has_minimum_degree)?;
+        let has_minimum_degree = u8::from_be_bytes(has_minimum_degree);
+        let minimum_degree = if has_minimum_degree == 1 {
+            let mut minimum_degree = [0u8; 4];
+            reader.read_exact(&mut minimum_degree)?;
+            Some(u32::from_be_bytes(minimum_degree) as usize)
+        } else {
+            None
+        };
+
         Ok(Self {
             num_fixed_columns,
             num_advice_columns,
             num_instance_columns,
+            num_simple_selectors,
             num_selectors,
             num_challenges,
             advice_column_phase,
@@ -2810,16 +3374,19 @@ impl<F: SerdePrimeField> ConstraintSystem<F> {
             instance_queries,
             fixed_queries,
             permutation,
+            lookups_map,
             lookups,
-            general_column_annotations: HashMap::<_, _>::new(),
+            // TODO(chokobole): Support `shuffles`.
+            shuffles: Vec::new(),
+            general_column_annotations: BTreeMap::new(),
             constants,
-            minimum_degree: None,
+            minimum_degree,
         })
     }
 }
 
 /// Writes a slice of expressions to buffer
-pub(crate) fn write_expressions_slice<W: io::Write, F: SerdePrimeField>(
+pub(crate) fn write_expressions_slice<W: io::Write, F: SerdePrimeField + FromUniformBytes<64>>(
     slice: &[Expression<F>],
     writer: &mut W,
 ) -> io::Result<()> {
@@ -2830,8 +3397,23 @@ pub(crate) fn write_expressions_slice<W: io::Write, F: SerdePrimeField>(
     Ok(())
 }
 
+/// Writes a slice of vector of expressions to buffer
+pub(crate) fn write_expressions_2d_slice<
+    W: io::Write,
+    F: SerdePrimeField + FromUniformBytes<64>,
+>(
+    slice_2d: &[Vec<Expression<F>>],
+    writer: &mut W,
+) -> io::Result<()> {
+    writer.write_all(&(slice_2d.len() as u32).to_be_bytes())?;
+    for slice in slice_2d {
+        write_expressions_slice(slice, writer)?;
+    }
+    Ok(())
+}
+
 /// Reads a vector of expressions from buffer
-pub(crate) fn read_expressions_vec<R: io::Read, F: SerdePrimeField>(
+pub(crate) fn read_expressions_vec<R: io::Read, F: SerdePrimeField + FromUniformBytes<64>>(
     reader: &mut R,
 ) -> io::Result<Vec<Expression<F>>> {
     let mut len = [0u8; 4];
@@ -2840,6 +3422,19 @@ pub(crate) fn read_expressions_vec<R: io::Read, F: SerdePrimeField>(
 
     (0..len)
         .map(|_| Expression::<F>::read(reader))
+        .collect::<io::Result<Vec<_>>>()
+}
+
+/// Reads a vector of vector of expressions from buffer
+pub(crate) fn read_expressions_2d_vec<R: io::Read, F: SerdePrimeField + FromUniformBytes<64>>(
+    reader: &mut R,
+) -> io::Result<Vec<Vec<Expression<F>>>> {
+    let mut len = [0u8; 4];
+    reader.read_exact(&mut len)?;
+    let len = u32::from_be_bytes(len);
+
+    (0..len)
+        .map(|_| read_expressions_vec(reader))
         .collect::<io::Result<Vec<_>>>()
 }
 
@@ -2871,7 +3466,7 @@ impl<'a, F: Field> VirtualCells<'a, F> {
     pub fn query_fixed(&mut self, column: Column<Fixed>, at: Rotation) -> Expression<F> {
         self.queried_cells.push((column, at).into());
         Expression::Fixed(FixedQuery {
-            index: self.meta.query_fixed_index(column, at),
+            index: Some(self.meta.query_fixed_index(column, at)),
             column_index: column.index,
             rotation: at,
         })
@@ -2881,7 +3476,7 @@ impl<'a, F: Field> VirtualCells<'a, F> {
     pub fn query_advice(&mut self, column: Column<Advice>, at: Rotation) -> Expression<F> {
         self.queried_cells.push((column, at).into());
         Expression::Advice(AdviceQuery {
-            index: self.meta.query_advice_index(column, at),
+            index: Some(self.meta.query_advice_index(column, at)),
             column_index: column.index,
             rotation: at,
             phase: column.column_type().phase,
@@ -2892,7 +3487,7 @@ impl<'a, F: Field> VirtualCells<'a, F> {
     pub fn query_instance(&mut self, column: Column<Instance>, at: Rotation) -> Expression<F> {
         self.queried_cells.push((column, at).into());
         Expression::Instance(InstanceQuery {
-            index: self.meta.query_instance_index(column, at),
+            index: Some(self.meta.query_instance_index(column, at)),
             column_index: column.index,
             rotation: at,
         })
@@ -2911,5 +3506,49 @@ impl<'a, F: Field> VirtualCells<'a, F> {
     /// Query a challenge
     pub fn query_challenge(&mut self, challenge: Challenge) -> Expression<F> {
         Expression::Challenge(challenge)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Expression;
+    use halo2curves::bn256::Fr;
+
+    #[test]
+    fn iter_sum() {
+        let exprs: Vec<Expression<Fr>> = vec![
+            Expression::Constant(1.into()),
+            Expression::Constant(2.into()),
+            Expression::Constant(3.into()),
+        ];
+        let happened: Expression<Fr> = exprs.into_iter().sum();
+        let expected: Expression<Fr> = Expression::Sum(
+            Box::new(Expression::Sum(
+                Box::new(Expression::Constant(1.into())),
+                Box::new(Expression::Constant(2.into())),
+            )),
+            Box::new(Expression::Constant(3.into())),
+        );
+
+        assert_eq!(happened, expected);
+    }
+
+    #[test]
+    fn iter_product() {
+        let exprs: Vec<Expression<Fr>> = vec![
+            Expression::Constant(1.into()),
+            Expression::Constant(2.into()),
+            Expression::Constant(3.into()),
+        ];
+        let happened: Expression<Fr> = exprs.into_iter().product();
+        let expected: Expression<Fr> = Expression::Product(
+            Box::new(Expression::Product(
+                Box::new(Expression::Constant(1.into())),
+                Box::new(Expression::Constant(2.into())),
+            )),
+            Box::new(Expression::Constant(3.into())),
+        );
+
+        assert_eq!(happened, expected);
     }
 }

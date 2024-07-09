@@ -1,10 +1,6 @@
-use std::marker::PhantomData;
-
-use super::commitment::{IPACommitmentScheme, ParamsIPA, ParamsVerifierIPA};
+use super::commitment::{IPACommitmentScheme, ParamsIPA};
 use super::msm::MSMIPA;
 use super::multiopen::VerifierIPA;
-use crate::poly::commitment::CommitmentScheme;
-use crate::transcript::TranscriptRead;
 use crate::{
     arithmetic::best_multiexp,
     plonk::Error,
@@ -12,12 +8,11 @@ use crate::{
         commitment::MSM,
         strategy::{Guard, VerificationStrategy},
     },
-    transcript::EncodedChallenge,
 };
 use ff::Field;
 use group::Curve;
 use halo2curves::CurveAffine;
-use rand_core::{OsRng, RngCore};
+use rand_core::OsRng;
 
 /// Wrapper for verification accumulator
 #[derive(Debug, Clone)]
@@ -70,7 +65,7 @@ impl<'params, C: CurveAffine> GuardIPA<'params, C> {
 
     /// Computes G = ⟨s, params.g⟩
     pub fn compute_g(&self) -> C {
-        let s = compute_s(&self.u, C::Scalar::one());
+        let s = compute_s(&self.u, C::Scalar::ONE);
 
         best_multiexp(&s, &self.msm.params.g).to_affine()
     }
@@ -160,7 +155,7 @@ impl<'params, C: CurveAffine>
 /// Computes the coefficients of $g(X) = \prod\limits_{i=0}^{k-1} (1 + u_{k - 1 - i} X^{2^i})$.
 fn compute_s<F: Field>(u: &[F], init: F) -> Vec<F> {
     assert!(!u.is_empty());
-    let mut v = vec![F::zero(); 1 << u.len()];
+    let mut v = vec![F::ZERO; 1 << u.len()];
     v[0] = init;
 
     for (len, u_j) in u.iter().rev().enumerate().map(|(i, u_j)| (1 << i, u_j)) {

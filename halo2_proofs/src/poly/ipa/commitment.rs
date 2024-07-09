@@ -3,18 +3,14 @@
 //!
 //! [halo]: https://eprint.iacr.org/2019/1021
 
-use crate::arithmetic::{
-    best_fft, best_multiexp, g_to_lagrange, parallelize, CurveAffine, CurveExt, FieldExt, Group,
-};
+use crate::arithmetic::{best_multiexp, g_to_lagrange, parallelize, CurveAffine, CurveExt};
 use crate::helpers::CurveRead;
-use crate::poly::commitment::{Blind, CommitmentScheme, Params, ParamsProver, ParamsVerifier, MSM};
+use crate::poly::commitment::{Blind, CommitmentScheme, Params, ParamsProver, ParamsVerifier};
 use crate::poly::ipa::msm::MSMIPA;
 use crate::poly::{Coeff, LagrangeCoeff, Polynomial};
 
-use ff::{Field, PrimeField};
-use group::{prime::PrimeCurveAffine, Curve, Group as _};
+use group::{Curve, Group};
 use std::marker::PhantomData;
-use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 mod prover;
 mod verifier;
@@ -233,23 +229,13 @@ impl<'params, C: CurveAffine> ParamsProver<'params, C> for ParamsIPA<C> {
 
 #[cfg(test)]
 mod test {
-
-    use crate::arithmetic::{
-        best_fft, best_multiexp, parallelize, CurveAffine, CurveExt, FieldExt, Group,
-    };
-    use crate::helpers::CurveRead;
     use crate::poly::commitment::ParamsProver;
-    use crate::poly::commitment::{Blind, CommitmentScheme, Params, MSM};
+    use crate::poly::commitment::{Blind, Params, MSM};
     use crate::poly::ipa::commitment::{create_proof, verify_proof, ParamsIPA};
     use crate::poly::ipa::msm::MSMIPA;
-    use crate::poly::{Coeff, LagrangeCoeff, Polynomial};
+    use group::Curve;
 
-    use ff::{Field, PrimeField};
-    use group::{prime::PrimeCurveAffine, Curve, Group as _};
-    use std::marker::PhantomData;
-    use std::ops::{Add, AddAssign, Mul, MulAssign};
-
-    use std::io;
+    use ff::Field;
 
     #[test]
     fn test_commit_lagrange_epaffine() {
@@ -309,7 +295,7 @@ mod test {
         use rand_core::OsRng;
 
         use super::super::commitment::{Blind, Params};
-        use crate::arithmetic::{eval_polynomial, FieldExt};
+        use crate::arithmetic::eval_polynomial;
         use crate::halo2curves::pasta::{EpAffine, Fq};
         use crate::poly::EvaluationDomain;
         use crate::transcript::{
@@ -363,7 +349,7 @@ mod test {
         assert_eq!(v, v_prime);
 
         let mut commitment_msm = MSMIPA::new(&params);
-        commitment_msm.append_term(Field::one(), p.into());
+        commitment_msm.append_term(Fq::one(), p.into());
 
         let guard = verify_proof(&params, commitment_msm, &mut transcript, *x, v).unwrap();
         let ch_verifier = transcript.squeeze_challenge();

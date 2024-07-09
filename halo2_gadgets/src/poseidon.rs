@@ -4,9 +4,9 @@ use std::convert::TryInto;
 use std::fmt;
 use std::marker::PhantomData;
 
+use ff::PrimeField;
 use group::ff::Field;
 use halo2_proofs::{
-    arithmetic::FieldExt,
     circuit::{AssignedCell, Chip, Layouter},
     plonk::Error,
 };
@@ -27,7 +27,7 @@ pub enum PaddedWord<F: Field> {
 }
 
 /// The set of circuit instructions required to use the Poseidon permutation.
-pub trait PoseidonInstructions<F: FieldExt, S: Spec<F, T, RATE>, const T: usize, const RATE: usize>:
+pub trait PoseidonInstructions<F: Field, S: Spec<F, T, RATE>, const T: usize, const RATE: usize>:
     Chip<F>
 {
     /// Variable representing the word over which the Poseidon permutation operates.
@@ -45,7 +45,7 @@ pub trait PoseidonInstructions<F: FieldExt, S: Spec<F, T, RATE>, const T: usize,
 ///
 /// [`Hash`]: self::Hash
 pub trait PoseidonSpongeInstructions<
-    F: FieldExt,
+    F: Field,
     S: Spec<F, T, RATE>,
     D: Domain<F, RATE>,
     const T: usize,
@@ -71,7 +71,7 @@ pub trait PoseidonSpongeInstructions<
 /// A word over which the Poseidon permutation operates.
 #[derive(Debug)]
 pub struct Word<
-    F: FieldExt,
+    F: Field,
     PoseidonChip: PoseidonInstructions<F, S, T, RATE>,
     S: Spec<F, T, RATE>,
     const T: usize,
@@ -81,7 +81,7 @@ pub struct Word<
 }
 
 impl<
-        F: FieldExt,
+        F: Field,
         PoseidonChip: PoseidonInstructions<F, S, T, RATE>,
         S: Spec<F, T, RATE>,
         const T: usize,
@@ -100,7 +100,7 @@ impl<
 }
 
 fn poseidon_sponge<
-    F: FieldExt,
+    F: Field,
     PoseidonChip: PoseidonSpongeInstructions<F, S, D, T, RATE>,
     S: Spec<F, T, RATE>,
     D: Domain<F, RATE>,
@@ -122,7 +122,7 @@ fn poseidon_sponge<
 /// A Poseidon sponge.
 #[derive(Debug)]
 pub struct Sponge<
-    F: FieldExt,
+    F: Field,
     PoseidonChip: PoseidonSpongeInstructions<F, S, D, T, RATE>,
     S: Spec<F, T, RATE>,
     M: SpongeMode,
@@ -137,7 +137,7 @@ pub struct Sponge<
 }
 
 impl<
-        F: FieldExt,
+        F: Field,
         PoseidonChip: PoseidonSpongeInstructions<F, S, D, T, RATE>,
         S: Spec<F, T, RATE>,
         D: Domain<F, RATE>,
@@ -157,7 +157,7 @@ impl<
                     .unwrap(),
             ),
             state,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 
@@ -204,13 +204,13 @@ impl<
             chip: self.chip,
             mode,
             state: self.state,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
 
 impl<
-        F: FieldExt,
+        F: Field,
         PoseidonChip: PoseidonSpongeInstructions<F, S, D, T, RATE>,
         S: Spec<F, T, RATE>,
         D: Domain<F, RATE>,
@@ -241,7 +241,7 @@ impl<
 /// A Poseidon hash function, built around a sponge.
 #[derive(Debug)]
 pub struct Hash<
-    F: FieldExt,
+    F: Field,
     PoseidonChip: PoseidonSpongeInstructions<F, S, D, T, RATE>,
     S: Spec<F, T, RATE>,
     D: Domain<F, RATE>,
@@ -252,7 +252,7 @@ pub struct Hash<
 }
 
 impl<
-        F: FieldExt,
+        F: Field,
         PoseidonChip: PoseidonSpongeInstructions<F, S, D, T, RATE>,
         S: Spec<F, T, RATE>,
         D: Domain<F, RATE>,
@@ -267,7 +267,7 @@ impl<
 }
 
 impl<
-        F: FieldExt,
+        F: PrimeField,
         PoseidonChip: PoseidonSpongeInstructions<F, S, ConstantLength<L>, T, RATE>,
         S: Spec<F, T, RATE>,
         const T: usize,

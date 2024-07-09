@@ -1,26 +1,29 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    io::Write,
-    ops::RangeTo,
+    ops::{Range, RangeTo},
+    sync::Arc,
 };
 
 use crate::{
     bn254::{
         AdviceSingle, Evals, InstanceSingle, ProvingKey as TachyonProvingKey, RationalEvals,
-        TachyonProver, TranscriptWriteState,
+        RationalEvalsView, TachyonProver, TranscriptWriteState,
     },
     circuit::Value,
     plonk::{
         sealed, Advice, Any, Assigned, Assignment, Challenge, Circuit, Column, ConstraintSystem,
         Error, Fixed, FloorPlanner, Instance, Selector,
     },
-    poly::commitment::{Blind, CommitmentScheme},
-    transcript::{Challenge255, EncodedChallenge, Transcript, TranscriptWrite},
+    poly::{
+        commitment::{Blind, CommitmentScheme},
+        LagrangeCoeff, Polynomial,
+    },
+    transcript::EncodedChallenge,
     xor_shift_rng::XORShiftRng as TachyonXORShiftRng,
 };
-use ff::Field;
+use ff::{Field, FromUniformBytes, WithSmallOrderMulGroup};
 use halo2curves::{
-    bn256::{Fr, G1Affine, G1},
+    bn256::Fr,
     group::{prime::PrimeCurveAffine, Curve},
     CurveAffine,
 };
@@ -41,9 +44,17 @@ pub fn create_proof<
     pk: &mut TachyonProvingKey<Scheme::Curve>,
     circuits: &[ConcreteCircuit],
     instances: &[&[&[Scheme::Scalar]]],
+    fixed_values: Vec<Polynomial<Scheme::Scalar, LagrangeCoeff>>,
     mut rng: TachyonXORShiftRng,
     transcript: &mut T,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    Scheme::Scalar: WithSmallOrderMulGroup<3> + FromUniformBytes<64> + Ord,
+{
+    if circuits.len() != instances.len() {
+        return Err(Error::InvalidInstances);
+    }
+
     for instance in instances.iter() {
         if instance.len() != pk.num_instance_columns() {
             return Err(Error::InvalidInstances);
@@ -55,6 +66,9 @@ pub fn create_proof<
     transcript.common_scalar(prover.transcript_repr(pk))?;
 
     let mut meta = ConstraintSystem::default();
+    #[cfg(feature = "circuit-params")]
+    let config = ConcreteCircuit::configure_with_params(&mut meta, circuits[0].params());
+    #[cfg(not(feature = "circuit-params"))]
     let config = ConcreteCircuit::configure(&mut meta);
 
     // Selector optimizations cannot be applied here; use the ConstraintSystem
@@ -118,9 +132,12 @@ pub fn create_proof<
     struct WitnessCollection<'a, F: Field> {
         k: u32,
         current_phase: sealed::Phase,
-        advice: Vec<RationalEvals>,
+        advice_vec: Arc<Vec<RationalEvals>>,
+        advice: Vec<RationalEvalsView>,
         challenges: &'a HashMap<usize, F>,
         instances: &'a [&'a [F]],
+        fixed_values: &'a [Polynomial<F, LagrangeCoeff>],
+        rw_rows: Range<usize>,
         usable_rows: RangeTo<usize>,
         _marker: std::marker::PhantomData<F>,
     }
@@ -148,12 +165,102 @@ pub fn create_proof<
             Ok(())
         }
 
+        fn fork(&mut self, ranges: &[Range<usize>]) -> Result<Vec<Self>, Error> {
+            let mut range_start = self.rw_rows.start;
+            for (i, sub_range) in ranges.iter().enumerate() {
+                if sub_range.start < range_start {
+                    log::error!(
+                        "subCS_{} sub_range.start ({}) < range_start ({})",
+                        i,
+                        sub_range.start,
+                        range_start
+                    );
+                    return Err(Error::Synthesis);
+                }
+                if i == ranges.len() - 1 && sub_range.end > self.rw_rows.end {
+                    log::error!(
+                        "subCS_{} sub_range.end ({}) > self.rw_rows.end ({})",
+                        i,
+                        sub_range.end,
+                        self.rw_rows.end
+                    );
+                    return Err(Error::Synthesis);
+                }
+                range_start = sub_range.end;
+                log::debug!(
+                    "subCS_{} rw_rows: {}..{}",
+                    i,
+                    sub_range.start,
+                    sub_range.end
+                );
+            }
+
+            let mut sub_cs = vec![];
+            for sub_range in ranges {
+                let advice = Arc::try_unwrap(self.advice_vec.clone())
+                    .expect("there must only one Arc for advice_vec")
+                    .iter_mut()
+                    .map(|advice| {
+                        advice.create_view(sub_range.start, sub_range.end - sub_range.start)
+                    })
+                    .collect::<Vec<_>>();
+
+                sub_cs.push(Self {
+                    k: 0,
+                    current_phase: self.current_phase,
+                    advice_vec: self.advice_vec.clone(),
+                    advice,
+                    challenges: self.challenges,
+                    instances: self.instances,
+                    fixed_values: self.fixed_values,
+                    rw_rows: sub_range.clone(),
+                    usable_rows: self.usable_rows,
+                    _marker: Default::default(),
+                });
+            }
+
+            Ok(sub_cs)
+        }
+
+        fn merge(&mut self, _sub_cs: Vec<Self>) -> Result<(), Error> {
+            Ok(())
+        }
+
         fn annotate_column<A, AR>(&mut self, _annotation: A, _column: Column<Any>)
         where
             A: FnOnce() -> AR,
             AR: Into<String>,
         {
             // Do nothing
+        }
+
+        /// Get the last assigned value of a cell.
+        fn query_advice(&self, column: Column<Advice>, row: usize) -> Result<F, Error> {
+            if !self.usable_rows.contains(&row) {
+                return Err(Error::not_enough_rows_available(self.k));
+            }
+            if !self.rw_rows.contains(&row) {
+                log::error!("query_advice: {:?}, row: {}", column, row);
+                return Err(Error::Synthesis);
+            }
+            self.advice
+                .get(column.index())
+                .and_then(|v| {
+                    let mut r = F::ZERO;
+                    v.evaluate(row - self.rw_rows.start, unsafe {
+                        std::mem::transmute::<_, &mut Fr>(&mut r)
+                    });
+                    Some(r)
+                })
+                .ok_or(Error::BoundsFailure)
+        }
+
+        fn query_fixed(&self, column: Column<Fixed>, row: usize) -> Result<F, Error> {
+            self.fixed_values
+                .get(column.index())
+                .and_then(|v| v.get(row))
+                .copied()
+                .ok_or(Error::BoundsFailure)
         }
 
         fn query_instance(&self, column: Column<Instance>, row: usize) -> Result<Value<F>, Error> {
@@ -190,22 +297,28 @@ pub fn create_proof<
                 return Err(Error::not_enough_rows_available(self.k));
             }
 
+            if !self.rw_rows.contains(&row) {
+                log::error!("assign_advice: {:?}, row: {}", column, row);
+                return Err(Error::Synthesis);
+            }
+
             let rational_evals = self
                 .advice
                 .get_mut(column.index())
                 .ok_or(Error::BoundsFailure)?;
 
+            let row_idx = row - self.rw_rows.start;
             let value = to().into_field().assign()?;
             match &value {
-                Assigned::Zero => rational_evals.set_zero(row),
+                Assigned::Zero => rational_evals.set_zero(row_idx),
                 Assigned::Trivial(numerator) => {
                     let numerator = unsafe { std::mem::transmute::<_, &Fr>(numerator) };
-                    rational_evals.set_trivial(row, numerator);
+                    rational_evals.set_trivial(row_idx, numerator);
                 }
                 Assigned::Rational(numerator, denominator) => {
                     let numerator = unsafe { std::mem::transmute::<_, &Fr>(numerator) };
                     let denominator = unsafe { std::mem::transmute::<_, &Fr>(denominator) };
-                    rational_evals.set_rational(row, numerator, denominator)
+                    rational_evals.set_rational(row_idx, numerator, denominator)
                 }
             }
 
@@ -308,27 +421,40 @@ pub fn create_proof<
                 .zip(instances)
                 .enumerate()
             {
+                let mut advice_vec =
+                    Arc::new(vec![prover.empty_rational_evals(); num_advice_columns]);
+                let advice_slice = Arc::get_mut(&mut advice_vec)
+                    .unwrap()
+                    .iter_mut()
+                    .map(|advice| advice.create_view(0, advice.len()))
+                    .collect::<Vec<_>>();
                 let mut witness = WitnessCollection {
                     k: prover.k(),
                     current_phase,
-                    advice: vec![prover.empty_rational_evals(); num_advice_columns],
+                    advice_vec,
+                    advice: advice_slice,
                     instances,
+                    fixed_values: fixed_values.as_slice(),
                     challenges: &challenges,
                     // The prover will not be allowed to assign values to advice
                     // cells that exist within inactive rows, which include some
                     // number of blinding factors and an extra row for use in the
                     // permutation argument.
                     usable_rows: ..unusable_rows_start,
+                    rw_rows: 0..unusable_rows_start,
                     _marker: std::marker::PhantomData,
                 };
 
                 // Synthesize the circuit to obtain the witness and other information.
+
+                log::info!("create_proof synthesize phase {current_phase:?} begin");
                 ConcreteCircuit::FloorPlanner::synthesize(
                     &mut witness,
                     circuit,
                     config.clone(),
                     pk.constants(),
                 )?;
+                log::info!("create_proof synthesize phase {current_phase:?} end");
 
                 #[cfg(feature = "phase-check")]
                 {
@@ -347,8 +473,8 @@ pub fn create_proof<
                     }
                 }
 
-                let advice_assigned_values = witness
-                    .advice
+                let advice_assigned_values = Arc::try_unwrap(witness.advice_vec)
+                    .expect("there must only one Arc for advice_vec")
                     .into_iter()
                     .enumerate()
                     .filter_map(|(column_index, advice)| {
@@ -371,6 +497,10 @@ pub fn create_proof<
 
                 // Add blinding factors to advice columns
                 for advice_values in &mut advice_values {
+                    //for cell in &mut advice_values[unusable_rows_start..] {
+                    //*cell = C::Scalar::random(&mut rng);
+                    //*cell = C::Scalar::one();
+                    //}
                     let idx = advice_values.len() - 1;
                     advice_values.set_value(idx, &Fr::one());
                 }
@@ -387,7 +517,6 @@ pub fn create_proof<
                     .collect();
                 let mut advice_commitments =
                     vec![Scheme::Curve::identity(); advice_commitments_projective.len()];
-                vec![Scheme::Curve::identity(); advice_commitments_projective.len()];
                 <Scheme::Curve as CurveAffine>::CurveExt::batch_normalize(
                     &advice_commitments_projective,
                     &mut advice_commitments,
@@ -396,7 +525,9 @@ pub fn create_proof<
                 drop(advice_commitments_projective);
 
                 for commitment in &advice_commitments {
-                    transcript.write_point(*commitment)?;
+                    transcript.write_point(unsafe {
+                        std::mem::transmute::<_, Scheme::Curve>(*commitment)
+                    })?;
                 }
                 for ((column_index, advice_values), blind) in
                     column_indices.iter().zip(advice_values).zip(blinds)
@@ -422,6 +553,8 @@ pub fn create_proof<
 
         (advice, challenges)
     };
+
+    drop(fixed_values);
 
     prover.set_rng(rng.state().as_slice());
     prover.set_transcript(transcript.state().as_slice());

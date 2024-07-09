@@ -1,4 +1,5 @@
 use ff::Field;
+use std::ops::Range;
 use tabbycat::{AttrList, Edge, GraphBuilder, GraphType, Identity, StmtList};
 
 use crate::{
@@ -22,6 +23,9 @@ pub fn circuit_dot_graph<F: Field, ConcreteCircuit: Circuit<F>>(
 ) -> String {
     // Collect the graph details.
     let mut cs = ConstraintSystem::default();
+    #[cfg(feature = "circuit-params")]
+    let config = ConcreteCircuit::configure_with_params(&mut cs, circuit.params());
+    #[cfg(not(feature = "circuit-params"))]
     let config = ConcreteCircuit::configure(&mut cs);
     let mut graph = Graph::default();
     ConcreteCircuit::FloorPlanner::synthesize(&mut graph, circuit, config, cs.constants).unwrap();
@@ -99,12 +103,28 @@ impl<F: Field> Assignment<F> for Graph {
         Ok(())
     }
 
+    fn fork(&mut self, _ranges: &[Range<usize>]) -> Result<Vec<Self>, Error> {
+        todo!()
+    }
+
+    fn merge(&mut self, _sub_cs: Vec<Self>) -> Result<(), Error> {
+        todo!()
+    }
+
     fn annotate_column<A, AR>(&mut self, _annotation: A, _column: Column<Any>)
     where
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
         // Do nothing
+    }
+
+    fn query_advice(&self, _column: Column<Advice>, _row: usize) -> Result<F, Error> {
+        Ok(F::ZERO)
+    }
+
+    fn query_fixed(&self, _column: Column<Fixed>, _row: usize) -> Result<F, Error> {
+        Ok(F::ZERO)
     }
 
     fn query_instance(&self, _: Column<Instance>, _: usize) -> Result<Value<F>, Error> {

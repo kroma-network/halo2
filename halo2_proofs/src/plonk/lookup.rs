@@ -1,7 +1,7 @@
 use crate::helpers::SerdePrimeField;
 
 use super::{circuit::Expression, read_expressions_vec, write_expressions_slice};
-use ff::Field;
+use ff::{Field, FromUniformBytes};
 use std::{
     fmt::{self, Debug},
     io,
@@ -10,11 +10,11 @@ use std::{
 pub(crate) mod prover;
 pub(crate) mod verifier;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Argument<F: Field> {
-    pub name: &'static str,
-    pub input_expressions: Vec<Expression<F>>,
-    pub table_expressions: Vec<Expression<F>>,
+    pub(crate) name: String,
+    pub(crate) input_expressions: Vec<Expression<F>>,
+    pub(crate) table_expressions: Vec<Expression<F>>,
 }
 
 impl<F: Field> Debug for Argument<F> {
@@ -30,10 +30,10 @@ impl<F: Field> Argument<F> {
     /// Constructs a new lookup argument.
     ///
     /// `table_map` is a sequence of `(input, table)` tuples.
-    pub fn new(name: &'static str, table_map: Vec<(Expression<F>, Expression<F>)>) -> Self {
+    pub fn new<S: AsRef<str>>(name: S, table_map: Vec<(Expression<F>, Expression<F>)>) -> Self {
         let (input_expressions, table_expressions) = table_map.into_iter().unzip();
         Argument {
-            name,
+            name: name.as_ref().to_string(),
             input_expressions,
             table_expressions,
         }
@@ -96,9 +96,14 @@ impl<F: Field> Argument<F> {
     pub fn table_expressions(&self) -> &Vec<Expression<F>> {
         &self.table_expressions
     }
+
+    /// Returns name of this argument
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
-impl<F: SerdePrimeField> Argument<F> {
+impl<F: FromUniformBytes<64>> Argument<F> {
     /// Gets the total number of bytes in the serialization of `self`
     pub(crate) fn bytes_length(&self) -> usize {
         8 + self
@@ -110,7 +115,9 @@ impl<F: SerdePrimeField> Argument<F> {
                 .iter()
                 .fold(0, |acc, e| acc + e.bytes_length())
     }
+}
 
+impl<F: SerdePrimeField + FromUniformBytes<64>> Argument<F> {
     /// Writes an argument to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         // NOTE(chokobole): `self.name` is not important in the sense of creating proof.
@@ -122,7 +129,7 @@ impl<F: SerdePrimeField> Argument<F> {
     /// Reads an argument from a buffer.
     pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
         Ok(Self {
-            name: "",
+            name: "".to_string(),
             input_expressions: read_expressions_vec(reader)?,
             table_expressions: read_expressions_vec(reader)?,
         })

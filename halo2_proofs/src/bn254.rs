@@ -6,6 +6,7 @@ use std::{
 };
 
 use crate::{
+    consts::PCSType,
     helpers::base_to_scalar,
     plonk::{sealed, Column, Fixed},
     poly::commitment::{Blind, CommitmentScheme},
@@ -13,7 +14,7 @@ use crate::{
         Challenge255, EncodedChallenge, Transcript, TranscriptWrite, TranscriptWriterBuffer,
     },
 };
-use ff::{Field, PrimeField};
+use ff::{Field, FromUniformBytes, PrimeField};
 use halo2curves::{bn256::G2Affine, Coordinates, CurveAffine};
 
 #[repr(C)]
@@ -32,7 +33,7 @@ pub struct G1Point2 {
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct G1JacobianPoint {
+pub struct G1ProjectivePoint {
     pub x: Fq,
     pub y: Fq,
     pub z: Fq,
@@ -68,7 +69,7 @@ pub struct AdviceSingle {
 #[cxx::bridge(namespace = "tachyon::halo2_api::bn254")]
 pub mod ffi {
     extern "Rust" {
-        type G1JacobianPoint;
+        type G1ProjectivePoint;
         type G1Point2;
         type G2AffinePoint;
         type Fr;
@@ -123,8 +124,7 @@ pub mod ffi {
         fn num_challenges(&self) -> usize;
         fn num_instance_columns(&self) -> usize;
         fn phases(&self) -> Vec<u8>;
-        fn transcript_repr_gwc(self: Pin<&mut ProvingKey>, prover: &GWCProver) -> Box<Fr>;
-        fn transcript_repr_shplonk(self: Pin<&mut ProvingKey>, prover: &SHPlonkProver) -> Box<Fr>;
+        fn transcript_repr(self: Pin<&mut ProvingKey>, prover: &Prover) -> Box<Fr>;
     }
 
     unsafe extern "C++" {
@@ -143,15 +143,29 @@ pub mod ffi {
 
         type RationalEvals;
 
-        fn set_zero(self: Pin<&mut RationalEvals>, idx: usize);
-        fn set_trivial(self: Pin<&mut RationalEvals>, idx: usize, numerator: &Fr);
-        fn set_rational(
+        fn len(&self) -> usize;
+        fn create_view(
             self: Pin<&mut RationalEvals>,
+            start: usize,
+            len: usize,
+        ) -> UniquePtr<RationalEvalsView>;
+        fn clone(&self) -> UniquePtr<RationalEvals>;
+    }
+
+    unsafe extern "C++" {
+        include!("halo2_proofs/include/bn254_rational_evals_view.h");
+
+        type RationalEvalsView;
+
+        fn set_zero(self: Pin<&mut RationalEvalsView>, idx: usize);
+        fn set_trivial(self: Pin<&mut RationalEvalsView>, idx: usize, numerator: &Fr);
+        fn set_rational(
+            self: Pin<&mut RationalEvalsView>,
             idx: usize,
             numerator: &Fr,
             denominator: &Fr,
         );
-        fn clone(&self) -> UniquePtr<RationalEvals>;
+        fn evaluate(&self, idx: usize, value: &mut Fr);
     }
 
     unsafe extern "C++" {
@@ -161,21 +175,22 @@ pub mod ffi {
     }
 
     unsafe extern "C++" {
-        include!("halo2_proofs/include/bn254_gwc_prover.h");
+        include!("halo2_proofs/include/bn254_prover.h");
 
-        type GWCProver;
+        type Prover;
 
-        fn new_gwc_prover(transcript_type: u8, k: u32, s: &Fr) -> UniquePtr<GWCProver>;
-        fn new_gwc_prover_from_params(
+        fn new_prover(pcs_type: u8, transcript_type: u8, k: u32, s: &Fr) -> UniquePtr<Prover>;
+        fn new_prover_from_params(
+            pcs_type: u8,
             transcript_type: u8,
             k: u32,
             params: &[u8],
-        ) -> UniquePtr<GWCProver>;
+        ) -> UniquePtr<Prover>;
         fn k(&self) -> u32;
         fn n(&self) -> u64;
         fn s_g2(&self) -> Box<G2AffinePoint>;
-        fn commit(&self, poly: &Poly) -> Box<G1JacobianPoint>;
-        fn commit_lagrange(&self, evals: &Evals) -> Box<G1JacobianPoint>;
+        fn commit(&self, poly: &Poly) -> Box<G1ProjectivePoint>;
+        fn commit_lagrange(&self, evals: &Evals) -> Box<G1ProjectivePoint>;
         fn empty_evals(&self) -> UniquePtr<Evals>;
         fn empty_rational_evals(&self) -> UniquePtr<RationalEvals>;
         fn ifft(&self, evals: &Evals) -> UniquePtr<Poly>;
@@ -184,54 +199,17 @@ pub mod ffi {
             rational_evals: &[UniquePtr<RationalEvals>],
             evals: &mut [UniquePtr<Evals>],
         );
-        fn set_rng(self: Pin<&mut GWCProver>, state: &[u8]);
-        fn set_transcript(self: Pin<&mut GWCProver>, state: &[u8]);
-        fn set_extended_domain(self: Pin<&mut GWCProver>, pk: &ProvingKey);
+        fn set_rng(self: Pin<&mut Prover>, state: &[u8]);
+        fn set_transcript(self: Pin<&mut Prover>, state: &[u8]);
+        fn set_extended_domain(self: Pin<&mut Prover>, pk: &ProvingKey);
         fn create_proof(
-            self: Pin<&mut GWCProver>,
+            self: Pin<&mut Prover>,
             key: Pin<&mut ProvingKey>,
             instance_singles: &mut [InstanceSingle],
             advice_singles: &mut [AdviceSingle],
             challenges: &[Fr],
         );
-        fn get_proof(self: &GWCProver) -> Vec<u8>;
-    }
-
-    unsafe extern "C++" {
-        include!("halo2_proofs/include/bn254_shplonk_prover.h");
-
-        type SHPlonkProver;
-
-        fn new_shplonk_prover(transcript_type: u8, k: u32, s: &Fr) -> UniquePtr<SHPlonkProver>;
-        fn new_shplonk_prover_from_params(
-            transcript_type: u8,
-            k: u32,
-            params: &[u8],
-        ) -> UniquePtr<SHPlonkProver>;
-        fn k(&self) -> u32;
-        fn n(&self) -> u64;
-        fn s_g2(&self) -> Box<G2AffinePoint>;
-        fn commit(&self, poly: &Poly) -> Box<G1JacobianPoint>;
-        fn commit_lagrange(&self, evals: &Evals) -> Box<G1JacobianPoint>;
-        fn empty_evals(&self) -> UniquePtr<Evals>;
-        fn empty_rational_evals(&self) -> UniquePtr<RationalEvals>;
-        fn ifft(&self, evals: &Evals) -> UniquePtr<Poly>;
-        fn batch_evaluate(
-            &self,
-            rational_evals: &[UniquePtr<RationalEvals>],
-            evals: &mut [UniquePtr<Evals>],
-        );
-        fn set_rng(self: Pin<&mut SHPlonkProver>, state: &[u8]);
-        fn set_transcript(self: Pin<&mut SHPlonkProver>, state: &[u8]);
-        fn set_extended_domain(self: Pin<&mut SHPlonkProver>, pk: &ProvingKey);
-        fn create_proof(
-            self: Pin<&mut SHPlonkProver>,
-            key: Pin<&mut ProvingKey>,
-            instance_singles: &mut [InstanceSingle],
-            advice_singles: &mut [AdviceSingle],
-            challenges: &[Fr],
-        );
-        fn get_proof(self: &SHPlonkProver) -> Vec<u8>;
+        fn get_proof(self: &Prover) -> Vec<u8>;
     }
 }
 
@@ -271,21 +249,21 @@ impl fmt::Debug for ffi::RationalEvals {
     }
 }
 
+impl fmt::Debug for ffi::RationalEvalsView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RationalEvalsView").finish()
+    }
+}
+
 impl fmt::Debug for ffi::Poly {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Poly").finish()
     }
 }
 
-impl fmt::Debug for ffi::GWCProver {
+impl fmt::Debug for ffi::Prover {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GWCProver").finish()
-    }
-}
-
-impl fmt::Debug for ffi::SHPlonkProver {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SHPlonkProver").finish()
+        f.debug_struct("Prover").finish()
     }
 }
 
@@ -305,6 +283,8 @@ pub struct Blake2bWrite<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
 
 impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
         // Prefix to a prover's message soliciting a challenge
@@ -342,6 +322,8 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
         trace!(
@@ -370,6 +352,8 @@ impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWriteState<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn state(&self) -> Vec<u8> {
         self.state.state()
@@ -378,6 +362,8 @@ impl<W: Write, C: CurveAffine> TranscriptWriteState<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     /// Initialize a transcript given an output buffer.
     fn init(writer: W) -> Self {
@@ -405,6 +391,8 @@ pub struct PoseidonWrite<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
 
 impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
     for PoseidonWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
         let scalar = *unsafe {
@@ -452,6 +440,8 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for PoseidonWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
         trace!(
@@ -496,6 +486,8 @@ impl<W: Write, C: CurveAffine, E: EncodedChallenge<C>> PoseidonWrite<W, C, E> {
 
 impl<W: Write, C: CurveAffine> TranscriptWriteState<C, Challenge255<C>>
     for PoseidonWrite<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn state(&self) -> Vec<u8> {
         self.state.state()
@@ -510,8 +502,9 @@ pub struct Sha256Write<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
     _marker: PhantomData<(W, C, E)>,
 }
 
-impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
-    for Sha256Write<W, C, Challenge255<C>>
+impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>> for Sha256Write<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn squeeze_challenge(&mut self) -> Challenge255<C> {
         const SHA256_PREFIX_CHALLENGE: u8 = 0;
@@ -566,6 +559,8 @@ impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Sha256Write<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn write_point(&mut self, point: C) -> io::Result<()> {
         trace!(
@@ -578,10 +573,10 @@ impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
         let coords = point.coordinates();
         let x = coords
             .map(|v| *v.x())
-            .unwrap_or(<C as CurveAffine>::Base::zero());
+            .unwrap_or(<C as CurveAffine>::Base::ZERO);
         let y = coords
             .map(|v| *v.y())
-            .unwrap_or(<C as CurveAffine>::Base::zero());
+            .unwrap_or(<C as CurveAffine>::Base::ZERO);
 
         for base in &[&x, &y] {
             self.writer.write_all(base.to_repr().as_ref())?;
@@ -605,6 +600,8 @@ impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
 
 impl<W: Write, C: CurveAffine> TranscriptWriteState<C, Challenge255<C>>
     for Sha256Write<W, C, Challenge255<C>>
+where
+    C::Scalar: FromUniformBytes<64>,
 {
     fn state(&self) -> Vec<u8> {
         self.state.state()
@@ -704,24 +701,13 @@ impl<C: CurveAffine> ProvingKey<C> {
     }
 
     // pk.vk.transcript_repr
-    pub fn transcript_repr_gwc<Scheme: CommitmentScheme>(
+    pub fn transcript_repr<Scheme: CommitmentScheme, P: TachyonProver<Scheme>>(
         &mut self,
-        prover: &GWCProver<Scheme>,
+        prover: &P,
     ) -> C::Scalar {
         *unsafe {
             std::mem::transmute::<_, Box<C::Scalar>>(
-                self.inner.pin_mut().transcript_repr_gwc(&prover.inner),
-            )
-        }
-    }
-
-    pub fn transcript_repr_shplonk<Scheme: CommitmentScheme>(
-        &mut self,
-        prover: &SHPlonkProver<Scheme>,
-    ) -> C::Scalar {
-        *unsafe {
-            std::mem::transmute::<_, Box<C::Scalar>>(
-                self.inner.pin_mut().transcript_repr_shplonk(&prover.inner),
+                self.inner.pin_mut().transcript_repr(prover.inner()),
             )
         }
     }
@@ -764,9 +750,42 @@ pub struct RationalEvals {
     inner: cxx::UniquePtr<ffi::RationalEvals>,
 }
 
+unsafe impl Send for ffi::RationalEvals {}
+unsafe impl Sync for ffi::RationalEvals {}
+
 impl RationalEvals {
     pub fn new(inner: cxx::UniquePtr<ffi::RationalEvals>) -> RationalEvals {
         RationalEvals { inner }
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn create_view(&mut self, start: usize, len: usize) -> RationalEvalsView {
+        RationalEvalsView::new(self.inner.pin_mut().create_view(start, len))
+    }
+}
+
+impl Clone for RationalEvals {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RationalEvalsView {
+    inner: cxx::UniquePtr<ffi::RationalEvalsView>,
+}
+
+unsafe impl Send for ffi::RationalEvalsView {}
+unsafe impl Sync for ffi::RationalEvalsView {}
+
+impl RationalEvalsView {
+    pub fn new(inner: cxx::UniquePtr<ffi::RationalEvalsView>) -> RationalEvalsView {
+        RationalEvalsView { inner }
     }
 
     pub fn set_zero(&mut self, idx: usize) {
@@ -790,13 +809,10 @@ impl RationalEvals {
             .pin_mut()
             .set_rational(idx, cpp_numerator, cpp_denominator)
     }
-}
 
-impl Clone for RationalEvals {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
+    pub fn evaluate(&self, idx: usize, value: &mut halo2curves::bn256::Fr) {
+        self.inner
+            .evaluate(idx, unsafe { std::mem::transmute::<_, &mut Fr>(value) })
     }
 }
 
@@ -813,6 +829,8 @@ impl Poly {
 
 pub trait TachyonProver<Scheme: CommitmentScheme> {
     const QUERY_INSTANCE: bool;
+
+    fn inner(&self) -> &ffi::Prover;
 
     fn k(&self) -> u32;
 
@@ -853,7 +871,7 @@ pub trait TachyonProver<Scheme: CommitmentScheme> {
 
 #[derive(Debug)]
 pub struct GWCProver<Scheme: CommitmentScheme> {
-    inner: cxx::UniquePtr<ffi::GWCProver>,
+    inner: cxx::UniquePtr<ffi::Prover>,
     _marker: PhantomData<Scheme>,
 }
 
@@ -861,14 +879,14 @@ impl<Scheme: CommitmentScheme> GWCProver<Scheme> {
     pub fn new(transcript_type: u8, k: u32, s: &halo2curves::bn256::Fr) -> GWCProver<Scheme> {
         let cpp_s = unsafe { std::mem::transmute::<_, &Fr>(s) };
         GWCProver {
-            inner: ffi::new_gwc_prover(transcript_type, k, cpp_s),
+            inner: ffi::new_prover(PCSType::GWC as u8, transcript_type, k, cpp_s),
             _marker: PhantomData,
         }
     }
 
     pub fn from_params(transcript_type: u8, k: u32, params: &[u8]) -> GWCProver<Scheme> {
         GWCProver {
-            inner: ffi::new_gwc_prover_from_params(transcript_type, k, params),
+            inner: ffi::new_prover_from_params(PCSType::GWC as u8, transcript_type, k, params),
             _marker: PhantomData,
         }
     }
@@ -877,6 +895,10 @@ impl<Scheme: CommitmentScheme> GWCProver<Scheme> {
 impl<Scheme: CommitmentScheme> TachyonProver<Scheme> for GWCProver<Scheme> {
     const QUERY_INSTANCE: bool = true;
 
+    fn inner(&self) -> &ffi::Prover {
+        &self.inner
+    }
+
     fn k(&self) -> u32 {
         self.inner.k()
     }
@@ -961,13 +983,13 @@ impl<Scheme: CommitmentScheme> TachyonProver<Scheme> for GWCProver<Scheme> {
         &self,
         pk: &mut ProvingKey<<Scheme as CommitmentScheme>::Curve>,
     ) -> Scheme::Scalar {
-        pk.transcript_repr_gwc(self)
+        pk.transcript_repr(self)
     }
 }
 
 #[derive(Debug)]
 pub struct SHPlonkProver<Scheme: CommitmentScheme> {
-    inner: cxx::UniquePtr<ffi::SHPlonkProver>,
+    inner: cxx::UniquePtr<ffi::Prover>,
     _marker: PhantomData<Scheme>,
 }
 
@@ -975,14 +997,14 @@ impl<Scheme: CommitmentScheme> SHPlonkProver<Scheme> {
     pub fn new(transcript_type: u8, k: u32, s: &halo2curves::bn256::Fr) -> SHPlonkProver<Scheme> {
         let cpp_s = unsafe { std::mem::transmute::<_, &Fr>(s) };
         SHPlonkProver {
-            inner: ffi::new_shplonk_prover(transcript_type, k, cpp_s),
+            inner: ffi::new_prover(PCSType::SHPlonk as u8, transcript_type, k, cpp_s),
             _marker: PhantomData,
         }
     }
 
     pub fn from_params(transcript_type: u8, k: u32, params: &[u8]) -> SHPlonkProver<Scheme> {
         SHPlonkProver {
-            inner: ffi::new_shplonk_prover_from_params(transcript_type, k, params),
+            inner: ffi::new_prover_from_params(PCSType::SHPlonk as u8, transcript_type, k, params),
             _marker: PhantomData,
         }
     }
@@ -991,6 +1013,10 @@ impl<Scheme: CommitmentScheme> SHPlonkProver<Scheme> {
 impl<Scheme: CommitmentScheme> TachyonProver<Scheme> for SHPlonkProver<Scheme> {
     const QUERY_INSTANCE: bool = false;
 
+    fn inner(&self) -> &ffi::Prover {
+        &self.inner
+    }
+
     fn k(&self) -> u32 {
         self.inner.k()
     }
@@ -1075,6 +1101,6 @@ impl<Scheme: CommitmentScheme> TachyonProver<Scheme> for SHPlonkProver<Scheme> {
         &self,
         pk: &mut ProvingKey<<Scheme as CommitmentScheme>::Curve>,
     ) -> Scheme::Scalar {
-        pk.transcript_repr_shplonk(self)
+        pk.transcript_repr(self)
     }
 }

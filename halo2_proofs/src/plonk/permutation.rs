@@ -1,26 +1,26 @@
-use super::{
-    circuit::{Any, Column},
-    read_columns_vec, write_columns_slice,
-};
+//! Implementation of permutation argument.
+
+use super::circuit::{read_columns_vec, write_columns_slice, Any, Column};
 use crate::{
     arithmetic::CurveAffine,
     helpers::{
         polynomial_slice_byte_length, read_polynomial_vec, write_polynomial_slice,
         SerdeCurveAffine, SerdePrimeField,
     },
-    poly::{Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial},
+    poly::{Coeff, LagrangeCoeff, Polynomial},
     SerdeFormat,
 };
-use ff::PrimeField;
 
 pub(crate) mod keygen;
 pub(crate) mod prover;
 pub(crate) mod verifier;
 
-use std::{default, io};
+pub use keygen::Assembly;
+
+use std::io;
 
 /// A permutation argument.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Argument {
     /// A sequence of columns involved in the argument.
     pub columns: Vec<Column<Any>>,
@@ -75,6 +75,7 @@ impl Argument {
         }
     }
 
+    /// Returns columns that participate on the permutation argument.
     pub fn get_columns(&self) -> Vec<Column<Any>> {
         self.columns.clone()
     }
@@ -150,7 +151,7 @@ impl<C: SerdeCurveAffine> ProvingKey<C>
 where
     C::Scalar: SerdePrimeField,
 {
-    /// Reads proving key for a single permutation argument from buffer using `Polynomial::read`.  
+    /// Reads proving key for a single permutation argument from buffer using `Polynomial::read`.
     pub(super) fn read<R: io::Read>(reader: &mut R, format: SerdeFormat) -> io::Result<Self> {
         let permutations = read_polynomial_vec(reader, format)?;
         let polys = read_polynomial_vec(reader, format)?;
@@ -162,7 +163,7 @@ where
         })
     }
 
-    /// Writes proving key for a single permutation argument to buffer using `Polynomial::write`.  
+    /// Writes proving key for a single permutation argument to buffer using `Polynomial::write`.
     pub(super) fn write<W: io::Write>(
         &self,
         writer: &mut W,
