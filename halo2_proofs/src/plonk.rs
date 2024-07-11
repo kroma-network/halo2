@@ -62,11 +62,8 @@ where
     C::Scalar: SerdePrimeField + FromUniformBytes<64>,
 {
     /// Writes a verifying key to a buffer including constraint system.
-    pub fn write_including_cs<W: io::Write>(
-        &self,
-        writer: &mut W,
-        format: SerdeFormat,
-    ) -> io::Result<()> {
+    pub fn write_including_cs<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        let format = SerdeFormat::RawBytesUnchecked;
         writer.write_all(&self.domain.k().to_be_bytes())?;
         // the `fixed_commitments` here includes selectors
         writer.write_all(&(self.fixed_commitments.len() as u32).to_be_bytes())?;
@@ -355,12 +352,9 @@ where
     C::Scalar: SerdePrimeField + FromUniformBytes<64>,
 {
     /// Writes a proving key to a buffer including constraint system.
-    pub fn write_including_cs<W: io::Write>(
-        &self,
-        writer: &mut W,
-        format: SerdeFormat,
-    ) -> io::Result<()> {
-        self.vk.write_including_cs(writer, format)?;
+    pub fn write_including_cs<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        let format = SerdeFormat::RawBytesUnchecked;
+        self.vk.write_including_cs(writer)?;
         self.l0.write(writer, format)?;
         self.l_last.write(writer, format)?;
         self.l_active_row.write(writer, format)?;
