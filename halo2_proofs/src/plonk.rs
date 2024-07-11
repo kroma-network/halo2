@@ -61,6 +61,32 @@ impl<C: SerdeCurveAffine> VerifyingKey<C>
 where
     C::Scalar: SerdePrimeField + FromUniformBytes<64>,
 {
+    /// Writes a verifying key to a buffer including constraint system.
+    pub fn write_including_cs<W: io::Write>(
+        &self,
+        writer: &mut W,
+        format: SerdeFormat,
+    ) -> io::Result<()> {
+        writer.write_all(&self.domain.k().to_be_bytes())?;
+        // the `fixed_commitments` here includes selectors
+        writer.write_all(&(self.fixed_commitments.len() as u32).to_be_bytes())?;
+        for commitment in &self.fixed_commitments {
+            commitment.write(writer, format)?;
+        }
+        self.cs.write(writer)?;
+        self.permutation.write(writer, format)?;
+        /*
+        // write self.selectors
+        for selector in &self.selectors {
+            // since `selector` is filled with `bool`, we pack them 8 at a time into bytes and then write
+            for bits in selector.chunks(8) {
+                writer.write_all(&[crate::helpers::pack(bits)])?;
+            }
+        }
+        */
+        Ok(())
+    }
+
     /// Writes a verifying key to a buffer.
     ///
     /// Writes a curve element according to `format`:
@@ -77,7 +103,6 @@ where
         for commitment in &self.fixed_commitments {
             commitment.write(writer, format)?;
         }
-        self.cs.write(writer)?;
         self.permutation.write(writer, format)?;
         /*
         // write self.selectors
@@ -329,6 +354,23 @@ impl<C: SerdeCurveAffine> ProvingKey<C>
 where
     C::Scalar: SerdePrimeField + FromUniformBytes<64>,
 {
+    /// Writes a proving key to a buffer including constraint system.
+    pub fn write_including_cs<W: io::Write>(
+        &self,
+        writer: &mut W,
+        format: SerdeFormat,
+    ) -> io::Result<()> {
+        self.vk.write_including_cs(writer, format)?;
+        self.l0.write(writer, format)?;
+        self.l_last.write(writer, format)?;
+        self.l_active_row.write(writer, format)?;
+        write_polynomial_slice(&self.fixed_values, writer, format)?;
+        write_polynomial_slice(&self.fixed_polys, writer, format)?;
+        //write_polynomial_slice(&self.fixed_cosets, writer, format)?;
+        self.permutation.write(writer, format)?;
+        Ok(())
+    }
+
     /// Writes a proving key to a buffer.
     ///
     /// Writes a curve element according to `format`:
