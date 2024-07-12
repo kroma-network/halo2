@@ -40,3 +40,9 @@ pub mod transcript;
 pub mod dev;
 mod helpers;
 pub use helpers::SerdeFormat;
+
+pub mod bn254;
+pub mod cha_cha20_rng;
+pub mod consts;
+pub mod rng;
+pub mod xor_shift_rng;
