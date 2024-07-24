@@ -3107,10 +3107,6 @@ impl<F: Field> ConstraintSystem<F> {
 impl<F: FromUniformBytes<64>> ConstraintSystem<F> {
     /// Gets the total number of bytes in the serialization of `self`
     pub(crate) fn bytes_length(&self) -> usize {
-        // TODO(chokobole): Support `shuffles`.
-        if !self.shuffles.is_empty() {
-            panic!("shuffles is not supported");
-        }
         // self.num_fixed_columns
         4 +
         //self.num_advice_columns
@@ -3166,6 +3162,12 @@ impl<F: FromUniformBytes<64>> ConstraintSystem<F> {
             .lookups
             .iter()
             .fold(0, |acc, lookup| acc + lookup.bytes_length()) +
+        // self.shuffles
+        4 +
+        self
+            .shuffles
+            .iter()
+            .fold(0, |acc, shuffle| acc + shuffle.bytes_length()) +
         // self.constants
         4 +
         self.constants.len() * Column::<Fixed>::bytes_length() +
@@ -3177,10 +3179,6 @@ impl<F: FromUniformBytes<64>> ConstraintSystem<F> {
 impl<F: SerdePrimeField + FromUniformBytes<64>> ConstraintSystem<F> {
     /// Writes a constraint system to a buffer.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        // TODO(chokobole): Support `shuffles`.
-        if !self.shuffles.is_empty() {
-            panic!("shuffles is not supported");
-        }
         writer.write_all(&(self.num_fixed_columns as u32).to_be_bytes())?;
         writer.write_all(&(self.num_advice_columns as u32).to_be_bytes())?;
         writer.write_all(&(self.num_instance_columns as u32).to_be_bytes())?;
@@ -3223,6 +3221,10 @@ impl<F: SerdePrimeField + FromUniformBytes<64>> ConstraintSystem<F> {
         writer.write_all(&(self.lookups.len() as u32).to_be_bytes())?;
         for lookup in &self.lookups {
             lookup.write(writer)?;
+        }
+        writer.write_all(&(self.shuffles.len() as u32).to_be_bytes())?;
+        for shuffle in &self.shuffles {
+            shuffle.write(writer)?;
         }
         write_columns_slice(self.constants.as_slice(), writer)?;
         if let Some(minimum_degree) = self.minimum_degree {
@@ -3344,6 +3346,14 @@ impl<F: SerdePrimeField + FromUniformBytes<64>> ConstraintSystem<F> {
             .collect::<io::Result<Vec<_>>>()
             .unwrap();
 
+        let mut shuffles_len = [0u8; 4];
+        reader.read_exact(&mut shuffles_len)?;
+        let shuffles_len = u32::from_be_bytes(shuffles_len);
+        let shuffles = (0..shuffles_len)
+            .map(|_| shuffle::Argument::<F>::read(reader))
+            .collect::<io::Result<Vec<_>>>()
+            .unwrap();
+
         let constants = read_columns_vec(reader)?;
 
         let mut has_minimum_degree = [0u8; 1];
@@ -3375,8 +3385,7 @@ impl<F: SerdePrimeField + FromUniformBytes<64>> ConstraintSystem<F> {
             permutation,
             lookups_map,
             lookups,
-            // TODO(chokobole): Support `shuffles`.
-            shuffles: Vec::new(),
+            shuffles,
             general_column_annotations: BTreeMap::new(),
             constants,
             minimum_degree,
