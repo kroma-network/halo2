@@ -569,8 +569,8 @@ where
         .iter()
         .zip(advice.iter())
         .map(|(instance, advice)| -> Result<Vec<_>, Error> {
-            let lookup_get_mx_time =
-                start_timer!(|| format!("get m(X) in {} lookups", pk.vk.cs.lookups.len()));
+            let lookup_get_mx_time = Instant::now();
+
             // Construct and commit to permuted values for each lookup
             let mx = pk
                 .vk
@@ -596,7 +596,10 @@ where
                     r
                 })
                 .collect();
-            end_timer!(lookup_get_mx_time);
+            log::info!(
+                "[Halo2:CreateProof:Theta] LookupMxTime: {:#?}",
+                lookup_get_mx_time.elapsed()
+            );
 
             mx
         })

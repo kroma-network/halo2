@@ -15,6 +15,7 @@ use ark_std::{end_timer, start_timer};
 use ff::{PrimeField, WithSmallOrderMulGroup};
 use group::{ff::Field, Curve};
 use rand_core::RngCore;
+use std::time::Instant;
 use std::{
     iter,
     ops::{Mul, MulAssign},
@@ -69,14 +70,7 @@ impl<F: PrimeField + WithSmallOrderMulGroup<3> + Ord> Argument<F> {
         C: CurveAffine<ScalarExt = F>,
         C::Curve: Mul<F, Output = C::Curve> + MulAssign<F>,
     {
-        let prepare_time = start_timer!(|| format!(
-            "prepare m(X) (inputs={:?}, table={})",
-            self.inputs_expressions
-                .iter()
-                .map(|e| e.len())
-                .collect::<Vec<usize>>(),
-            self.table_expressions.len()
-        ));
+        let prepare_time_total = Instant::now();
         // Closure to get values of expressions and compress them
         let compress_expressions = |expressions: &[Expression<C::Scalar>]| {
             let compressed_expression = expressions
@@ -111,7 +105,7 @@ impl<F: PrimeField + WithSmallOrderMulGroup<3> + Ord> Argument<F> {
         let blinding_factors = pk.vk.cs.blinding_factors();
 
         // compute m(X)
-        let tivm_time = start_timer!(|| "table index value mapping");
+        let table_index_value_mapping = Instant::now();
         let mut sorted_table_with_indices = compressed_table_expression
             .iter()
             .take(params.n() as usize - blinding_factors - 1)
@@ -119,9 +113,12 @@ impl<F: PrimeField + WithSmallOrderMulGroup<3> + Ord> Argument<F> {
             .map(|(i, t)| (t, i))
             .collect::<Vec<_>>();
         sorted_table_with_indices.par_sort_by_key(|(&t, _)| t);
-        end_timer!(tivm_time);
+        log::info!(
+            "[Halo2:CreateProof:Theta] TableIndexValueMappingTime: {:?}",
+            table_index_value_mapping.elapsed()
+        );
 
-        let m_time = start_timer!(|| "m(X) values");
+        let m_time = Instant::now();
         let m_values: Vec<F> = {
             use std::sync::atomic::{AtomicU64, Ordering};
             let m_values: Vec<AtomicU64> = (0..params.n()).map(|_| AtomicU64::new(0)).collect();
@@ -146,7 +143,7 @@ impl<F: PrimeField + WithSmallOrderMulGroup<3> + Ord> Argument<F> {
                 .map(|mi| F::from(mi.load(Ordering::Relaxed)))
                 .collect()
         };
-        end_timer!(m_time);
+        log::info!("[Halo2:CreateProof:Theta] MTime: {:?}", m_time.elapsed());
         let m_values = pk.vk.domain.lagrange_from_vec(m_values);
 
         #[cfg(feature = "sanity-checks")]
@@ -198,7 +195,10 @@ impl<F: PrimeField + WithSmallOrderMulGroup<3> + Ord> Argument<F> {
         // write commitment of m(X) to transcript
         transcript.write_point(m_commitment)?;
 
-        end_timer!(prepare_time);
+        log::info!(
+            "[Halo2:CreateProof:Theta] PrepareTotalTime: {:?}",
+            prepare_time_total.elapsed()
+        );
 
         Ok(Prepared {
             compressed_inputs_expressions,
