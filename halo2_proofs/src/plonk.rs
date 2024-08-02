@@ -190,7 +190,6 @@ where
     fn bytes_length(&self) -> usize {
         8 + (self.fixed_commitments.len() * C::default().to_bytes().as_ref().len())
             + self.permutation.bytes_length()
-            + self.cs.bytes_length()
         // scroll/halo2: we don’t need to store
         // + self.selectors.len()
         //     * (self
