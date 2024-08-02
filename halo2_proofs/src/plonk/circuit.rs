@@ -84,7 +84,7 @@ impl<C: ColumnType> Column<C> {
 
     /// Gets the total number of bytes in the serialization of `Column<C>`
     pub(crate) fn bytes_length() -> usize {
-        4
+        8
     }
 
     /// Writes a column to a buffer.
