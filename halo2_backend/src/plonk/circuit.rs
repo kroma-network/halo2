@@ -1,8 +1,13 @@
+use std::io;
+
+use ff::FromUniformBytes;
 use group::ff::Field;
 use halo2_middleware::circuit::{Any, ChallengeMid, ColumnMid, Gate};
 use halo2_middleware::expression::{Expression, Variable};
 use halo2_middleware::poly::Rotation;
 use halo2_middleware::{lookup, permutation::ArgumentMid, shuffle};
+
+use crate::helpers::SerdePrimeField;
 
 // TODO: Reuse ColumnMid inside this.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -231,6 +236,288 @@ impl<F: Field> ConstraintSystemBack<F> {
             minimum_degree: &self.minimum_degree,
         }
     }
+}
+
+impl<F: FromUniformBytes<64>> ConstraintSystemBack<F> {
+    /// Gets the total number of bytes in the serialization of `self`
+    pub(crate) fn bytes_length(&self) -> usize {
+        // self.num_fixed_columns
+        4 +
+        // self.num_advice_columns
+        4 +
+        // self.num_instance_columns
+        4 +
+        // self.num_challenges
+        4 +
+        // self.unblinded_advice_columns
+        4 +
+        self.unblinded_advice_columns.len() * std::mem::size_of::<usize>() +
+        // self.advice_column_phase
+        4 +
+        self.advice_column_phase.len() * std::mem::size_of::<u8>() +
+        // self.challenge_phase
+        4 +
+        self.challenge_phase.len() * std::mem::size_of::<u8>() +
+        // // self.gates
+        // 4 +
+        // self
+        //     .gates
+        //     .iter()
+        //     .fold(0, |acc, gate| acc + gate.bytes_length()) +
+        // // self.advice_queries
+        // 4 +
+        // self.advice_queries.len() * (Column::<Advice>::bytes_length() + Rotation::bytes_length()) +
+        // // self.num_advice_queries
+        // 4 +
+        // self.num_advice_queries.len() * 4 +
+        // // self.instance_queries
+        // 4 +
+        // self.instance_queries.len() * (Column::<Instance>::bytes_length() + Rotation::bytes_length()) +
+        // // self.fixed_queries
+        // 4 +
+        // self.fixed_queries.len() * (Column::<Fixed>::bytes_length() + Rotation::bytes_length()) +
+        // // self.permutation
+        // self.permutation.bytes_length() +
+        // // self.lookups_map
+        // 4 +
+        // self
+        //     .lookups_map
+        //     .iter()
+        //     .fold(0, |acc, lookup| {
+        //         acc + 4 + lookup.0.len() + lookup.1.bytes_length()
+        //     }) +
+        // // self.lookups
+        // 4 +
+        // self
+        //     .lookups
+        //     .iter()
+        //     .fold(0, |acc, lookup| acc + lookup.bytes_length()) +
+        // // self.shuffles
+        // 4 +
+        // self
+        //     .shuffles
+        //     .iter()
+        //     .fold(0, |acc, shuffle| acc + shuffle.bytes_length()) +
+        // self.minimum_degree
+        1 + if self.minimum_degree.is_some() {4} else {0}
+    }
+}
+
+impl<F: SerdePrimeField + FromUniformBytes<64>> ConstraintSystemBack<F> {
+    /// Writes a constraint system to a buffer.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(&(self.num_fixed_columns as u32).to_be_bytes())?;
+        writer.write_all(&(self.num_advice_columns as u32).to_be_bytes())?;
+        writer.write_all(&(self.num_instance_columns as u32).to_be_bytes())?;
+        writer.write_all(&(self.num_challenges as u32).to_be_bytes())?;
+        writer.write_all(&(self.unblinded_advice_columns.len() as u32).to_be_bytes())?;
+        for index in self.unblinded_advice_columns {
+            writer.write_all(&(index as u32).to_be_bytes())?;
+        }
+        writer.write_all(&(self.advice_column_phase.len() as u32).to_be_bytes())?;
+        for phase in self.advice_column_phase {
+            writer.write_all(&(phase as u8).to_be_bytes())?;
+        }
+        writer.write_all(&(self.challenge_phase.len() as u32).to_be_bytes())?;
+        for phase in self.challenge_phase {
+            writer.write_all(&(phase as u8).to_be_bytes())?;
+        }
+        // writer.write_all(&(self.gates.len() as u32).to_be_bytes())?;
+        // for gate in &self.gates {
+        //     gate.write(writer)?;
+        // }
+        // writer.write_all(&(self.advice_queries.len() as u32).to_be_bytes())?;
+        // for (column, rotation) in &self.advice_queries {
+        //     column.write(writer)?;
+        //     rotation.write(writer)?;
+        // }
+        // writer.write_all(&(self.num_advice_queries.len() as u32).to_be_bytes())?;
+        // for num_advice_query in &self.num_advice_queries {
+        //     writer.write_all(&(*num_advice_query as u32).to_be_bytes())?;
+        // }
+        // writer.write_all(&(self.instance_queries.len() as u32).to_be_bytes())?;
+        // for (column, rotation) in &self.instance_queries {
+        //     column.write(writer)?;
+        //     rotation.write(writer)?;
+        // }
+        // writer.write_all(&(self.fixed_queries.len() as u32).to_be_bytes())?;
+        // for (column, rotation) in &self.fixed_queries {
+        //     column.write(writer)?;
+        //     rotation.write(writer)?;
+        // }
+        // self.permutation.write(writer)?;
+        // writer.write_all(&(self.lookups_map.len() as u32).to_be_bytes())?;
+        // for lookup in &self.lookups_map {
+        //     writer.write_all(&(lookup.0.len() as u32).to_be_bytes())?;
+        //     writer.write_all(lookup.0.as_bytes())?;
+        //     lookup.1.write(writer)?;
+        // }
+        // writer.write_all(&(self.lookups.len() as u32).to_be_bytes())?;
+        // for lookup in &self.lookups {
+        //     lookup.write(writer)?;
+        // }
+        // writer.write_all(&(self.shuffles.len() as u32).to_be_bytes())?;
+        // for shuffle in &self.shuffles {
+        //     shuffle.write(writer)?;
+        // }
+        // write_columns_slice(self.constants.as_slice(), writer)?;
+        if let Some(minimum_degree) = self.minimum_degree {
+            writer.write_all(&(1 as u8).to_be_bytes())?;
+            writer.write_all(&(minimum_degree as u32).to_be_bytes())?;
+        } else {
+            writer.write_all(&(0 as u8).to_be_bytes())?;
+        }
+        Ok(())
+    }
+
+    // Reads a constraint system from a buffer.
+    // pub fn read<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+    //     let mut num_fixed_columns = [0u8; 4];
+    //     reader.read_exact(&mut num_fixed_columns)?;
+    //     let num_fixed_columns = u32::from_be_bytes(num_fixed_columns) as usize;
+
+    //     let mut num_advice_columns = [0u8; 4];
+    //     reader.read_exact(&mut num_advice_columns)?;
+    //     let num_advice_columns = u32::from_be_bytes(num_advice_columns) as usize;
+
+    //     let mut num_instance_columns = [0u8; 4];
+    //     reader.read_exact(&mut num_instance_columns)?;
+    //     let num_instance_columns = u32::from_be_bytes(num_instance_columns) as usize;
+
+    //     let mut num_simple_selectors = [0u8; 4];
+    //     reader.read_exact(&mut num_simple_selectors)?;
+    //     let num_simple_selectors = u32::from_be_bytes(num_simple_selectors) as usize;
+
+    //     let mut num_selectors = [0u8; 4];
+    //     reader.read_exact(&mut num_selectors)?;
+    //     let num_selectors = u32::from_be_bytes(num_selectors) as usize;
+
+    //     let mut num_challenges = [0u8; 4];
+    //     reader.read_exact(&mut num_challenges)?;
+    //     let num_challenges = u32::from_be_bytes(num_challenges) as usize;
+
+    //     let advice_column_phase = read_phases_vec(reader)?;
+    //     let challenge_phase = read_phases_vec(reader)?;
+    //     let selector_map = read_columns_vec(reader)?;
+
+    //     let mut gates_len = [0u8; 4];
+    //     reader.read_exact(&mut gates_len)?;
+    //     let gates_len = u32::from_be_bytes(gates_len);
+    //     let gates = (0..gates_len)
+    //         .map(|_| Gate::<F>::read(reader))
+    //         .collect::<io::Result<Vec<_>>>()
+    //         .unwrap();
+
+    //     let mut advice_queries_len = [0u8; 4];
+    //     reader.read_exact(&mut advice_queries_len)?;
+    //     let advice_queries_len = u32::from_be_bytes(advice_queries_len);
+    //     let advice_queries = (0..advice_queries_len)
+    //         .map(|_| {
+    //             (
+    //                 Column::<Advice>::read(reader).unwrap(),
+    //                 Rotation::read(reader).unwrap(),
+    //             )
+    //         })
+    //         .collect::<Vec<_>>();
+
+    //     let mut num_advice_queries_len = [0u8; 4];
+    //     reader.read_exact(&mut num_advice_queries_len)?;
+    //     let num_advice_queries_len = u32::from_be_bytes(num_advice_queries_len);
+    //     let num_advice_queries = (0..num_advice_queries_len)
+    //         .map(|_| {
+    //             let mut num_advice_queries = [0u8; 4];
+    //             reader.read_exact(&mut num_advice_queries).unwrap();
+    //             u32::from_be_bytes(num_advice_queries) as usize
+    //         })
+    //         .collect::<Vec<_>>();
+
+    //     let mut instance_queries_len = [0u8; 4];
+    //     reader.read_exact(&mut instance_queries_len)?;
+    //     let instance_queries_len = u32::from_be_bytes(instance_queries_len);
+    //     let instance_queries = (0..instance_queries_len)
+    //         .map(|_| {
+    //             (
+    //                 Column::<Instance>::read(reader).unwrap(),
+    //                 Rotation::read(reader).unwrap(),
+    //             )
+    //         })
+    //         .collect::<Vec<_>>();
+
+    //     let mut fixed_queries_len = [0u8; 4];
+    //     reader.read_exact(&mut fixed_queries_len)?;
+    //     let fixed_queries_len = u32::from_be_bytes(fixed_queries_len);
+    //     let fixed_queries = (0..fixed_queries_len)
+    //         .map(|_| {
+    //             (
+    //                 Column::<Fixed>::read(reader).unwrap(),
+    //                 Rotation::read(reader).unwrap(),
+    //             )
+    //         })
+    //         .collect::<Vec<_>>();
+
+    //     let permutation = permutation::Argument::read(reader)?;
+
+    //     let mut lookups_map = BTreeMap::default();
+    //     let mut lookups_map_len = [0u8; 4];
+    //     reader.read_exact(&mut lookups_map_len)?;
+    //     let lookups_map_len = u32::from_be_bytes(lookups_map_len);
+    //     for _ in 0..lookups_map_len {
+    //         let mut name_len = [0u8; 4];
+    //         reader.read_exact(&mut name_len)?;
+    //         let name_len = u32::from_be_bytes(name_len);
+    //         let mut name = vec![0u8; name_len as usize];
+    //         reader.read_exact(name.as_mut_slice())?;
+    //         let name = String::from_utf8(name).unwrap();
+    //         let tracker = LookupTracker::<F>::read(reader)?;
+    //         lookups_map.insert(name, tracker);
+    //     }
+
+    //     let mut lookups_len = [0u8; 4];
+    //     reader.read_exact(&mut lookups_len)?;
+    //     let lookups_len = u32::from_be_bytes(lookups_len);
+    //     let lookups = (0..lookups_len)
+    //         .map(|_| mv_lookup::Argument::<F>::read(reader))
+    //         .collect::<io::Result<Vec<_>>>()
+    //         .unwrap();
+
+    //     let mut shuffles_len = [0u8; 4];
+    //     reader.read_exact(&mut shuffles_len)?;
+    //     let shuffles_len = u32::from_be_bytes(shuffles_len);
+    //     let shuffles = (0..shuffles_len)
+    //         .map(|_| shuffle::Argument::<F>::read(reader))
+    //         .collect::<io::Result<Vec<_>>>()
+    //         .unwrap();
+
+    //     let mut has_minimum_degree = [0u8; 1];
+    //     reader.read_exact(&mut has_minimum_degree)?;
+    //     let has_minimum_degree = u8::from_be_bytes(has_minimum_degree);
+    //     let minimum_degree = if has_minimum_degree == 1 {
+    //         let mut minimum_degree = [0u8; 4];
+    //         reader.read_exact(&mut minimum_degree)?;
+    //         Some(u32::from_be_bytes(minimum_degree) as usize)
+    //     } else {
+    //         None
+    //     };
+
+    //     Ok(Self {
+    //         num_fixed_columns,
+    //         num_advice_columns,
+    //         num_instance_columns,
+    //         num_challenges,
+    //         unblinded_advice_columns,
+    //         advice_column_phase,
+    //         challenge_phase,
+    //         gates,
+    //         advice_queries,
+    //         num_advice_queries,
+    //         instance_queries,
+    //         fixed_queries,
+    //         permutation,
+    //         lookups,
+    //         shuffles,
+    //         minimum_degree,
+    //     })
+    // }
 }
 
 struct PinnedGates<'a, F: Field>(&'a Vec<GateBack<F>>);

@@ -61,6 +61,24 @@ impl<C: SerdeCurveAffine> VerifyingKey<C>
 where
     C::Scalar: SerdePrimeField + FromUniformBytes<64>,
 {
+    /// Writes a verifying key to a buffer including constraint system.
+    pub fn write_including_cs<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        let format = SerdeFormat::RawBytesUnchecked;
+        // Version byte that will be checked on read.
+        writer.write_all(&[VERSION])?;
+        let k = &self.domain.k();
+        assert!(*k <= C::Scalar::S);
+        // k value fits in 1 byte
+        writer.write_all(&[*k as u8])?;
+        writer.write_all(&(self.fixed_commitments.len() as u32).to_le_bytes())?;
+        for commitment in &self.fixed_commitments {
+            commitment.write(writer, format)?;
+        }
+        self.cs.write(writer)?;
+        self.permutation.write(writer, format)?;
+        Ok(())
+    }
+
     /// Writes a verifying key to a buffer.
     ///
     /// Writes a curve element according to `format`:
@@ -162,6 +180,7 @@ impl<C: CurveAffine> VerifyingKey<C> {
         6 // bytes used for encoding VERSION(u8), "domain.k"(u8) & num_fixed_columns(u32)
         + (self.fixed_commitments.len() * C::byte_length(format))
         + self.permutation.bytes_length(format)
+        + self.cs.bytes_length()
     }
 
     fn from_parts(
@@ -310,6 +329,20 @@ impl<C: SerdeCurveAffine> ProvingKey<C>
 where
     C::Scalar: SerdePrimeField + FromUniformBytes<64>,
 {
+    /// Writes a proving key to a buffer including constraint system.
+    pub fn write_including_cs<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        let format = SerdeFormat::RawBytesUnchecked;
+        self.vk.write_including_cs(writer)?;
+        self.l0.write(writer, format)?;
+        self.l_last.write(writer, format)?;
+        self.l_active_row.write(writer, format)?;
+        write_polynomial_slice(&self.fixed_values, writer, format)?;
+        write_polynomial_slice(&self.fixed_polys, writer, format)?;
+        write_polynomial_slice(&self.fixed_cosets, writer, format)?;
+        self.permutation.write(writer, format)?;
+        Ok(())
+    }
+
     /// Writes a proving key to a buffer.
     ///
     /// Writes a curve element according to `format`:
